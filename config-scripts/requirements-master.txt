@@ -1,0 +1,17 @@
+# API Backend
+fastapi
+uvicorn[standard]
+
+# Base de datos PostgreSQL
+psycopg[binary]
+sqlalchemy
+
+# Procesamiento de video
+ffmpeg-python
+
+# Gestión de tareas (RabbitMQ opcional)
+celery
+pika
+
+# Utilidades
+python-dotenv

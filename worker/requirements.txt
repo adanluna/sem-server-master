@@ -1,0 +1,6 @@
+celery
+faster-whisper
+ffmpeg-python
+python-dotenv
+pika
+torch --index-url https://download.pytorch.org/whl/cu118
