@@ -1,17 +1,10 @@
-# API Backend
 fastapi
 uvicorn[standard]
-
-# Base de datos PostgreSQL
 psycopg[binary]
 sqlalchemy
-
-# Procesamiento de video
-ffmpeg-python
-
-# Gestión de tareas (RabbitMQ opcional)
-celery
 pika
-
-# Utilidades
 python-dotenv
+ffmpeg-python
+ldap3==2.9.1
+PySide6==6.7.0
+cryptography==42.0.5
