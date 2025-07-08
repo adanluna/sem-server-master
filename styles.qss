@@ -1,3 +1,4 @@
+
 QPushButton {
     background-color: #333333;
     color: white;
@@ -30,7 +31,7 @@ QPushButton[class="secondary"]:pressed {
 }
 
 QPushButton[class="settings"] {
-    background-color: #666666;
+    background-color: black;
     color: white;
     border-radius: 25px;
     font-size: 24px;
@@ -50,29 +51,114 @@ QPushButton[class="settings"]:pressed {
     background-color: #555555;
 }
 
-QLineEdit {
-    padding: 8px;
-    border: 2px solid #ccc;
+QPushButton.action-button {
+    background-color: black;
+    color: white;
+    font-weight: bold;
+    border: none;
     border-radius: 4px;
-    font-size: 14px;
-    min-width: 200px;
-    max-width: 300px;
-    cursor: text;
+    padding: 8px;
 }
 
-QLineEdit:focus {
-    border-color: #333333;
+QPushButton.action-button:hover {
+    background-color: #333333;
+}
+
+QPushButton.action-button:pressed {
+    background-color: #555555;
+}
+
+QPushButton.cancel-button {
+    background-color: #6c757d;
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+QPushButton.cancel-button:hover {
+    background-color: #5a6268;
+}
+
+QPushButton.cancel-button:pressed {
+    background-color: #545b62;
+}
+
+QPushButton.logout-button {
+    background-color: black;
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    padding: 6px;
+}
+
+QPushButton.logout-button:hover {
+    background-color: #333333;
+}
+
+QPushButton.logout-button:pressed {
+    background-color: #555555;
+}
+
+QLabel.section-title {
+    font-weight: bold;
+    color: black;
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+QLabel.main-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: black;
+    margin-bottom: 10px;
+}
+
+QLabel.status-text {
+    font-size: 14px;
+    margin-top: 15px;
+    color: #333333;
+}
+
+QLabel.recording-status {
+    font-size: 20px;
+    color: #333333;
+}
+
+QLabel.timer-label {
+    font-size: 18px;
+    margin-top: 20px;
+    color: #333333;
+}
+
+QLabel.success-title {
+    font-size: 28px;
+    margin-top: 50px;
+    color: #333333;
+}
+
+QLabel.success-details {
+    font-size: 18px;
+    margin-top: 30px;
+    color: #333333;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit {
+    padding: 8px;
+    border: 2px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 14px;
+    background-color: white;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border-color: black;
+    outline: none;
 }
 
 QLabel {
+    color: #333333;
     font-size: 14px;
-    color: #333;
-    font-weight: bold;
-}
-
-QLabel[class="title"] {
-    font-size: 18px;
-    color: #333;
-    font-weight: bold;
-    margin-bottom: 20px;
 }

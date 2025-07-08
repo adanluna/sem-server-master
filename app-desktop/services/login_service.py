@@ -1,56 +1,121 @@
-from ldap3 import Server, Connection, ALL, core
+import ldap3
+from ldap3 import Server, Connection, ALL, NTLM
+from ldap3.core.exceptions import LDAPException
 import logging
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Cargar variables de entorno
+load_dotenv(dotenv_path=os.path.join(
+    os.path.dirname(__file__), "..", "..", ".env.local"))
 
 
 class LoginService:
-    def __init__(self):
-        self.ldap_server_ip = os.getenv("LDAP_SERVER_IP")
-        self.ldap_port = int(os.getenv("LDAP_PORT"))
-        self.domain = os.getenv("LDAP_DOMAIN")
-        self.base_dn = self._get_base_dn()
+    def __init__(self, config_service=None):
+        self.config_service = config_service
+        logging.basicConfig(level=logging.INFO)
 
-    def _get_base_dn(self):
-        parts = self.domain.split(".")
-        return ",".join([f"dc={part}" for part in parts])
+    def get_ldap_config(self):
+        """Obtener configuración LDAP desde config.enc o fallback a .env.local"""
+        try:
+            if self.config_service:
+                config = self.config_service.load_config()
+                if config and config.get('ldap_server'):
+                    return {
+                        'ldap_server': config.get('ldap_server'),
+                        'ldap_port': config.get('ldap_port', '389'),
+                        'ldap_domain': config.get('ldap_domain', 'semefo.local')
+                    }
+
+            # Fallback a variables de entorno si no hay config.enc
+            return {
+                'ldap_server': os.getenv('LDAP_SERVER_IP', '192.168.1.211'),
+                'ldap_port': os.getenv('LDAP_PORT', '389'),
+                'ldap_domain': os.getenv('LDAP_DOMAIN', 'semefo.local')
+            }
+
+        except Exception as e:
+            logging.error(f"Error obteniendo configuración LDAP: {e}")
+            # Fallback a valores por defecto
+            return {
+                'ldap_server': '192.168.1.211',
+                'ldap_port': '389',
+                'ldap_domain': 'semefo.local'
+            }
 
     def authenticate_user(self, username, password):
-        user_bind = f"{username}@{self.domain}"
+        """
+        Autentica un usuario contra el servidor LDAP usando configuración desde config.enc
 
+        Args:
+            username (str): Nombre de usuario
+            password (str): Contraseña
+
+        Returns:
+            tuple: (success: bool, user_info: dict, error_message: str)
+        """
         try:
-            server = Server(self.ldap_server_ip,
-                            port=self.ldap_port, get_info=ALL)
-            conn = Connection(server, user=user_bind,
+            # Obtener configuración LDAP
+            ldap_config = self.get_ldap_config()
+
+            server_ip = ldap_config['ldap_server']
+            server_port = int(ldap_config['ldap_port'])
+            domain = ldap_config['ldap_domain']
+
+            logging.info(
+                f"Intentando autenticación LDAP con servidor: {server_ip}:{server_port} (dominio: {domain})")
+
+            # Crear servidor LDAP
+            server = Server(server_ip, port=server_port, get_info=ALL)
+
+            # Formatear username con dominio
+            user_dn = f"{username}@{domain}"
+
+            # Crear conexión
+            conn = Connection(server, user=user_dn,
                               password=password, auto_bind=True)
 
-            logging.info(f"✅ Usuario autenticado correctamente: {username}")
+            if conn.bind():
+                # Buscar información del usuario
+                search_base = f"DC={domain.split('.')[0]},DC={domain.split('.')[1]}"
+                search_filter = f"(sAMAccountName={username})"
 
-            conn.search(self.base_dn,
-                        f'(sAMAccountName={username})',
-                        attributes=['displayName', 'mail', 'memberOf'])
+                conn.search(
+                    search_base=search_base,
+                    search_filter=search_filter,
+                    attributes=['displayName', 'mail', 'department', 'title']
+                )
 
-            user_data = {}
-            for entry in conn.entries:
-                user_data['displayName'] = entry.displayName.value
-                user_data['email'] = entry.mail.value
-                user_data['groups'] = entry.memberOf
+                user_info = {
+                    'username': username,
+                    'displayName': username,  # Valor por defecto
+                    'mail': '',
+                    'department': '',
+                    'title': ''
+                }
 
-            conn.unbind()
-            return True, user_data, None
+                if conn.entries:
+                    entry = conn.entries[0]
+                    user_info.update({
+                        'displayName': str(entry.displayName) if entry.displayName else username,
+                        'mail': str(entry.mail) if entry.mail else '',
+                        'department': str(entry.department) if entry.department else '',
+                        'title': str(entry.title) if entry.title else ''
+                    })
 
-        except core.exceptions.LDAPBindError as e:
-            error_msg = f"Credenciales inválidas para usuario '{username}'"
-            logging.warning(
-                f"❌ Fallo de autenticación para usuario: {username}")
-            return False, None, error_msg
-        except core.exceptions.LDAPSocketOpenError as e:
-            error_msg = f"No se puede conectar al servidor LDAP ({self.ldap_server_ip}:{self.ldap_port}). Verifique la conexión de red."
-            logging.error(f"❌ Error de socket LDAP: {str(e)}")
-            return False, None, error_msg
-        except Exception as ex:
-            error_msg = f"Error de conexión: {str(ex)}"
-            logging.error(f"❌ Error general: {str(ex)}")
-            return False, None, error_msg
+                conn.unbind()
+                logging.info(f"Autenticación exitosa para usuario: {username}")
+                return True, user_info, ""
+            else:
+                logging.warning(
+                    f"Fallo en autenticación para usuario: {username}")
+                return False, {}, "Credenciales incorrectas"
+
+        except LDAPException as e:
+            error_msg = f"Error de LDAP: {str(e)}"
+            logging.error(error_msg)
+            return False, {}, error_msg
+        except Exception as e:
+            error_msg = f"Error inesperado durante autenticación: {str(e)}"
+            logging.error(error_msg)
+            return False, {}, error_msg
