@@ -3,26 +3,13 @@ from dotenv import load_dotenv
 from ldap3 import Server, Connection, ALL, core
 
 # Cargar variables de entorno
-load_dotenv(dotenv_path="../.env.local")
+load_dotenv(dotenv_path="../.env")
 
-ldap_server_ip = os.getenv("LDAP_SERVER_IP")
+ldap_server_ip = os.getenv("LDAP_SERVER_IP", "192.168.1.211")
 ldap_port = int(os.getenv("LDAP_PORT", "389"))
-domain = os.getenv("LDAP_DOMAIN")
+domain = os.getenv("LDAP_DOMAIN", "semefo.local")
 
 print(f"🔍 Configuración LDAP:")
-print(f"   Servidor: {ldap_server_ip}:{ldap_port}")
-print(f"   Dominio: {domain}")
-
-# Verificar que las variables estén cargadas
-if not ldap_server_ip:
-    print("❌ Error: LDAP_SERVER_IP no encontrado en .env.local")
-    ldap_server_ip = input("Ingresa la IP del servidor LDAP: ")
-
-if not domain:
-    print("❌ Error: LDAP_DOMAIN no encontrado en .env.local")
-    domain = input("Ingresa el dominio LDAP (ej: empresa.local): ")
-
-print(f"\n✅ Configuración final:")
 print(f"   Servidor: {ldap_server_ip}:{ldap_port}")
 print(f"   Dominio: {domain}")
 
@@ -33,11 +20,6 @@ password = input("🔐 Ingresa la contraseña: ")
 
 def test_ldap_auth(username, password):
     user_bind = f"{username}@{domain}"
-
-    # Verificar que domain no sea None antes de hacer split
-    if not domain:
-        print("❌ Error: El dominio no puede estar vacío")
-        return False
 
     # Calcular base DN
     try:
@@ -78,7 +60,7 @@ def test_ldap_auth(username, password):
         conn.unbind()
         return True
 
-    except core.exceptions.LDAPBindError as e:
+    except core.exceptions.LDAPBindError:
         print(f"❌ Error de autenticación: Credenciales inválidas")
         return False
     except Exception as e:
@@ -87,7 +69,4 @@ def test_ldap_auth(username, password):
 
 
 # Ejecutar prueba
-if ldap_server_ip and domain:
-    test_ldap_auth(username, password)
-else:
-    print("❌ No se puede ejecutar la prueba sin configuración LDAP válida")
+test_ldap_auth(username, password)

@@ -2,21 +2,28 @@ import os
 from dotenv import load_dotenv
 from celery import Celery
 
-# Cargar variables desde el .env o el sistema
 load_dotenv()
 
-BROKER_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
-RESULT_BACKEND = os.getenv(
-    "RESULT_BACKEND", "db+postgresql://postgres:postgres@db/forense_db")
+BROKER_URL = os.getenv("RABBITMQ_URL")
+RESULT_BACKEND = (
+    f"db+postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}@"
+    f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+)
 
-# Solo manejas video en este servidor
+celery_app = Celery(
+    'worker',
+    broker=BROKER_URL,
+    backend=RESULT_BACKEND,
+    include=[
+        'worker.convertir_video',
+        'worker.tasks'
+    ]
+)
 
-app = Celery('worker',
-             broker=BROKER_URL,
-             backend=RESULT_BACKEND,
-             include=['convertir_video'])
-
-app.conf.task_routes = {
-    "convertir_video.convertir_video": {"queue": "conversiones_video"}
+celery_app.conf.task_routes = {
+    "worker.convertir_video.convertir_video": {"queue": "conversiones_video"},
+    "worker.tasks.unir_audio": {"queue": "uniones_audio"},
+    "worker.tasks.unir_video": {"queue": "uniones_video"},
+    "worker.tasks.transcribir_audio": {"queue": "transcripciones_audio"},
 }
-app.conf.broker_connection_retry_on_startup = True
+celery_app.conf.broker_connection_retry_on_startup = True

@@ -72,12 +72,3 @@ Este proyecto incluye un `Makefile` para facilitar las tareas diarias:
 | `make restore-db`    | Restaura desde ese dump                |
 
 ---
-
-## ✅ Listo para producción
-
-Solo faltarían mejoras de seguridad como JWT/mTLS y reglas estrictas en firewall para exponerlo a Fiscalía.
-
----
-
-✌️ **Listo!**  
-¿Quieres que te genere también un `.env.example` para compartirlo con el equipo? ¡Solo dime!

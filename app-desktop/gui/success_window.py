@@ -1,139 +1,128 @@
-from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox
-from PySide6.QtCore import Qt
-import logging
+import os
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                               QPushButton, QSpacerItem, QSizePolicy, QProgressBar)
+from PySide6.QtCore import Qt, QTimer
 from gui.base_window import BaseWindowWithHeader
-
-logging.basicConfig(filename="app.log", level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+from services.api_client import ApiClient
+import logging
 
 
 class SuccessWindow(BaseWindowWithHeader):
-    def __init__(self, medico_nombre, numero_expediente, nombre_sesion, duracion, config_service):
+    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, id_sesion=None):
         super().__init__(
             medico_nombre=medico_nombre,
             numero_expediente=numero_expediente,
             nombre_sesion=nombre_sesion,
             config_service=config_service,
-            window_title="SEMEFO - Grabación Completada"
+            window_title="SEMEFO - Procesamiento"
         )
-        self.duracion = duracion
+        self.api_client = ApiClient(config_service)
+        self.id_sesion = id_sesion
         self.init_ui()
+        self.process_files()
 
     def init_ui(self):
-        # Crear contenido
-        content_widget = self.create_success_content()
-        
-        # Usar método de la clase base
-        self.setup_content(content_widget)
+        # Layout principal para el contenido
+        layout = QVBoxLayout(self.content_widget)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(30)
 
-    def create_success_content(self):
-        """Crear el contenido de la ventana de éxito"""
-        content = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)  # Márgenes para el contenido
-        
+        # Espaciador superior
+        layout.addItem(QSpacerItem(
+            20, 50, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
         # Título de éxito
-        success_label = QLabel("✅ Grabación completada exitosamente")
-        success_label.setAlignment(Qt.AlignCenter)
-        success_label.setProperty("class", "main-title")
-        success_label.setStyleSheet("color: #28a745; font-size: 24px; font-weight: bold; margin: 20px;")
-        
-        # Detalles de la grabación
-        details_text = f"""
-        <div style="text-align: center; font-size: 16px; color: #333;">
-            <p><strong>Expediente:</strong> {self.numero_expediente}</p>
-            <p><strong>Sesión:</strong> {self.nombre_sesion}</p>
-            <p><strong>Duración:</strong> {self.duracion}</p>
-            <p><strong>Médico:</strong> {self.medico_nombre}</p>
-        </div>
-        """
-        
-        details_label = QLabel(details_text)
-        details_label.setAlignment(Qt.AlignCenter)
-        details_label.setTextFormat(Qt.RichText)
-        details_label.setStyleSheet("margin: 20px;")
-        
-        # Mensaje adicional
-        message_label = QLabel("La grabación ha sido guardada correctamente en el sistema.")
-        message_label.setAlignment(Qt.AlignCenter)
-        message_label.setStyleSheet("font-size: 14px; color: #666; margin: 10px;")
-        
-        # Botón terminar
-        terminar_btn = QPushButton("Terminar Sesión")
-        terminar_btn.setProperty("class", "action-button")
-        terminar_btn.setFixedSize(200, 50)
-        terminar_btn.clicked.connect(self.logout)
-        
-        # Botón nueva grabación (opcional)
-        nueva_btn = QPushButton("Nueva Grabación")
-        nueva_btn.setProperty("class", "cancel-button")
-        nueva_btn.setFixedSize(200, 50)
-        nueva_btn.clicked.connect(self.nueva_grabacion)
-        
-        # Layout de botones
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(nueva_btn)
-        button_layout.addWidget(terminar_btn)
-        button_layout.addStretch()
-        
-        # Agregar todo al layout
-        layout.addStretch()
-        layout.addWidget(success_label)
-        layout.addWidget(details_label)
-        layout.addWidget(message_label)
-        layout.addStretch()
-        layout.addLayout(button_layout)
-        layout.addStretch()
-        
-        content.setLayout(layout)
-        return content
+        success_title = QLabel("✅ Sesión Completada")
+        success_title.setProperty("class", "success-title")
+        success_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(success_title)
 
-    def nueva_grabacion(self):
-        """Ir a una nueva grabación manteniendo la sesión"""
+        # Detalles
+        details_label = QLabel(
+            f"Los archivos de la sesión '{self.nombre_sesion}'\ndel expediente {self.numero_expediente}\nhan sido enviados a procesamiento.")
+        details_label.setProperty("class", "success-details")
+        details_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(details_label)
+
+        # Barra de progreso
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+
+        # Estado del procesamiento
+        self.status_label = QLabel("Iniciando procesamiento...")
+        self.status_label.setProperty("class", "status-text")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        # Botones
+        button_layout = QHBoxLayout()
+        button_layout.addItem(QSpacerItem(
+            40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        self.button_new_session = QPushButton("Nueva Sesión")
+        self.button_new_session.setProperty("class", "action-button")
+        self.button_new_session.clicked.connect(self.new_session)
+        self.button_new_session.setEnabled(False)
+        button_layout.addWidget(self.button_new_session)
+
+        self.button_exit = QPushButton("Salir")
+        self.button_exit.setProperty("class", "cancel-button")
+        self.button_exit.clicked.connect(self.exit_app)
+        button_layout.addWidget(self.button_exit)
+
+        button_layout.addItem(QSpacerItem(
+            40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        layout.addLayout(button_layout)
+
+        # Espaciador inferior
+        layout.addItem(QSpacerItem(
+            20, 50, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+    def process_files(self):
+        """Simular el procesamiento de archivos"""
+        try:
+            # Simular progreso
+            self.progress_timer = QTimer()
+            self.progress_timer.timeout.connect(self.update_progress)
+            self.progress_value = 0
+            self.progress_timer.start(100)  # Actualizar cada 100ms
+
+            # Procesar audio
+            if self.api_client.procesar_audio(self.numero_expediente, self.id_sesion):
+                logging.info("Audio enviado a procesamiento")
+
+            # Procesar video
+            if self.api_client.procesar_video(self.numero_expediente, self.id_sesion):
+                logging.info("Video enviado a procesamiento")
+
+        except Exception as e:
+            logging.error(f"Error procesando archivos: {e}")
+            self.status_label.setText("❌ Error en el procesamiento")
+
+    def update_progress(self):
+        """Actualizar la barra de progreso"""
+        self.progress_value += 2
+        self.progress_bar.setValue(self.progress_value)
+
+        if self.progress_value >= 100:
+            self.progress_timer.stop()
+            self.status_label.setText("✅ Procesamiento completado")
+            self.button_new_session.setEnabled(True)
+
+    def new_session(self):
+        """Crear nueva sesión"""
         try:
             from gui.expediente_window import ExpedienteWindow
             self.expediente_window = ExpedienteWindow(
-                medico_nombre=self.medico_nombre,
-                config_service=self.config_service
-            )
+                self.medico_nombre, self.config_service)
             self.expediente_window.show()
             self.close()
-            logging.info(f"Iniciando nueva grabación para {self.medico_nombre}")
         except Exception as e:
-            logging.error(f"Error abriendo nueva grabación: {e}")
-            QMessageBox.critical(self, "Error", f"Error al abrir nueva grabación: {str(e)}")
+            logging.error(f"Error abriendo nueva sesión: {e}")
 
-    def logout(self):
-        """Terminar sesión y volver al login"""
-        try:
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Terminar Sesión")
-            msg_box.setText(f"¿Está seguro que desea terminar la sesión de {self.medico_nombre}?")
-            msg_box.setIcon(QMessageBox.Question)
-            
-            yes_button = msg_box.addButton("Sí", QMessageBox.YesRole)
-            yes_button.setProperty("class", "action-button")
-            
-            no_button = msg_box.addButton("No", QMessageBox.NoRole)
-            no_button.setProperty("class", "cancel-button")
-            
-            msg_box.setDefaultButton(no_button)
-            
-            # Aplicar estilos al mensaje
-            from services.utils import load_stylesheet
-            load_stylesheet(msg_box)
-            
-            reply = msg_box.exec()
-            
-            if msg_box.clickedButton() == yes_button:
-                logging.info(f"Usuario {self.medico_nombre} terminó sesión desde SuccessWindow")
-                
-                from gui.login_window import LoginWindow
-                self.login_window = LoginWindow(self.config_service)
-                self.login_window.show()
-                self.close()
-                
-        except Exception as e:
-            logging.error(f"Error en logout desde SuccessWindow: {e}")
-            QMessageBox.critical(self, "Error", f"Error al cerrar sesión: {str(e)}")
+    def exit_app(self):
+        """Salir de la aplicación"""
+        self.close()

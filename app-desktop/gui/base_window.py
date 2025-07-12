@@ -1,65 +1,179 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSpacerItem, QSizePolicy
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QIcon
 from services.utils import load_stylesheet
-from gui.components.header_widget import HeaderWidget
-
-# Constantes para consistencia
-WINDOW_WIDTH = 1024
-WINDOW_HEIGHT = 700
-HEADER_HEIGHT = 100
+import os
+import logging
 
 
 class BaseWindow(QWidget):
     """Clase base para todas las ventanas de la aplicación"""
 
-    def __init__(self, window_title="SEMEFO"):
+    def __init__(self, config_service=None, window_title="SEMEFO"):
         super().__init__()
+        self.config_service = config_service
         self.setWindowTitle(window_title)
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.resize(1024, 768)
+        self.center_window()
+
+        # Layout principal
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Contenido (será implementado por las subclases)
+        self.content_widget = QWidget()
+        main_layout.addWidget(self.content_widget)
+
+        # Cargar estilos
         load_stylesheet(self)
 
-    def setup_layout_with_header(self, header_widget, content_widget):
-        """Configurar layout estándar con header fijo y contenido"""
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)  # Sin márgenes
-        main_layout.setSpacing(0)  # Sin espaciado
-        main_layout.addWidget(header_widget)
-        main_layout.addWidget(content_widget)
-        self.setLayout(main_layout)
+    def center_window(self):
+        """Centrar la ventana en la pantalla"""
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        window_geometry = self.frameGeometry()
+        center_point = screen_geometry.center()
+        window_geometry.moveCenter(center_point)
+        self.move(window_geometry.topLeft())
 
-    def setup_layout_without_header(self, content_widget):
-        """Configurar layout sin header (para login y config)"""
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(content_widget)
-        self.setLayout(main_layout)
+    def logout(self):
+        """Cerrar sesión y volver al login"""
+        try:
+            from gui.login_window import LoginWindow
+            self.login_window = LoginWindow(self.config_service)
+            self.login_window.show()
+            self.close()
+        except Exception as e:
+            logging.error(f"Error en logout: {e}")
 
 
 class BaseWindowWithHeader(BaseWindow):
     """Clase base para ventanas que usan HeaderWidget"""
 
-    def __init__(self, medico_nombre, numero_expediente="", nombre_sesion="", config_service=None, window_title="SEMEFO"):
-        super().__init__(window_title)
+    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, window_title="SEMEFO"):
+        super().__init__(config_service, window_title)
         self.medico_nombre = medico_nombre
-        self.config_service = config_service
         self.numero_expediente = numero_expediente
         self.nombre_sesion = nombre_sesion
 
-        # Crear header fijo
-        self.header = HeaderWidget(
-            self.medico_nombre,
-            self.numero_expediente,
-            self.nombre_sesion,
-            self.config_service
-        )
+        # Recrear layout principal para incluir header
+        main_layout = self.layout()
+        main_layout.removeWidget(self.content_widget)
 
-    def setup_content(self, content_widget):
-        """Configurar contenido con header ya creado"""
-        self.setup_layout_with_header(self.header, content_widget)
+        # Agregar header
+        header_widget = self.create_header()
+        main_layout.addWidget(header_widget)
 
-    def update_expediente_info(self, numero_expediente, nombre_sesion):
-        """Actualizar información del expediente en el header"""
-        self.numero_expediente = numero_expediente
-        self.nombre_sesion = nombre_sesion
-        if hasattr(self.header, 'update_expediente_info'):
-            self.header.update_expediente_info(
-                numero_expediente, nombre_sesion)
+        # Reagregar contenido
+        main_layout.addWidget(self.content_widget)
+
+    def create_header(self):
+        header_widget = QWidget()
+        header_widget.setFixedHeight(100)
+        header_widget.setStyleSheet(
+            "background-color: #f8f9fa;")  # Removí el border-bottom
+
+        header_layout = QHBoxLayout(header_widget)
+        # Cambié margins laterales a 0
+        header_layout.setContentsMargins(0, 15, 0, 15)
+        header_layout.setSpacing(20)
+
+        # IZQUIERDA: Logo con padding interno
+        logo_container = QWidget()
+        logo_container.setMinimumWidth(120)  # Ancho fijo para el logo
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setContentsMargins(20, 0, 20, 0)  # Padding interno
+        logo_layout.setAlignment(Qt.AlignCenter)
+
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("logo.png")
+        if not logo_pixmap.isNull():
+            scaled_logo = logo_pixmap.scaled(
+                60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_logo)
+        else:
+            logo_label.setText("LOGO")
+            logo_label.setStyleSheet(
+                "border: 1px solid #ccc; padding: 20px; font-weight: bold;")
+
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_layout.addWidget(logo_label)
+
+        header_layout.addWidget(logo_container)
+
+        # CENTRO: Información de expediente y sesión (expandible)
+        center_layout = QVBoxLayout()
+        center_layout.setAlignment(Qt.AlignCenter)
+        center_layout.setSpacing(5)
+
+        # Solo mostrar si tienen valores
+        if self.numero_expediente:
+            expediente_label = QLabel(f"Expediente: {self.numero_expediente}")
+            expediente_label.setAlignment(Qt.AlignCenter)
+            expediente_label.setStyleSheet(
+                "font-weight: bold; font-size: 16px; color: #333;")
+            center_layout.addWidget(expediente_label)
+
+        if self.nombre_sesion:
+            sesion_label = QLabel(f"Sesión: {self.nombre_sesion}")
+            sesion_label.setAlignment(Qt.AlignCenter)
+            sesion_label.setStyleSheet(
+                "font-size: 14px; color: #666;")
+            center_layout.addWidget(sesion_label)
+
+        # Si no hay expediente ni sesión, agregar espaciador
+        if not self.numero_expediente and not self.nombre_sesion:
+            center_layout.addItem(QSpacerItem(
+                20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+        # Crear widget contenedor para el centro que se expanda
+        center_widget = QWidget()
+        center_widget.setLayout(center_layout)
+        # stretch factor = 1 para expandir
+        header_layout.addWidget(center_widget, 1)
+
+        # DERECHA: Usuario y botón logout con padding interno
+        right_container = QWidget()
+        # Ancho mínimo para la sección derecha
+        right_container.setMinimumWidth(150)
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(20, 0, 20, 0)  # Padding interno
+        right_layout.setAlignment(Qt.AlignCenter)
+        right_layout.setSpacing(8)
+
+        # Nombre del usuario LDAP
+        if self.medico_nombre:
+            user_label = QLabel(self.medico_nombre)
+            user_label.setAlignment(Qt.AlignCenter)
+            user_label.setStyleSheet(
+                "font-weight: bold; font-size: 14px; color: #333;")
+            right_layout.addWidget(user_label)
+
+        # Botón de logout en negro
+        logout_button = QPushButton("Cerrar Sesión")
+        logout_button.setObjectName("logout_button")
+        logout_button.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #222222;
+            }
+        """)
+        logout_button.clicked.connect(self.logout)
+        right_layout.addWidget(logout_button)
+
+        header_layout.addWidget(right_container)
+
+        return header_widget

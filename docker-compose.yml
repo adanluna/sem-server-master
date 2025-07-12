@@ -9,6 +9,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
+      TZ: America/Monterrey
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -23,7 +24,8 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-    restart: always  
+      TZ: America/Monterrey
+    restart: always
 
   fastapi:
     build: ./api-server
@@ -44,13 +46,17 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - TZ=America/Monterrey
 
   celery:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: celery_worker
+    working_dir: /app/worker
     volumes:
-      - ./worker:/code
-    working_dir: /code
+      - .:/app
+      - ./storage:/storage
     depends_on:
       - rabbitmq
       - fastapi
@@ -62,7 +68,9 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - RABBITMQ_URL=${RABBITMQ_URL}
-    command: celery -A celery_app worker --loglevel=info
+      - TZ=America/Monterrey
+      - PYTHONPATH=/app
+    command: celery -A worker.celery_app worker --loglevel=info
     restart: always
 
 volumes:

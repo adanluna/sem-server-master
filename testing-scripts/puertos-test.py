@@ -10,8 +10,8 @@ print(f"   Archivo script: {__file__}")
 print(f"   Directorio del script: {os.path.dirname(__file__)}")
 
 # Cargar variables de entorno - ajustar la ruta correcta
-env_path = os.path.join(os.path.dirname(__file__), "..", ".env.local")
-print(f"   Ruta del .env.local: {env_path}")
+env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+print(f"   Ruta del .env: {env_path}")
 print(f"   ¿Existe el archivo? {os.path.exists(env_path)}")
 
 # Listar archivos .env en el directorio padre

@@ -59,3 +59,8 @@ ehthumbs.db
 Thumbs.dbvenv/
 *.pyc
 __pycache__/
+
+
+# Storage
+storage/
+storage_test/

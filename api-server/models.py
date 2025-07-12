@@ -28,6 +28,11 @@ class Sesion(Base):
     observaciones = Column(Text)
     usuario_ldap = Column(String(255), nullable=False)
 
+    plancha_id = Column(String(100), nullable=False)
+    tablet_id = Column(String(100), nullable=False)
+    # 'en_progreso', 'finalizada'
+    estado = Column(String(50), default="en_progreso")
+
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
         "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan")
