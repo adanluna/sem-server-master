@@ -1,74 +1,137 @@
 
-# ⚖️ SEMEFO Forense Stack (con `.env` único)
+# Sistema Integral de Grabación y Gestión de Autopsias - SEMEFO
 
-Sistema integral para grabación, gestión y transcripción de autopsias, diseñado para el **Gobierno del Estado de Nuevo León**.
+Este proyecto implementa un sistema completo para el manejo de grabaciones forenses en SEMEFO que incluye:
 
-Incluye:
-
-✅ **FastAPI** — API REST para gestión de investigaciones y sesiones  
-✅ **PostgreSQL** — Base de datos para almacenamiento seguro  
-✅ **RabbitMQ** — Broker de colas para procesos asíncronos  
-✅ **Celery** — Workers para conversión de videos y transcripción con Whisper  
-✅ Configuración **centralizada en un solo `.env`**
+- 📹 Grabación multi-cámara y audio Bluetooth en autopsias.
+- 🗂️ Almacenamiento organizado en carpetas por expediente y sesión.
+- 🔄 Conversión automática de videos (AVI a WEBM) con FFmpeg.
+- 📝 Transcripción automática en español con Whisper local (GPU).
+- 🔌 API REST para consulta del sistema central.
+- 🔐 Autenticación LDAP con Active Directory.
+- 🖥️ Aplicación Windows con PySide6 para médicos forenses.
 
 ---
 
-## 🚀 Usar
+## 🚀 Estructura del Proyecto
 
-1️⃣ Configura tu archivo `.env` en la raíz del proyecto.  
-Ejemplo:
+- `api-server/`: API FastAPI para gestionar expedientes, sesiones y consultas.
+- `app-desktop/`: Aplicación Windows PySide6 (LDAP, grabación, configuración, sesiones).
+- `worker/`: Workers Celery para procesamiento batch (videos y transcripciones).
+- `scripts/`: Scripts utilitarios para manejo del sistema.
+- `docker-compose.yml`: Orquestación de servicios con Docker.
+- `Makefile`: Comandos rápidos para desarrollo y despliegue.
 
-```env
-DB_HOST=postgres_db
-DB_PORT=5432
-DB_NAME=semefo
-DB_USER=semefo_user
-DB_PASS=Claudia01$!
+---
 
-RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672//
+## ⚙️ Scripts incluidos (`/scripts`)
 
-LDAP_SERVER_IP=192.168.1.211
-LDAP_PORT=389
-LDAP_DOMAIN=semefo.local
+### `iniciar_workers.sh`
+- Arranca los workers Celery configurados para procesar conversiones de video y transcripciones de audio.
 
-CONFIG_ENCRYPTION_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=
-```
+### `detener_workers.sh`
+- Detiene de forma segura los workers de Celery evitando procesos huérfanos.
 
-2️⃣ Levanta los servicios con:
+### `rebuild_docker.sh`
+- Realiza un `docker-compose down`, limpia caché y reconstruye la infraestructura Docker desde cero (útil para actualizar dependencias o corregir errores de entorno).
 
+---
+
+## 🛠️ Funcionalidades del `Makefile`
+
+Para facilitar el trabajo diario, se incluyeron los siguientes comandos rápidos:
+
+- `make up`  
+  Levanta el stack completo con Docker Compose.
+
+- `make down`  
+  Detiene y elimina los contenedores y redes actuales.
+
+- `make stop`  
+  Solo detiene los contenedores, manteniéndolos listos para reanudar con `docker-compose start`.
+
+- `make rebuild`  
+  Realiza un rebuild de los contenedores desde cero.
+
+- `make logs`  
+  Muestra los logs en tiempo real de todos los servicios.
+
+- `make restart`  
+  Reinicia los contenedores rápidamente para aplicar cambios menores.
+
+- `make psql`  
+  Abre la consola interactiva de PostgreSQL dentro del contenedor.
+
+- `make bash-db`  
+  Accede a un shell bash dentro del contenedor de la base de datos.
+
+- `make bash-api`  
+  Accede a un shell bash dentro del contenedor de la API.
+
+- `make bash-celery`  
+  Accede a un shell bash dentro del contenedor de los workers.
+
+- `make backup-db`  
+  Genera un respaldo SQL de la base de datos en el directorio `backups`.
+
+- `make restore-db`  
+  Restaura el respaldo desde `backups/semefo_backup.sql` al contenedor PostgreSQL.
+
+---
+
+## 🚀 Uso rápido
+
+### Levantar el entorno
 ```bash
-docker-compose up -d --build
+make up
 ```
 
-✅ ¡Todo configurado desde tu `.env`!
+### Detener todo eliminando contenedores
+```bash
+make down
+```
+
+### Solo detener contenedores sin eliminar
+```bash
+make stop
+```
+
+### Ver logs
+```bash
+make logs
+```
+
+### Reconstruir entorno desde cero
+```bash
+make rebuild
+```
+
+### Iniciar workers manualmente
+```bash
+./scripts/iniciar_workers.sh
+```
+
+### Detener workers manualmente
+```bash
+./scripts/detener_workers.sh
+```
 
 ---
 
-## 🔥 Accede
+## ⚠️ Consideraciones
 
-- **FastAPI:** [http://localhost:8000/docs](http://localhost:8000/docs)  
-  (Swagger auto-documentado)
-
-- **RabbitMQ admin:** [http://localhost:15672](http://localhost:15672)  
-  Usuario: `guest` / Contraseña: `guest`
-
----
-
-## ⚙️ Uso rápido con `Makefile`
-
-Este proyecto incluye un `Makefile` para facilitar las tareas diarias:
-
-| Comando             | Descripción                             |
-|----------------------|----------------------------------------|
-| `make up`            | Levanta todo el stack con Docker       |
-| `make down`          | Detiene los contenedores               |
-| `make restart`       | Reinicia con rebuild                   |
-| `make logs`          | Logs en tiempo real                    |
-| `make psql`          | Conecta a la DB PostgreSQL             |
-| `make bash-db`       | Bash dentro del contenedor de postgres |
-| `make bash-api`      | Bash dentro del contenedor FastAPI     |
-| `make bash-celery`   | Bash dentro del worker Celery          |
-| `make backup-db`     | Crea dump en `./backups/semefo_backup.sql` |
-| `make restore-db`    | Restaura desde ese dump                |
+- El sistema depende de RabbitMQ y PostgreSQL corriendo en Docker.
+- La autenticación LDAP requiere conectividad a Active Directory (`LDAP_SERVER_IP` definido en `.env`).
+- El procesamiento por GPU del transcriptor Whisper puede saturar el servidor si no se gestiona la cola adecuadamente.
+- Los workers asumen tener configurada la estructura de carpetas:
+  ```
+  storage/
+   ├─ archivos_grabados/
+   ├─ archivos/
+   └─ ...
+  ```
 
 ---
+
+## 📄 Licencia
+Proyecto desarrollado para el Gobierno del Estado de Nuevo León. Todos los derechos reservados.

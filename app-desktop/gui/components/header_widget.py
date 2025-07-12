@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 import logging
 from services.utils import load_stylesheet
@@ -9,6 +9,8 @@ logging.basicConfig(filename="app.log", level=logging.INFO,
 
 
 class HeaderWidget(QWidget):
+    config_requested = Signal()
+
     def __init__(self, medico_nombre, numero_expediente="", nombre_sesion="", config_service=None):
         super().__init__()
         self.medico_nombre = medico_nombre
@@ -73,6 +75,16 @@ class HeaderWidget(QWidget):
         header_layout.addLayout(right_layout, 1)         # 1/4 del espacio
 
         self.setLayout(header_layout)
+
+        # Configuración del botón de configuración
+        self.config_button = QPushButton("⚙")
+        self.config_button.setProperty("class", "settings")
+        self.config_button.setFixedSize(50, 50)
+        self.config_button.setToolTip("Configuración")
+        self.config_button.clicked.connect(self.config_requested.emit)
+
+        header_layout.addWidget(self.config_button)
+
         load_stylesheet(self)
 
     def update_expediente_info(self, numero_expediente, nombre_sesion):
@@ -118,3 +130,29 @@ class HeaderWidget(QWidget):
             logging.error(f"Error en logout: {e}")
             QMessageBox.critical(
                 self, "Error", f"Error al cerrar sesión: {str(e)}")
+
+    def set_config_enabled(self, enabled):
+        """Habilitar/deshabilitar botón de configuración"""
+        self.config_button.setEnabled(enabled)
+
+    def __init__(self, medico_nombre):
+        super().__init__()
+        self.medico_nombre = medico_nombre
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QHBoxLayout()
+
+        # Información del médico
+        self.medico_label = QLabel(f"👨‍⚕️ Dr. {self.medico_nombre}")
+        self.medico_label.setProperty("class", "medico-info")
+
+        # Botón de salir
+        self.exit_button = QPushButton("🚪 Cerrar Sesión")
+        self.exit_button.setProperty("class", "danger-button")
+
+        layout.addWidget(self.medico_label)
+        layout.addStretch()
+        layout.addWidget(self.exit_button)
+
+        self.setLayout(layout)

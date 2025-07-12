@@ -53,6 +53,7 @@ class SesionCreate(BaseModel):
     nombre_sesion: str
     observaciones: str | None = None
     usuario_ldap: str
+    user_nombre: str | None = None
     plancha_id: str
     tablet_id: str
 
@@ -107,7 +108,6 @@ def update_investigacion(numero_expediente: str, datos: InvestigacionUpdate, db:
 
 @app.post("/sesiones/")
 def crear_sesion(sesion_data: SesionCreate, force: bool = False, db: Session = Depends(get_db)):
-    # Solo validar si force=False
     if not force:
         sesion_existente = db.query(models.Sesion).filter_by(
             usuario_ldap=sesion_data.usuario_ldap,
@@ -126,7 +126,8 @@ def crear_sesion(sesion_data: SesionCreate, force: bool = False, db: Session = D
         usuario_ldap=sesion_data.usuario_ldap,
         plancha_id=sesion_data.plancha_id,
         tablet_id=sesion_data.tablet_id,
-        estado="en_progreso"
+        estado="en_progreso",
+        user_nombre=sesion_data.user_nombre
     )
     db.add(nueva_sesion)
     db.commit()
@@ -224,10 +225,10 @@ def get_usuario_sesion_pendiente(username: str, db: Session = Depends(get_db)):
 
         return {
             "pendiente": True,
-            "tablet": sesion.tablet_id,
-            "planch": sesion.plancha_id,
+            "tablet_id": sesion.tablet_id,
+            "plancha_id": sesion.plancha_id,
             "numero_expediente": investigacion.numero_expediente if investigacion else "Desconocido",
-            "nombre_sesion": sesion.nombre_sesion,  # 🚀 AGREGAR NOMBRE DE SESIÓN
+            "nombre_sesion": sesion.nombre_sesion,
             "id_sesion": sesion.id
         }
     else:

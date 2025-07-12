@@ -20,18 +20,17 @@ class Investigacion(Base):
 class Sesion(Base):
     __tablename__ = "sesiones"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     investigacion_id = Column(Integer, ForeignKey(
         "investigaciones.id"), nullable=False)
-    nombre_sesion = Column(String(255))
-    fecha = Column(DateTime, default=datetime.utcnow)
+    nombre_sesion = Column(String(200), nullable=False)
     observaciones = Column(Text)
-    usuario_ldap = Column(String(255), nullable=False)
-
+    usuario_ldap = Column(String(100), nullable=False)
     plancha_id = Column(String(100), nullable=False)
     tablet_id = Column(String(100), nullable=False)
-    # 'en_progreso', 'finalizada'
-    estado = Column(String(50), default="en_progreso")
+    estado = Column(String(50), nullable=False, default="en_progreso")
+    user_nombre = Column(String(200), nullable=True)  # ✅ AGREGAR ESTA LÍNEA
+    fecha = Column(DateTime, default=datetime.utcnow)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(

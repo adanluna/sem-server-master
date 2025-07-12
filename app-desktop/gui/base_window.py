@@ -1,30 +1,27 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSpacerItem, QSizePolicy
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap
 from services.utils import load_stylesheet
-import os
 import logging
 
 
 class BaseWindow(QWidget):
-    """Clase base para todas las ventanas de la aplicación"""
-
     def __init__(self, config_service=None, window_title="SEMEFO"):
         super().__init__()
         self.config_service = config_service
         self.setWindowTitle(window_title)
         self.resize(1024, 768)
         self.center_window()
-
+        
         # Layout principal
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-
+        
         # Contenido (será implementado por las subclases)
         self.content_widget = QWidget()
         main_layout.addWidget(self.content_widget)
-
+        
         # Cargar estilos
         load_stylesheet(self)
 
@@ -50,22 +47,20 @@ class BaseWindow(QWidget):
 
 
 class BaseWindowWithHeader(BaseWindow):
-    """Clase base para ventanas que usan HeaderWidget"""
-
     def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, window_title="SEMEFO"):
         super().__init__(config_service, window_title)
         self.medico_nombre = medico_nombre
         self.numero_expediente = numero_expediente
         self.nombre_sesion = nombre_sesion
-
+        
         # Recrear layout principal para incluir header
         main_layout = self.layout()
         main_layout.removeWidget(self.content_widget)
-
+        
         # Agregar header
         header_widget = self.create_header()
         main_layout.addWidget(header_widget)
-
+        
         # Reagregar contenido
         main_layout.addWidget(self.content_widget)
 
@@ -73,37 +68,31 @@ class BaseWindowWithHeader(BaseWindow):
         header_widget = QWidget()
         header_widget.setFixedHeight(100)
         header_widget.setStyleSheet(
-            "background-color: #f8f9fa;")  # Removí el border-bottom
+            "background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;")
 
         header_layout = QHBoxLayout(header_widget)
-        # Cambié margins laterales a 0
-        header_layout.setContentsMargins(0, 15, 0, 15)
+        header_layout.setContentsMargins(20, 15, 20, 15)
         header_layout.setSpacing(20)
 
-        # IZQUIERDA: Logo con padding interno
-        logo_container = QWidget()
-        logo_container.setMinimumWidth(120)  # Ancho fijo para el logo
-        logo_layout = QVBoxLayout(logo_container)
-        logo_layout.setContentsMargins(20, 0, 20, 0)  # Padding interno
+        # IZQUIERDA: Logo
+        logo_layout = QVBoxLayout()
         logo_layout.setAlignment(Qt.AlignCenter)
-
+        
         logo_label = QLabel()
         logo_pixmap = QPixmap("logo.png")
         if not logo_pixmap.isNull():
-            scaled_logo = logo_pixmap.scaled(
-                60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled_logo = logo_pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(scaled_logo)
         else:
             logo_label.setText("LOGO")
-            logo_label.setStyleSheet(
-                "border: 1px solid #ccc; padding: 20px; font-weight: bold;")
-
+            logo_label.setStyleSheet("border: 1px solid #ccc; padding: 20px; font-weight: bold;")
+        
         logo_label.setAlignment(Qt.AlignCenter)
         logo_layout.addWidget(logo_label)
+        
+        header_layout.addLayout(logo_layout)
 
-        header_layout.addWidget(logo_container)
-
-        # CENTRO: Información de expediente y sesión (expandible)
+        # CENTRO: Información de expediente y sesión
         center_layout = QVBoxLayout()
         center_layout.setAlignment(Qt.AlignCenter)
         center_layout.setSpacing(5)
@@ -125,21 +114,12 @@ class BaseWindowWithHeader(BaseWindow):
 
         # Si no hay expediente ni sesión, agregar espaciador
         if not self.numero_expediente and not self.nombre_sesion:
-            center_layout.addItem(QSpacerItem(
-                20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+            center_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
-        # Crear widget contenedor para el centro que se expanda
-        center_widget = QWidget()
-        center_widget.setLayout(center_layout)
-        # stretch factor = 1 para expandir
-        header_layout.addWidget(center_widget, 1)
+        header_layout.addLayout(center_layout)
 
-        # DERECHA: Usuario y botón logout con padding interno
-        right_container = QWidget()
-        # Ancho mínimo para la sección derecha
-        right_container.setMinimumWidth(150)
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(20, 0, 20, 0)  # Padding interno
+        # DERECHA: Usuario y botón logout
+        right_layout = QVBoxLayout()
         right_layout.setAlignment(Qt.AlignCenter)
         right_layout.setSpacing(8)
 
@@ -174,6 +154,6 @@ class BaseWindowWithHeader(BaseWindow):
         logout_button.clicked.connect(self.logout)
         right_layout.addWidget(logout_button)
 
-        header_layout.addWidget(right_container)
+        header_layout.addLayout(right_layout)
 
         return header_widget
