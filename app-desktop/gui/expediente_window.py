@@ -20,7 +20,10 @@ class ExpedienteWindow(BaseWindowWithHeader):
         self.init_ui()
 
     def init_ui(self):
-        # Layout principal para el contenido
+        # ✅ SOLO AGREGAR: Limpiar layout existente
+        if self.content_widget.layout() is not None:
+            QWidget().setLayout(self.content_widget.layout())
+
         layout = QVBoxLayout(self.content_widget)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(20)

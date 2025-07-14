@@ -42,7 +42,7 @@ class SessionDialogWidget(QDialog):
         self.close_button.clicked.connect(self.on_close_session)
 
         self.cancel_button = QPushButton("❌ Cancelar Login")
-        self.cancel_button.setProperty("class", "secondary-button")
+        self.cancel_button.setProperty("class", "secondary")
         self.cancel_button.clicked.connect(self.reject)
 
         button_layout.addWidget(self.close_button)

@@ -11,15 +11,15 @@ import logging
 
 
 class GrabarWindow(BaseWindowWithHeader):
-    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, id_sesion=None, username_ldap=None):
+    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", id_sesion=None, config_service=None, username_ldap=""):
         super().__init__(
             medico_nombre=medico_nombre,
             numero_expediente=numero_expediente,
             nombre_sesion=nombre_sesion,
             config_service=config_service,
-            window_title="SEMEFO - Grabación",
-            hide_logout=True  # ✅ Ocultar botón de cerrar sesión
+            window_title="SEMEFO - Grabación"
         )
+
         self.api_client = ApiClient(config_service)
         self.id_sesion = id_sesion
         self.username_ldap = username_ldap
@@ -32,95 +32,113 @@ class GrabarWindow(BaseWindowWithHeader):
         self.recording_timer = QTimer()
         self.recording_timer.timeout.connect(self.update_timer)
         self.recording_time = 0
+
         self.init_ui()
 
     def init_ui(self):
+        # ✅ AGREGAR: Verificar si ya se inicializó la UI
+        if hasattr(self, 'button_start'):
+            return
+
+        # ✅ AGREGAR: Variables para tamaños de botones
+        BUTTON_WIDTH = 200
+        BUTTON_HEIGHT = 150
+        BUTTON_SPACING = 20
+
+        # ✅ AGREGAR: Limpiar layout existente si existe
+        if self.content_widget.layout() is not None:
+            QWidget().setLayout(self.content_widget.layout())
+
         # Layout principal para el contenido
         layout = QVBoxLayout(self.content_widget)
         layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(40)  # ✅ Más espacio entre elementos
+        layout.setSpacing(40)
 
         # Espaciador superior
         layout.addItem(QSpacerItem(
             20, 30, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
-        # Título
-        title_label = QLabel("Sesión de Grabación")
-        title_label.setProperty("class", "main-title")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
-
-        # Estado de grabación
+        # Estado de grabación - ✅ FIJAR altura y tamaño
         self.status_label = QLabel("Listo para iniciar grabación")
         self.status_label.setProperty("class", "recording-status")
         self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFixedHeight(60)  # ✅ Altura fija
+        self.status_label.setMinimumWidth(400)  # ✅ Ancho mínimo
         layout.addWidget(self.status_label)
 
-        # Timer
+        # Timer - ✅ FIJAR altura y tamaño
         self.timer_label = QLabel("00:00:00")
         self.timer_label.setProperty("class", "timer-label")
         self.timer_label.setAlignment(Qt.AlignCenter)
+        self.timer_label.setFixedHeight(50)  # ✅ Altura fija
+        self.timer_label.setMinimumWidth(200)  # ✅ Ancho mínimo
         layout.addWidget(self.timer_label)
 
-        # ✅ Botones de control - GRANDES Y REDONDOS
-        button_layout = QVBoxLayout()  # ✅ Cambiar a vertical para botones más grandes
-        button_layout.setSpacing(30)  # ✅ Más espacio entre botones
+        # ✅ AGREGAR: Contenedor de altura fija para todos los botones
+        button_container = QWidget()
+        # ✅ Altura fija para evitar movimiento
+        button_container.setFixedHeight(200)
+        button_container_layout = QVBoxLayout(button_container)
+        button_container_layout.setContentsMargins(0, 0, 0, 0)
+        button_container_layout.setSpacing(20)
+        button_container_layout.setAlignment(Qt.AlignCenter)
 
-        # ✅ Botón INICIAR (solo visible al inicio)
+        # ✅ Botón INICIAR - Usando variables
         self.button_start = QPushButton("🔴\nIniciar\nGrabación")
-        self.button_start.setProperty(
-            "class", "large-round-button start-button")
+        self.button_start.setProperty("class", "start-button")
         self.button_start.clicked.connect(self.start_recording)
-        self.button_start.setMinimumSize(200, 150)  # ✅ Tamaño mínimo grande
-        self.button_start.setMaximumSize(300, 180)  # ✅ Tamaño máximo
-        button_layout.addWidget(self.button_start, alignment=Qt.AlignCenter)
+        self.button_start.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
+        button_container_layout.addWidget(
+            self.button_start, alignment=Qt.AlignCenter)
 
-        # ✅ Layout horizontal para botones de control (pausar/continuar + finalizar)
-        control_layout = QHBoxLayout()
-        control_layout.setSpacing(40)  # ✅ Espacio entre botones
-
-        # ✅ Botón PAUSAR (solo visible cuando está grabando)
+        # ✅ Botón PAUSAR - Usando variables
         self.button_pause = QPushButton("⏸\nPausar")
-        self.button_pause.setProperty(
-            "class", "large-round-button pause-button")
+        self.button_pause.setProperty("class", "pause-button")
         self.button_pause.clicked.connect(self.pause_recording)
-        self.button_pause.setMinimumSize(180, 130)
-        self.button_pause.setMaximumSize(220, 150)
+        self.button_pause.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
         self.button_pause.setVisible(False)
-        control_layout.addWidget(self.button_pause)
 
-        # ✅ Botón CONTINUAR (solo visible cuando está pausado)
+        # ✅ Botón CONTINUAR - Usando variables
         self.button_continue = QPushButton("▶️\nContinuar")
-        self.button_continue.setProperty(
-            "class", "large-round-button continue-button")
+        self.button_continue.setProperty("class", "continue-button")
         self.button_continue.clicked.connect(self.continue_recording)
-        self.button_continue.setMinimumSize(180, 130)
-        self.button_continue.setMaximumSize(220, 150)
+        self.button_continue.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
         self.button_continue.setVisible(False)
-        control_layout.addWidget(self.button_continue)
 
-        # ✅ Botón FINALIZAR (visible cuando está grabando o pausado)
+        # ✅ Botón FINALIZAR - Usando variables
         self.button_finish = QPushButton("✅\nFinalizar")
-        self.button_finish.setProperty(
-            "class", "large-round-button finish-button")
+        self.button_finish.setProperty("class", "finish-button")
         self.button_finish.clicked.connect(self.finish_session)
-        self.button_finish.setMinimumSize(180, 130)
-        self.button_finish.setMaximumSize(220, 150)
+        self.button_finish.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
         self.button_finish.setVisible(False)
-        control_layout.addWidget(self.button_finish)
 
-        button_layout.addLayout(control_layout)
-        layout.addLayout(button_layout)
+        # ✅ Layout horizontal para los botones de grabación
+        horizontal_buttons_layout = QHBoxLayout()
+        horizontal_buttons_layout.setSpacing(BUTTON_SPACING)
+        horizontal_buttons_layout.setAlignment(Qt.AlignCenter)
+        horizontal_buttons_layout.addWidget(self.button_pause)
+        horizontal_buttons_layout.addWidget(self.button_continue)
+        horizontal_buttons_layout.addWidget(self.button_finish)
+
+        # ✅ Agregar el layout horizontal al contenedor
+        button_container_layout.addLayout(horizontal_buttons_layout)
+
+        # ✅ Agregar el contenedor de altura fija al layout principal
+        layout.addWidget(button_container, alignment=Qt.AlignCenter)
 
         # Espaciador inferior
         layout.addItem(QSpacerItem(
             20, 30, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
+        # ✅ AGREGAR: Asegurar que los botones estén embebidos en la ventana principal
+        self.button_pause.setParent(button_container)
+        self.button_continue.setParent(button_container)
+        self.button_finish.setParent(button_container)
+        self.button_start.setParent(button_container)
+
     def start_recording(self):
         """Iniciar grabación"""
         try:
-            print(f"🔍 DEBUG: Iniciando grabación sesión {self.id_sesion}")
-
             # Iniciar grabación de audio
             audio_filename = f"sesion_{self.id_sesion}_audio.wav"
             if self.audio_recorder.start_recording(audio_filename):
@@ -131,7 +149,6 @@ class GrabarWindow(BaseWindowWithHeader):
                 return
 
             # SIMULADO: Enviar comando a cámara para iniciar grabación
-            print("📹 SIMULADO: Enviando comando a cámara para iniciar grabación")
 
             # Actualizar estado
             self.is_recording = True
@@ -143,7 +160,7 @@ class GrabarWindow(BaseWindowWithHeader):
             self.button_continue.setVisible(False)
             self.button_finish.setVisible(True)
 
-            self.status_label.setText("🔴 Grabando...")
+            self.status_label.setText("🔴 Grabando...")  # ✅ Texto consistente
 
             # Iniciar timer
             self.recording_time = 0
@@ -159,15 +176,10 @@ class GrabarWindow(BaseWindowWithHeader):
     def pause_recording(self):
         """Pausar grabación"""
         try:
-            print(f"🔍 DEBUG: Pausando grabación sesión {self.id_sesion}")
-
             # Pausar timer
             self.recording_timer.stop()
 
             # SIMULADO: Pausar grabación (en la implementación real sería pause)
-            print("📹 SIMULADO: Pausando grabación de cámara")
-            print("🎤 SIMULADO: Pausando grabación de audio")
-
             # Actualizar estado
             self.is_paused = True
 
@@ -175,9 +187,10 @@ class GrabarWindow(BaseWindowWithHeader):
             self.button_start.setVisible(False)
             self.button_pause.setVisible(False)
             self.button_continue.setVisible(True)
-            self.button_finish.setVisible(True)
+            self.button_finish.setVisible(True)  # ✅ Siempre visible
 
-            self.status_label.setText("⏸ Grabación pausada")
+            self.status_label.setText(
+                "⏸ Grabación pausada")  # ✅ Texto consistente
 
             logging.info(f"Grabación pausada: {self.id_sesion}")
 
@@ -187,13 +200,9 @@ class GrabarWindow(BaseWindowWithHeader):
             logging.error(f"Error pausando grabación: {e}")
 
     def continue_recording(self):
-        """Continuar grabación después de pausa"""
+        """Continuar grabación"""
         try:
-            print(f"🔍 DEBUG: Continuando grabación sesión {self.id_sesion}")
-
             # SIMULADO: Continuar grabación
-            print("📹 SIMULADO: Continuando grabación de cámara")
-            print("🎤 SIMULADO: Continuando grabación de audio")
 
             # Actualizar estado
             self.is_paused = False
@@ -202,9 +211,9 @@ class GrabarWindow(BaseWindowWithHeader):
             self.button_start.setVisible(False)
             self.button_pause.setVisible(True)
             self.button_continue.setVisible(False)
-            self.button_finish.setVisible(True)
+            self.button_finish.setVisible(True)  # ✅ Siempre visible
 
-            self.status_label.setText("🔴 Grabando...")
+            self.status_label.setText("🔴 Grabando...")  # ✅ Texto consistente
 
             # Continuar timer
             self.recording_timer.start(1000)
@@ -219,27 +228,50 @@ class GrabarWindow(BaseWindowWithHeader):
     def finish_session(self):
         """Finalizar sesión y procesar datos"""
         try:
+            # ✅ AGREGAR: Pausar grabación temporalmente
+            was_recording = self.is_recording and not self.is_paused
+            if was_recording:
+                self.recording_timer.stop()
+                self.audio_recorder.pause_recording() if hasattr(
+                    self.audio_recorder, 'pause_recording') else None
+
             # ✅ Crear QMessageBox personalizado para mejor control
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Finalizar Sesión")
             msg_box.setText("¿Está seguro de que desea finalizar la sesión?")
             msg_box.setIcon(QMessageBox.Question)
 
-            # ✅ Agregar botones personalizados
-            yes_button = msg_box.addButton("Sí", QMessageBox.YesRole)
+            # ✅ CAMBIAR: Usar la nueva clase gray-button
             no_button = msg_box.addButton("No", QMessageBox.NoRole)
+            yes_button = msg_box.addButton("Sí", QMessageBox.YesRole)
+
+            # ✅ USAR: Clase del styles.qss
+            no_button.setProperty("class", "gray-button")
+            yes_button.setProperty("class", "action-button")
+
+            # ✅ FORZAR: Aplicar el stylesheet
+            no_button.style().unpolish(no_button)
+            no_button.style().polish(no_button)
+            yes_button.style().unpolish(yes_button)
+            yes_button.style().polish(yes_button)
 
             # ✅ Establecer botón por defecto
             msg_box.setDefaultButton(no_button)
 
             # ✅ Mostrar el diálogo
-            msg_box.exec()
+            result = msg_box.exec()
 
-            # ✅ Verificar qué botón se presionó
-            if msg_box.clickedButton() != yes_button:
+            # ✅ AGREGAR: Si dijo "No", reanudar grabación
+            if msg_box.clickedButton() == no_button:
+                if was_recording:
+                    self.audio_recorder.resume_recording() if hasattr(
+                        self.audio_recorder, 'resume_recording') else None
+                    self.recording_timer.start(1000)
                 return
 
-            print(f"🔍 DEBUG: Finalizando sesión {self.id_sesion}")
+            # ✅ Solo continuar si presionó "Sí"
+            if msg_box.clickedButton() != yes_button:
+                return
 
             # Detener timer si está corriendo
             self.recording_timer.stop()
@@ -248,8 +280,23 @@ class GrabarWindow(BaseWindowWithHeader):
             self.audio_recorder.stop_recording()
             logging.info("Grabación de audio finalizada")
 
+            # ✅ AGREGAR: Eliminar archivo de audio grabado
+            try:
+                audio_filename = f"sesion_{self.id_sesion}_audio.wav"
+                audio_file_path = os.path.join(os.getcwd(), audio_filename)
+
+                if os.path.exists(audio_file_path):
+                    os.remove(audio_file_path)
+                    logging.info(
+                        f"Archivo de audio eliminado: {audio_filename}")
+                else:
+                    logging.warning(
+                        f"Archivo de audio no encontrado: {audio_filename}")
+
+            except Exception as e:
+                logging.error(f"Error eliminando archivo de audio: {e}")
+
             # SIMULADO: Detener grabación de cámara
-            print("📹 SIMULADO: Finalizando grabación de cámara")
 
             # Actualizar estado
             self.is_recording = False

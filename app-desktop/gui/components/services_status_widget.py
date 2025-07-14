@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from services.ldap_service import LdapService
 from services.api_service import ApiService
 import logging
@@ -7,6 +7,9 @@ import socket
 
 
 class ServicesStatusWidget(QWidget):
+    # ✅ AGREGAR: Señal para cuando cambien los servicios
+    services_updated = Signal()
+
     def __init__(self, config_service):
         super().__init__()
         self.config_service = config_service
@@ -59,11 +62,17 @@ class ServicesStatusWidget(QWidget):
             self.api_ok = False
             self.rabbit_ok = False
 
+        # ✅ AGREGAR: Emitir señal después de verificar servicios
+        self.services_updated.emit()
+
     def are_all_services_ok(self):
-        """Retornar True si todos los servicios están funcionando"""
-        return getattr(self, 'ldap_ok', False) and \
+        """Verificar si todos los servicios están OK"""
+        all_ok = getattr(self, 'ldap_ok', False) and \
             getattr(self, 'api_ok', False) and \
             getattr(self, 'rabbit_ok', False)
+
+        # logging.info(f"Estado de servicios - LDAP: {self.ldap_ok}, API: {self.api_ok}, RabbitMQ: {self.rabbit_ok}")
+        return all_ok  # Debe retornar True si todos están OK
 
     def check_ldap_status(self):
         """Verificar estado del servidor LDAP y retornar True/False"""

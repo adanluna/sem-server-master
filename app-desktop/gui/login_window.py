@@ -33,7 +33,7 @@ class LoginWindow(QWidget):
     def init_ui(self):
         # Configuración de la ventana principal
         self.setWindowTitle("SEMEFO - Sistema")
-        self.resize(853, 622)
+        self.resize(1024, 768)
         self.center_window()
 
         # Aplicar estilos
@@ -83,6 +83,9 @@ class LoginWindow(QWidget):
 
         # Widget de estados de servicios
         self.services_widget = ServicesStatusWidget(self.config_service)
+        # ✅ AGREGAR: Conectar señal cuando cambien los servicios
+        self.services_widget.services_updated.connect(
+            self.check_login_availability)
 
         # Layout principal centrado
         content_layout = QVBoxLayout()
@@ -110,8 +113,8 @@ class LoginWindow(QWidget):
         header_layout = QHBoxLayout()
 
         # Botón volver
-        back_button = QPushButton("Volver al Login")
-        back_button.setProperty("class", "secondary-button")
+        back_button = QPushButton("Regresar")
+        back_button.setProperty("class", "secondary")
         back_button.clicked.connect(self.show_login)
         header_layout.addWidget(back_button)
 
@@ -135,7 +138,7 @@ class LoginWindow(QWidget):
             40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         # Botón Guardar
-        self.save_button = QPushButton("Guardar Configuración")
+        self.save_button = QPushButton("Guardar")
         self.save_button.setProperty("class", "success-button")
         self.save_button.clicked.connect(self.save_config)
         button_layout.addWidget(self.save_button)
@@ -238,7 +241,12 @@ class LoginWindow(QWidget):
 
     def check_login_availability(self):
         """Verificar si el login debe estar habilitado"""
-        if self.services_widget.are_all_services_ok():
+        # ✅ AGREGAR: Debug para ver el estado de los servicios
+        print(f"🔍 DEBUG: Verificando disponibilidad de servicios...")
+        services_ok = self.services_widget.are_all_services_ok()
+        print(f"🔍 DEBUG: Servicios OK: {services_ok}")
+
+        if services_ok:
             self.enable_login()
         else:
             self.disable_login_services()

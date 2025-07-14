@@ -1,9 +1,11 @@
+/* ---------- BOTONES GENERALES ---------- */
 QPushButton {
     background-color: #000000;
     color: white;
+    font-weight: bold;
+    border: none;
     border-radius: 8px;
-    padding: 8px 16px;
-    font-size: 14px;
+    padding: 8px;
     min-width: 200px;
     max-width: 300px;
 }
@@ -16,25 +18,49 @@ QPushButton:pressed {
     background-color: #000000;
 }
 
-QPushButton[class="secondary"] {
-    background-color: #666666;
+/* ---------- BOTONES CON CLASS ---------- */
+QPushButton[class="success-button"],
+QPushButton[class="cancel-button"],
+QPushButton[class="secondary"],
+QPushButton[class="danger-button"],
+QPushButton[class="settings"],
+QPushButton[class="action-button"] {
+    background-color: #000000;
     color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 200px;
+    max-width: 300px;
 }
 
-QPushButton[class="secondary"]:hover {
-    background-color: #777777;
+QPushButton[class="finish-button"] {
+    background-color: #28a745;
 }
 
-QPushButton[class="secondary"]:pressed {
+QPushButton[class="success-button"]:hover,
+QPushButton[class="cancel-button"]:hover,
+QPushButton[class="secondary"]:hover,
+QPushButton[class="danger-button"]:hover,
+QPushButton[class="settings"]:hover,
+QPushButton[class="action-button"]:hover {
     background-color: #555555;
 }
 
+QPushButton[class="success-button"]:pressed,
+QPushButton[class="cancel-button"]:pressed,
+QPushButton[class="secondary"]:pressed,
+QPushButton[class="danger-button"]:pressed,
+QPushButton[class="settings"]:pressed,
+QPushButton[class="action-button"]:pressed {
+    background-color: #000000;
+}
+
+/* ---------- ESPECIALES PARA SETTINGS Y DANGER ---------- */
 QPushButton[class="settings"] {
-    background-color: black;
-    color: white;
     border-radius: 25px;
     font-size: 24px;
-    font-weight: bold;
     min-width: 50px;
     max-width: 50px;
     min-height: 50px;
@@ -42,153 +68,53 @@ QPushButton[class="settings"] {
     padding: 0px;
 }
 
-QPushButton[class="settings"]:hover {
-    background-color: #777777;
-}
-
-QPushButton[class="settings"]:pressed {
-    background-color: #555555;
-}
-
-QPushButton.action-button {
-    background-color: black;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    padding: 8px;
-}
-
-QPushButton.action-button:hover {
-    background-color: #333333;
-}
-
-QPushButton.action-button:pressed {
-    background-color: #555555;
-}
-
-QPushButton.cancel-button {
-    background-color: #6c757d;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    padding: 8px;
-}
-
-QPushButton.cancel-button:hover {
-    background-color: #5a6268;
-}
-
-QPushButton.cancel-button:pressed {
-    background-color: #545b62;
-}
-
-/* BOTÓN "VOLVER" EN CONFIGURACIÓN - FONDO NEGRO */
-QPushButton.secondary-button {
-    background-color: #000000;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    padding: 8px;
-    min-width: 120px;
-}
-
-QPushButton.secondary-button:hover {
-    background-color: #333333;
-}
-
-QPushButton.secondary-button:pressed {
-    background-color: #555555;
-}
-
-QPushButton.danger-button {
+QPushButton[class="danger-button"] {
     background-color: #dc3545;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    padding: 8px;
     min-width: 120px;
 }
 
-QPushButton.danger-button:hover {
+QPushButton[class="danger-button"]:hover {
     background-color: #c82333;
 }
 
-QPushButton.danger-button:pressed {
+QPushButton[class="danger-button"]:pressed {
     background-color: #bd2130;
 }
 
-/* BOTÓN "GUARDAR" EN CONFIGURACIÓN - FONDO NEGRO */
-QPushButton.success-button {
+/* ---------- BOTONES DEL QMessageBox ---------- */
+QMessageBox QPushButton {
     background-color: #000000;
     color: white;
     font-weight: bold;
     border: none;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 8px;
-    min-width: 120px;
+    min-width: 200px;
+    max-width: 300px;
 }
 
-QPushButton.success-button:hover {
-    background-color: #333333;
-}
-
-QPushButton.success-button:pressed {
+QMessageBox QPushButton[class="cancel-button"] {
     background-color: #555555;
 }
 
-QLabel.section-title {
-    font-weight: bold;
-    color: black;
-    font-size: 14px;
-    margin-bottom: 5px;
+QMessageBox QPushButton:hover {
+    background-color: #555555;
 }
 
-QLabel.main-title {
-    font-size: 18px;
-    font-weight: bold;
-    color: black;
-    margin-bottom: 10px;
+QMessageBox QPushButton:pressed {
+    background-color: #000000;
 }
 
-QLabel.status-text {
-    font-size: 14px;
-    margin-top: 15px;
-    color: #333333;
-}
-
-QLabel.recording-status {
-    font-size: 20px;
-    color: #333333;
-}
-
-QLabel.timer-label {
-    font-size: 18px;
-    margin-top: 20px;
-    color: #333333;
-}
-
-QLabel.success-title {
-    font-size: 28px;
-    margin-top: 50px;
-    color: #333333;
-}
-
-QLabel.success-details {
-    font-size: 18px;
-    margin-top: 30px;
-    color: #333333;
-}
-
+/* ---------- CAMPOS DE TEXTO ---------- */
 QLineEdit, QTextEdit, QPlainTextEdit {
-    padding: 8px;
-    border: 2px solid #dee2e6;
-    border-radius: 4px;
+    padding: 12px 16px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
     font-size: 14px;
-    background-color: white;
+    background-color: #ffffff;
+    selection-background-color: #333333;
+    selection-color: white;
+    min-height: 20px;
 }
 
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
@@ -196,21 +122,54 @@ QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
     outline: none;
 }
 
+/* ---------- LABELS ---------- */
 QLabel {
     color: #333333;
     font-size: 14px;
 }
 
-/* Agregar estilos para el fondo de las ventanas */
-QMainWindow {
+QLabel.section-title {
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+QLabel.main-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+QLabel.status-text {
+    font-size: 14px;
+    margin-top: 15px;
+}
+
+QLabel.recording-status {
+    font-size: 20px;
+}
+
+QLabel.timer-label {
+    font-size: 18px;
+    margin-top: 20px;
+}
+
+QLabel.success-title {
+    font-size: 28px;
+    margin-top: 50px;
+}
+
+QLabel.success-details {
+    font-size: 18px;
+    margin-top: 30px;
+}
+
+/* ---------- ESTILOS PARA CONTENEDORES ---------- */
+QMainWindow, QWidget {
     background-color: #f5f5f5;
 }
 
-QWidget {
-    background-color: #f5f5f5;
-}
-
-/* Estilos para QTabWidget */
+/* QTabWidget */
 QTabWidget::pane {
     border: 1px solid #dee2e6;
     background-color: white;
@@ -239,7 +198,7 @@ QTabBar::tab:hover {
     background-color: #e9ecef;
 }
 
-/* Estilos para QGroupBox */
+/* QGroupBox */
 QGroupBox {
     font-weight: bold;
     border: 2px solid #dee2e6;
@@ -252,17 +211,15 @@ QGroupBox {
 QGroupBox::title {
     subcontrol-origin: margin;
     left: 10px;
-    padding: 0 5px 0 5px;
+    padding: 0 5px;
     color: #333333;
 }
 
-/* Header styling - SIN LÍNEAS GRISES Y 100% ANCHO */
+/* HEADER Y INFO */
 QWidget[class="header"] {
     background-color: #f8f9fa;
     padding: 15px 20px;
-    margin: 0px;  /* ✅ Sin márgenes */
-    /* border-bottom: 1px solid #dee2e6;  ✅ COMENTAR O ELIMINAR ESTA LÍNEA */
-    min-width: 100%;  /* ✅ Asegurar 100% de ancho */
+    min-width: 100%;
 }
 
 QLabel[class="medico-info"] {
@@ -272,185 +229,102 @@ QLabel[class="medico-info"] {
     padding: 5px 10px;
     background-color: #ecf0f1;
     border-radius: 5px;
-    margin: 0px;  /* ✅ Sin márgenes */
 }
 
-/* Contenedor principal para asegurar que el header ocupe todo el ancho */
+/* MAIN CONTAINER */
 QWidget[class="main-container"] {
     margin: 0px;
     padding: 0px;
 }
 
-/* Asegurar que los campos de entrada tengan buen tamaño */
-QLineEdit {
-    padding: 12px 16px;  /* ✅ Aumentar padding */
-    border: 2px solid #ddd;
-    border-radius: 6px;
-    font-size: 14px;
-    background-color: #ffffff;
-    selection-background-color: #3498db;
-    min-height: 20px;  /* ✅ Altura mínima */
-}
-
-/* ✅ Botones grandes y redondos para personas mayores */
-.large-round-button {
-    border-radius: 75px;  /* Botones muy redondos */
-    font-size: 18px;
-    font-weight: bold;
-    padding: 20px;
-    border: 3px solid #333;
+/* BOTÓN LOGOUT */
+QPushButton#logout-button {
+    background-color: #000000;
     color: white;
-    text-align: center;
-}
-
-.large-round-button:hover {
-    transform: scale(1.05);  /* Efecto hover sutil */
-    border-width: 4px;
-}
-
-.large-round-button:pressed {
-    transform: scale(0.95);  /* Efecto al presionar */
-}
-
-/* ✅ Colores específicos para cada tipo de botón */
-.start-button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #e74c3c, stop: 1 #c0392b);  /* Rojo gradiente */
-}
-
-.start-button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #ff6b5a, stop: 1 #e74c3c);
-}
-
-.pause-button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #f39c12, stop: 1 #e67e22);  /* Naranja gradiente */
-}
-
-.pause-button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #ffb84d, stop: 1 #f39c12);
-}
-
-.continue-button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #2ecc71, stop: 1 #27ae60);  /* Verde gradiente */
-}
-
-.continue-button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #4cd471, stop: 1 #2ecc71);
-}
-
-.finish-button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #3498db, stop: 1 #2980b9);  /* Azul gradiente */
-}
-
-.finish-button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #5dade2, stop: 1 #3498db);
-}
-
-/* ✅ Timer más grande y visible */
-.timer-label {
-    font-size: 48px;
     font-weight: bold;
-    color: #2c3e50;
-    background: #ecf0f1;
-    border: 2px solid #bdc3c7;
-    border-radius: 15px;
-    padding: 20px;
-    margin: 20px 0;
-}
-
-/* ✅ Estado de grabación más visible */
-.recording-status {
-    font-size: 24px;
-    font-weight: bold;
-    padding: 15px;
-    margin: 10px 0;
-    border-radius: 10px;
-    background: #f8f9fa;
-    border: 2px solid #dee2e6;
-}
-
-/* ✅ Estilos para QMessageBox - MÁS ESPECÍFICOS */
-QMessageBox {
-    background-color: #ffffff;
-    border: 2px solid #dee2e6;
-    border-radius: 8px;
-    font-size: 16px;
-    min-width: 400px;
-    min-height: 150px;
-}
-
-QMessageBox QLabel {
-    color: #2c3e50;
-    font-size: 16px;
-    padding: 20px;
-    background: transparent;
     border: none;
-    min-height: 40px;
-}
-
-/* ✅ Botón de logout */
-.logout-button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #2c3e50, stop: 1 #34495e);
-    color: white;
-    border: 2px solid #2c3e50;
-    border-radius: 6px;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-weight: bold;
-    min-width: 120px;
-    min-height: 35px;
-}
-
-.logout-button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #34495e, stop: 1 #5d6d7e);
-    border-color: #34495e;
-}
-
-.logout-button:pressed {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #1b2631, stop: 1 #2c3e50);
-}
-
-/* ✅ Estilos para QMessageBox */
-QMessageBox {
-    background-color: #ffffff;
-    border: 2px solid #dee2e6;
     border-radius: 8px;
-    font-size: 16px;
-    min-width: 400px;
-    min-height: 150px;
+    padding: 8px;
+    min-width: 200px;
+    max-width: 300px;
 }
 
-QMessageBox QPushButton {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #34495e, stop: 1 #2c3e50);
+QPushButton#logout-button:hover {
+    background-color: #555555;
+}
+
+QPushButton#logout-button:pressed {
+    background-color: #000000;
+}
+
+/* ✅ Botón INICIAR - Fondo negro */
+QPushButton[class="start-button"] {
+    background-color: #000000 !important;
     color: white;
-    border: 2px solid #2c3e50;
-    border-radius: 6px;
-    padding: 12px 24px;
-    font-size: 14px;
     font-weight: bold;
-    min-width: 100px;
-    min-height: 40px;
-    margin: 8px 4px;
+    border: none;
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 200px;
+    min-height: 150px;
+    font-size: 18px;
 }
 
-QMessageBox QPushButton:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #5d6d7e, stop: 1 #34495e);
-    border-color: #34495e;
+QPushButton[class="start-button"]:hover {
+    background-color: #333333 !important;
 }
 
-QMessageBox QPushButton:pressed {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #2c3e50, stop: 1 #1b2631);
+QPushButton[class="start-button"]:pressed {
+    background-color: #000000 !important;
+}
+
+/* ✅ Botón PAUSAR - Fondo gris */
+QPushButton[class="pause-button"] {
+    background-color: #6c757d !important;  /* Gris */
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 180px;
+    min-height: 130px;
+    font-size: 16px;
+}
+
+QPushButton[class="pause-button"]:hover {
+    background-color: #5a6268 !important;  /* Gris más oscuro */
+}
+
+/* ✅ Botón CONTINUAR - Fondo negro */
+QPushButton[class="continue-button"] {
+    background-color: #000000 !important;
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 180px;
+    min-height: 130px;
+    font-size: 16px;
+}
+
+QPushButton[class="continue-button"]:hover {
+    background-color: #333333 !important;
+}
+
+/* ✅ Botón FINALIZAR - Fondo verde */
+QPushButton[class="finish-button"] {
+    background-color: #28a745 !important;  /* Verde */
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 180px;
+    min-height: 130px;
+    font-size: 16px;
+}
+
+QPushButton[class="finish-button"]:hover {
+    background-color: #218838 !important;  /* Verde más oscuro */
 }
