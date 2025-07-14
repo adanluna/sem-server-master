@@ -328,3 +328,23 @@ QPushButton[class="finish-button"] {
 QPushButton[class="finish-button"]:hover {
     background-color: #218838 !important;  /* Verde más oscuro */
 }
+
+/* ✅ AGREGAR: Botón gris para QMessageBox */
+QPushButton[class="gray-button"] {
+    background-color: #6c757d !important;  /* Gris */
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 200px;
+    max-width: 300px;
+}
+
+QPushButton[class="gray-button"]:hover {
+    background-color: #5a6268 !important;  /* Gris más oscuro */
+}
+
+QPushButton[class="gray-button"]:pressed {
+    background-color: #495057 !important;  /* Gris aún más oscuro */
+}

@@ -9,6 +9,7 @@ class BaseWindow(QWidget):
         super().__init__()
         self.config_service = config_service
         self.setWindowTitle(window_title)
+        # ✅ AGREGAR: Tamaño estándar para todas las ventanas
         self.resize(1024, 768)
         self.center_window()
 
@@ -19,6 +20,7 @@ class BaseWindow(QWidget):
         self.content_widget = QWidget()
         main_layout.addWidget(self.content_widget)
 
+    # ✅ AGREGAR: Método para centrar ventana
     def center_window(self):
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
