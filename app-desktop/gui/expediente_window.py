@@ -8,13 +8,15 @@ import logging
 
 
 class ExpedienteWindow(BaseWindowWithHeader):
-    def __init__(self, medico_nombre="", config_service=None):
+    # ✅ Agregar username_ldap
+    def __init__(self, medico_nombre="", config_service=None, username_ldap=None):
         super().__init__(
             medico_nombre=medico_nombre,
             config_service=config_service,
             window_title="SEMEFO - Expediente"
         )
         self.api_client = ApiClient(config_service)
+        self.username_ldap = username_ldap  # ✅ Guardar el username LDAP
         self.init_ui()
 
     def init_ui(self):
@@ -28,14 +30,14 @@ class ExpedienteWindow(BaseWindowWithHeader):
             20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         # Título
-        title_label = QLabel("Nuevo Expediente")
+        title_label = QLabel("Nueva Sesión")
         title_label.setProperty("class", "main-title")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
 
         # Formulario
         form_widget = QWidget()
-        form_widget.setMaximumWidth(500)
+        form_widget.setMaximumWidth(700)
         form_layout = QFormLayout(form_widget)
 
         # Campo número de expediente
@@ -43,6 +45,7 @@ class ExpedienteWindow(BaseWindowWithHeader):
         expediente_label.setProperty("class", "section-title")
         self.input_expediente = QLineEdit()
         self.input_expediente.setPlaceholderText("Ej: EXP-2024-001")
+        self.input_expediente.setMinimumWidth(450)
         form_layout.addRow(expediente_label, self.input_expediente)
 
         # Campo nombre de sesión
@@ -50,6 +53,7 @@ class ExpedienteWindow(BaseWindowWithHeader):
         sesion_label.setProperty("class", "section-title")
         self.input_sesion = QLineEdit()
         self.input_sesion.setPlaceholderText("Ej: Autopsia inicial")
+        self.input_sesion.setMinimumWidth(450)
         self.input_sesion.returnPressed.connect(self.go_to_next)
         form_layout.addRow(sesion_label, self.input_sesion)
 
@@ -83,40 +87,52 @@ class ExpedienteWindow(BaseWindowWithHeader):
             20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
     def go_to_next(self):
-        expediente = self.input_expediente.text()
-        sesion = self.input_sesion.text()
-        if not expediente or not sesion:
-            QMessageBox.warning(
-                self, "Campos requeridos", "Por favor ingrese número de expediente y nombre de sesión.")
-            return
-
+        """Navegar a la siguiente pantalla - grabación"""
         try:
-            # Buscar o crear expediente
-            id_expediente = self.api_client.buscar_o_crear_expediente(
-                expediente)
+            numero_expediente = self.input_expediente.text().strip()
+            nombre_sesion = self.input_sesion.text().strip()
 
-            # Crear sesión con username
-            id_sesion = self.api_client.crear_sesion_sin_validacion(
-                numero_expediente=expediente,
-                descripcion=sesion,
-                usuario_ldap=self.medico_nombre
+            if not numero_expediente or not nombre_sesion:
+                QMessageBox.warning(
+                    self, "Campos requeridos",
+                    "Por favor complete todos los campos."
+                )
+                return
+
+            # ✅ Usar username_ldap y medico_nombre correctamente
+            usuario_ldap = self.username_ldap
+            user_nombre = self.medico_nombre  # ✅ Nombre completo del médico
+
+            print(f"🔍 DEBUG: Creando sesión con usuario_ldap: {usuario_ldap}")
+            print(f"🔍 DEBUG: user_nombre: {user_nombre}")
+
+            # Crear sesión con ambos parámetros
+            id_sesion = self.api_client.crear_sesion(
+                numero_expediente=numero_expediente,
+                descripcion=nombre_sesion,
+                usuario_ldap=usuario_ldap,  # ✅ Username (ej: "forense1")
+                # ✅ Nombre completo (ej: "Forense 1 F1. Martinez")
+                user_nombre=user_nombre
             )
 
-            logging.info(
-                f"Expediente {expediente} (id {id_expediente}), sesión {sesion} (id {id_sesion}) creado.")
+            if id_sesion:
+                # ✅ Continuar a la pantalla de grabación
+                from gui.grabar_window import GrabarWindow
 
-            # Continuar a grabación
-            from gui.grabar_window import GrabarWindow
-            self.grabar_window = GrabarWindow(
-                self.medico_nombre,
-                expediente,
-                sesion,
-                self.config_service,
-                id_sesion=id_sesion
-            )
-            self.grabar_window.show()
-            self.close()
+                self.grabar_window = GrabarWindow(
+                    medico_nombre=self.medico_nombre,
+                    numero_expediente=numero_expediente,
+                    nombre_sesion=nombre_sesion,
+                    id_sesion=id_sesion,
+                    config_service=self.config_service,
+                    username_ldap=usuario_ldap
+                )
+                self.grabar_window.show()
+                self.close()
 
         except Exception as e:
-            QMessageBox.critical(self, "Error al crear sesión", str(e))
             logging.error(f"Error al crear sesión: {e}")
+            QMessageBox.critical(
+                self, "Error",
+                f"Error al crear sesión: {str(e)}"
+            )

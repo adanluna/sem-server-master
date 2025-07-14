@@ -1,20 +1,22 @@
-
 import os
-import logging
-
-logging.basicConfig(filename="app.log", level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def load_stylesheet(widget):
+    """Cargar estilos desde styles.qss"""
     try:
-        root_dir = os.path.abspath(os.path.join(
-            os.path.dirname(__file__), "..", ".."))
-        styles_path = os.path.join(root_dir, "styles.qss")
-        with open(styles_path, "r") as f:
-            widget.setStyleSheet(f.read())
-            logging.info(
-                f"✅ Estilos cargados correctamente en {widget.__class__.__name__}")
-    except FileNotFoundError:
-        logging.warning(
-            f"❌ Archivo styles.qss no encontrado en: {styles_path}")
+        # ✅ Buscar styles.qss en el directorio actual
+        styles_path = os.path.join(os.getcwd(), "styles.qss")
+
+        if os.path.exists(styles_path):
+            with open(styles_path, "r", encoding="utf-8") as f:
+                stylesheet = f.read()
+                widget.setStyleSheet(stylesheet)
+                print("✅ Estilos cargados desde styles.qss")
+                return True
+        else:
+            print(f"⚠️ Archivo styles.qss no encontrado en: {styles_path}")
+            return False
+
+    except Exception as e:
+        print(f"⚠️ Error cargando estilos: {e}")
+        return False

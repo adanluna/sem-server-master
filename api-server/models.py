@@ -29,7 +29,7 @@ class Sesion(Base):
     plancha_id = Column(String(100), nullable=False)
     tablet_id = Column(String(100), nullable=False)
     estado = Column(String(50), nullable=False, default="en_progreso")
-    user_nombre = Column(String(200), nullable=True)  # ✅ AGREGAR ESTA LÍNEA
+    user_nombre = Column(String(200), nullable=True)
     fecha = Column(DateTime, default=datetime.utcnow)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")

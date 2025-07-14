@@ -339,7 +339,7 @@ class ApiClient:
 
     # ============= SESIONES =============
 
-    def crear_sesion(self, numero_expediente: str, descripcion: str, usuario_ldap: str = "forense1") -> int:
+    def crear_sesion(self, numero_expediente: str, descripcion: str, usuario_ldap: str = "forense1", user_nombre: str = None) -> int:
         """Crear nueva sesión"""
         try:
             # 🚀 Primero necesitamos el ID de la investigación
@@ -350,34 +350,87 @@ class ApiClient:
             # 🚀 Obtener configuración del dispositivo
             config = self.config_service.load_config()
             dispositivo = config.get("dispositivo", {})
-            tablet_id = dispositivo.get("tablet_id", "tablet_desconocida")
-            plancha_id = dispositivo.get("plancha", "plancha_desconocida")
+            tablet_id = dispositivo.get("tablet_id", "Tablet1")
+            plancha_id = dispositivo.get("plancha", "Plancha1")
 
-            # 🚀 CORRECCIÓN: Tu API requiere estos campos específicos
+            # 🚀 CORRECCIÓN: user_nombre debe ser el nombre completo del usuario
             payload = {
-                "investigacion_id": investigacion_id,
-                "nombre_sesion": descripcion,
-                "observaciones": f"Sesión creada desde app desktop",
-                "usuario_ldap": usuario_ldap,  # 🚀 Usar el usuario pasado como parámetro
-                "plancha_id": plancha_id,
-                "tablet_id": tablet_id
+                "investigacion_id": int(investigacion_id),
+                "nombre_sesion": str(descripcion),
+                "observaciones": "Sesión creada desde app desktop",
+                # ✅ Username de LDAP (ej: "forense1")
+                "usuario_ldap": str(usuario_ldap),
+                "plancha_id": str(plancha_id),
+                "tablet_id": str(tablet_id),
+                # ✅ Nombre completo (ej: "Forense 1 F1. Martinez")
+                "user_nombre": str(user_nombre or usuario_ldap),
+                "estado": "en_progreso"
             }
+
+            # ✅ Validar que no hay valores None o vacíos
+            for key, value in payload.items():
+                if value is None or value == "":
+                    raise Exception(
+                        f"Campo requerido '{key}' está vacío o es None")
+
+            print(f"🔍 DEBUG: Payload para crear sesión: {payload}")
 
             response = self.post("/sesiones/", payload)
 
-            if response.status_code == 200:  # Tu API devuelve 200
-                data = response.json()
-                # 🚀 Tu API devuelve 'id' no 'id_sesion'
-                sesion_id = data.get("id")
-                logging.info(
-                    f"✅ Sesión creada: {descripcion} -> ID {sesion_id}")
-                return sesion_id
+            print(f"🔍 DEBUG: Status Code: {response.status_code}")
+            print(f"🔍 DEBUG: Response Text: {response.text}")
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    print(f"🔍 DEBUG: Response JSON: {data}")
+
+                    # Buscar el ID en diferentes campos posibles
+                    sesion_id = data.get("id") or data.get(
+                        "sesion_id") or data.get("id_sesion")
+
+                    print(f"🔍 DEBUG: ID extraído: {sesion_id}")
+
+                    if sesion_id:
+                        logging.info(
+                            f"✅ Sesión creada: {descripcion} -> ID {sesion_id}")
+                        return int(sesion_id)  # ✅ Asegurar que devuelve entero
+                    else:
+                        print(f"❌ No se encontró ID en la respuesta")
+                        print(
+                            f"❌ Campos disponibles: {list(data.keys()) if isinstance(data, dict) else 'No es dict'}")
+                        raise Exception(
+                            "Sesión creada pero no se pudo obtener el ID")
+
+                except ValueError as e:
+                    print(f"❌ Error parsing JSON: {e}")
+                    print(f"❌ Response no es JSON válido: {response.text}")
+                    raise Exception(
+                        f"Respuesta del API no es JSON válido: {response.text}")
+
+            elif response.status_code == 500:
+                # ✅ Manejar error 500 específicamente
+                print(f"❌ Error 500 - Internal Server Error")
+                print(f"❌ Response: {response.text}")
+
+                # Intentar parsear el error si es JSON
+                try:
+                    error_data = response.json()
+                    error_detail = error_data.get(
+                        "detail", "Error interno del servidor")
+                    raise Exception(
+                        f"Error interno del servidor: {error_detail}")
+                except:
+                    raise Exception(
+                        f"Error interno del servidor (500): {response.text}")
+
             else:
                 raise Exception(
                     f"Error al crear sesión: {response.status_code} - {response.text}")
 
         except Exception as e:
             logging.error(f"❌ Error creando sesión: {e}")
+            print(f"❌ Exception completa: {e}")
             raise e
 
     # ============= PROCESAMIENTO =============

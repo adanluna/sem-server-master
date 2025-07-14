@@ -8,7 +8,7 @@ import logging
 
 
 class SuccessWindow(BaseWindowWithHeader):
-    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, id_sesion=None):
+    def __init__(self, medico_nombre="", numero_expediente="", nombre_sesion="", config_service=None, id_sesion=None, username_ldap=None):  # ✅ Agregar username_ldap
         super().__init__(
             medico_nombre=medico_nombre,
             numero_expediente=numero_expediente,
@@ -18,6 +18,7 @@ class SuccessWindow(BaseWindowWithHeader):
         )
         self.api_client = ApiClient(config_service)
         self.id_sesion = id_sesion
+        self.username_ldap = username_ldap  # ✅ Guardar username_ldap
         self.init_ui()
         self.process_files()
 

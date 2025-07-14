@@ -276,31 +276,44 @@ class LoginWindow(QWidget):
             return
 
         try:
+            # 1. PRIMERO verificar sesiones pendientes
+            print("🔍 DEBUG: Verificando sesiones pendientes...")
+            session_response = self.login_service.check_pending_session(
+                username)
+
+            if session_response:  # Si hay sesión pendiente
+                print("⚠️ DEBUG: Sesión pendiente encontrada, mostrando diálogo")
+                self.show_pending_session_dialog(session_response, username)
+                return  # Detener el flujo aquí
+
+            print("✅ DEBUG: No hay sesiones pendientes, continuando con autenticación...")
+
+            # 2. Proceder con autenticación LDAP
             print("🔍 DEBUG: Iniciando autenticación LDAP...")
-            success, user_info, error_message = self.login_service.authenticate_user(
+            auth_result = self.login_service.authenticate_user(
                 username, password)
 
-            if not success:
+            if not auth_result['success']:
                 QMessageBox.critical(
-                    self, "Error de Autenticación", error_message)
-                logging.warning(f"Usuario {username} falló autenticación.")
+                    self, "Error de Autenticación", auth_result['error'])
+                logging.warning(
+                    f"Usuario {username} falló autenticación: {auth_result['error']}")
                 return
 
             logging.info(f"Usuario {username} autenticado correctamente.")
 
-            # Verificar sesiones pendientes
-            if self.check_pending_sessions(username):
-                return  # Si hay sesión pendiente, no continuar
+            # 3. Abrir expedientes con los datos del usuario
+            user_info = auth_result['user_data']
+            self.open_expediente_window(
+                user_info['displayName'],
+                username  # ✅ Pasar también el username LDAP
+            )
 
-            # Abrir expedientes
-            self.open_expediente_window(user_info['displayName'])
-
-        except (LDAPSocketOpenError, LDAPBindError) as e:
-            QMessageBox.critical(self, "LDAP Error", str(e))
-            logging.error(f"LDAP Error: {e}")
         except Exception as e:
             QMessageBox.critical(self, "Error inesperado", str(e))
             logging.error(f"Error inesperado login: {e}")
+            import traceback
+            traceback.print_exc()
 
     def check_pending_sessions(self, username):
         """Verificar si el usuario tiene sesiones pendientes"""
@@ -369,12 +382,13 @@ class LoginWindow(QWidget):
                 QMessageBox.information(
                     self, "Sesión Cerrada", "La sesión activa ha sido cerrada correctamente.")
 
-                # Re-autenticar usuario para continuar
+                # ✅ Re-autenticar usuario para continuar (actualizar aquí también)
                 username, password = self.login_form_widget.get_credentials()
-                success, user_info, _ = self.login_service.authenticate_user(
+                auth_result = self.login_service.authenticate_user(
                     username, password)
 
-                if success:
+                if auth_result['success']:  # ✅ Ahora es un dict
+                    user_info = auth_result['user_data']
                     self.open_expediente_window(user_info['displayName'])
 
             else:
@@ -388,20 +402,24 @@ class LoginWindow(QWidget):
             QMessageBox.critical(
                 self, "Error", f"Error inesperado al cerrar sesión:\n{str(e)}")
 
-    def open_expediente_window(self, medico_nombre):
+    # ✅ Agregar username_ldap
+    def open_expediente_window(self, user_display_name, username_ldap):
         """Abrir ventana de expedientes"""
         try:
-            from .expediente_window import ExpedienteWindow
+            from gui.expediente_window import ExpedienteWindow
+
             self.expediente_window = ExpedienteWindow(
-                medico_nombre=medico_nombre,
-                config_service=self.config_service
+                medico_nombre=user_display_name,
+                config_service=self.config_service,
+                username_ldap=username_ldap  # ✅ Pasar el username LDAP
             )
             self.expediente_window.show()
             self.close()
+
         except Exception as e:
-            logging.error(f"Error abriendo ventana expediente: {e}")
+            logging.error(f"Error abriendo ventana de expedientes: {e}")
             QMessageBox.critical(
-                self, "Error", f"Error al abrir expedientes: {str(e)}")
+                self, "Error", f"Error abriendo expedientes: {str(e)}")
 
     def closeEvent(self, event):
         """Limpiar recursos al cerrar"""

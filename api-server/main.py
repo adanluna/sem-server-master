@@ -4,6 +4,11 @@ from pydantic import BaseModel
 from database import get_db, engine
 import models
 from datetime import datetime
+import logging
+
+# Configurar logging al inicio del archivo
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Crear tablas automáticamente
 models.Base.metadata.create_all(bind=engine)
@@ -107,41 +112,77 @@ def update_investigacion(numero_expediente: str, datos: InvestigacionUpdate, db:
 # 🚀 ---------- ENDPOINTS DE SESIONES ----------
 
 @app.post("/sesiones/")
-def crear_sesion(sesion_data: SesionCreate, force: bool = False, db: Session = Depends(get_db)):
-    if not force:
-        sesion_existente = db.query(models.Sesion).filter_by(
-            usuario_ldap=sesion_data.usuario_ldap,
-            estado="en_progreso"
-        ).first()
-        if sesion_existente:
+def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
+    try:
+        logger.info(f"🔍 API: Recibiendo datos de sesión: {sesion_data}")
+        logger.info(f"🔍 API: Tipo de datos: {type(sesion_data)}")
+
+        # Validar que investigacion_id existe
+        investigacion = db.query(models.Investigacion).filter(
+            models.Investigacion.id == sesion_data.investigacion_id).first()
+        if not investigacion:
+            logger.error(
+                f"❌ API: Investigación {sesion_data.investigacion_id} no encontrada")
             raise HTTPException(
-                status_code=400,
-                detail=f"El usuario {sesion_data.usuario_ldap} ya tiene una sesión en progreso en la plancha {sesion_existente.plancha_id} y tablet {sesion_existente.tablet_id}."
-            )
+                status_code=404, detail=f"Investigación {sesion_data.investigacion_id} no encontrada")
 
-    nueva_sesion = models.Sesion(
-        investigacion_id=sesion_data.investigacion_id,
-        nombre_sesion=sesion_data.nombre_sesion,
-        observaciones=sesion_data.observaciones,
-        usuario_ldap=sesion_data.usuario_ldap,
-        plancha_id=sesion_data.plancha_id,
-        tablet_id=sesion_data.tablet_id,
-        estado="en_progreso",
-        user_nombre=sesion_data.user_nombre
-    )
-    db.add(nueva_sesion)
-    db.commit()
-    db.refresh(nueva_sesion)
+        logger.info(
+            f"✅ API: Investigación encontrada: {investigacion.numero_expediente}")
 
-    log = models.LogEvento(
-        tipo_evento="crear_sesion",
-        descripcion=f"Sesión creada en plancha {nueva_sesion.plancha_id}, tablet {nueva_sesion.tablet_id}",
-        usuario_ldap=nueva_sesion.usuario_ldap
-    )
-    db.add(log)
-    db.commit()
+        nueva_sesion = models.Sesion(
+            investigacion_id=sesion_data.investigacion_id,
+            nombre_sesion=sesion_data.nombre_sesion,
+            observaciones=sesion_data.observaciones,
+            usuario_ldap=sesion_data.usuario_ldap,
+            plancha_id=sesion_data.plancha_id,
+            tablet_id=sesion_data.tablet_id,
+            estado=getattr(sesion_data, 'estado', 'en_progreso'),
+            user_nombre=getattr(sesion_data, 'user_nombre',
+                                sesion_data.usuario_ldap)
+        )
 
-    return nueva_sesion
+        logger.info(f"🔍 API: Objeto sesión creado: {nueva_sesion}")
+
+        db.add(nueva_sesion)
+        db.commit()
+        db.refresh(nueva_sesion)
+
+        logger.info(f"✅ API: Sesión guardada con ID: {nueva_sesion.id}")
+
+        log = models.LogEvento(
+            tipo_evento="crear_sesion",
+            descripcion=f"Sesión creada en plancha {nueva_sesion.plancha_id}, tablet {nueva_sesion.tablet_id}",
+            usuario_ldap=nueva_sesion.usuario_ldap
+        )
+        db.add(log)
+        db.commit()
+
+        logger.info(f"✅ API: Log evento creado")
+
+        response_data = {
+            "id": nueva_sesion.id,
+            "investigacion_id": nueva_sesion.investigacion_id,
+            "nombre_sesion": nueva_sesion.nombre_sesion,
+            "observaciones": nueva_sesion.observaciones,
+            "usuario_ldap": nueva_sesion.usuario_ldap,
+            "plancha_id": nueva_sesion.plancha_id,
+            "tablet_id": nueva_sesion.tablet_id,
+            "estado": nueva_sesion.estado
+        }
+
+        logger.info(f"✅ API: Devolviendo respuesta: {response_data}")
+        return response_data
+
+    except HTTPException as he:
+        logger.error(f"❌ API: HTTPException: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"❌ API: Error creando sesión: {e}")
+        logger.error(f"❌ API: Tipo de error: {type(e)}")
+        import traceback
+        logger.error(f"❌ API: Traceback: {traceback.format_exc()}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
 @app.get("/sesiones/pendientes/{usuario_ldap}")

@@ -22,11 +22,13 @@ class HeaderWidget(QWidget):
     def init_ui(self):
         # ALTURA FIJA para consistencia en todas las pantallas
         self.setFixedHeight(100)
-        self.setStyleSheet(
-            "background-color: #f8f9fa; border-bottom: 1px solid #dee2e6;")
+        # ✅ Quitar líneas grises y asegurar 100% del ancho
+        self.setStyleSheet("background-color: #f8f9fa;")
+        self.setContentsMargins(0, 0, 0, 0)  # ✅ Sin márgenes externos
 
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(20, 10, 20, 10)  # Márgenes fijos
+        header_layout.setContentsMargins(
+            20, 10, 20, 10)  # Solo padding interno
         header_layout.setAlignment(Qt.AlignVCenter)
 
         # Logo con tamaño fijo
