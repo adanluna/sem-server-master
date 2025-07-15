@@ -35,10 +35,6 @@ QPushButton[class="action-button"] {
     max-width: 300px;
 }
 
-QPushButton[class="finish-button"] {
-    background-color: #28a745;
-}
-
 QPushButton[class="success-button"]:hover,
 QPushButton[class="cancel-button"]:hover,
 QPushButton[class="secondary"]:hover,
@@ -91,10 +87,6 @@ QMessageBox QPushButton {
     padding: 8px;
     min-width: 200px;
     max-width: 300px;
-}
-
-QMessageBox QPushButton[class="cancel-button"] {
-    background-color: #555555;
 }
 
 QMessageBox QPushButton:hover {
@@ -257,94 +249,15 @@ QPushButton#logout-button:pressed {
     background-color: #000000;
 }
 
-/* ✅ Botón INICIAR - Fondo negro */
-QPushButton[class="start-button"] {
-    background-color: #000000 !important;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    padding: 20px;
-    min-width: 200px;
-    min-height: 150px;
-    font-size: 18px;
+/* Sobrescribir cancel-button para que sea gris */
+QPushButton[class="cancel-button"] {
+    background-color: #6c757d !important;
 }
 
-QPushButton[class="start-button"]:hover {
-    background-color: #333333 !important;
+QPushButton[class="cancel-button"]:hover {
+    background-color: #5a6268 !important;
 }
 
-QPushButton[class="start-button"]:pressed {
-    background-color: #000000 !important;
-}
-
-/* ✅ Botón PAUSAR - Fondo gris */
-QPushButton[class="pause-button"] {
-    background-color: #6c757d !important;  /* Gris */
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    padding: 12px;
-    min-width: 180px;
-    min-height: 130px;
-    font-size: 16px;
-}
-
-QPushButton[class="pause-button"]:hover {
-    background-color: #5a6268 !important;  /* Gris más oscuro */
-}
-
-/* ✅ Botón CONTINUAR - Fondo negro */
-QPushButton[class="continue-button"] {
-    background-color: #000000 !important;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    padding: 12px;
-    min-width: 180px;
-    min-height: 130px;
-    font-size: 16px;
-}
-
-QPushButton[class="continue-button"]:hover {
-    background-color: #333333 !important;
-}
-
-/* ✅ Botón FINALIZAR - Fondo verde */
-QPushButton[class="finish-button"] {
-    background-color: #28a745 !important;  /* Verde */
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    padding: 12px;
-    min-width: 180px;
-    min-height: 130px;
-    font-size: 16px;
-}
-
-QPushButton[class="finish-button"]:hover {
-    background-color: #218838 !important;  /* Verde más oscuro */
-}
-
-/* ✅ AGREGAR: Botón gris para QMessageBox */
-QPushButton[class="gray-button"] {
-    background-color: #6c757d !important;  /* Gris */
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    padding: 8px;
-    min-width: 200px;
-    max-width: 300px;
-}
-
-QPushButton[class="gray-button"]:hover {
-    background-color: #5a6268 !important;  /* Gris más oscuro */
-}
-
-QPushButton[class="gray-button"]:pressed {
-    background-color: #495057 !important;  /* Gris aún más oscuro */
+QPushButton[class="cancel-button"]:pressed {
+    background-color: #495057 !important;
 }

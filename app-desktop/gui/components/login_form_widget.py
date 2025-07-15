@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
+import os
 
 
 class LoginFormWidget(QWidget):
@@ -15,13 +16,33 @@ class LoginFormWidget(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(15)
 
-        # Logo
+        # ✅ CORREGIR: Logo con ruta correcta
         self.logo_label = QLabel("Logotipo")
-        logo_pixmap = QPixmap("logo.png")
+
+        # ✅ Calcular ruta correcta desde gui/components/ hacia app-desktop/
+        current_dir = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))  # Subir 3 niveles
+        logo_path = os.path.join(current_dir, "logo.png")
+
+        print(f"🔍 DEBUG LoginForm: Buscando logo en: {logo_path}")
+
+        logo_pixmap = QPixmap(logo_path)
         if not logo_pixmap.isNull():
             scaled_pixmap = logo_pixmap.scaled(
                 80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.logo_label.setPixmap(scaled_pixmap)
+            print(f"✅ Logo cargado en LoginForm desde: {logo_path}")
+        else:
+            print(f"❌ Logo no encontrado en LoginForm: {logo_path}")
+            # ✅ Fallback: Mostrar texto estilizado
+            self.logo_label.setText("🏛️ SEMEFO")
+            self.logo_label.setStyleSheet("""
+                font-size: 24px; 
+                font-weight: bold; 
+                color: #2c3e50;
+                padding: 10px;
+            """)
+
         self.logo_label.setAlignment(Qt.AlignCenter)
 
         # Campos

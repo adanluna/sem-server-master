@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 import logging
+import os
 
 
 class BaseWindow(QWidget):
@@ -64,17 +65,33 @@ class BaseWindowWithHeader(BaseWindow):
         header_layout.setContentsMargins(20, 15, 20, 15)
         header_layout.setSpacing(20)
 
+        # Logo (izquierda)
         logo_layout = QVBoxLayout()
         logo_layout.setAlignment(Qt.AlignCenter)
-
         logo_label = QLabel()
-        logo_pixmap = QPixmap("logo.png")
-        if not logo_pixmap.isNull():
-            scaled_logo = logo_pixmap.scaled(
-                60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(scaled_logo)
+
+        # ✅ CAMBIAR: Ruta correcta del logo
+        current_dir = os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))  # Subir dos niveles desde gui/
+        logo_path = os.path.join(current_dir, "logo.png")
+
+        # ✅ AGREGAR: Debug de la ruta
+        print(f"🔍 DEBUG: Buscando logo en: {logo_path}")
+
+        if os.path.exists(logo_path):
+            logo_pixmap = QPixmap(logo_path)
+            if not logo_pixmap.isNull():
+                scaled_logo = logo_pixmap.scaled(
+                    60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled_logo)
+                print(f"✅ Logo cargado desde: {logo_path}")
+            else:
+                print(f"❌ Error cargando imagen: {logo_path}")
+                logo_label.setText("LOGO")
         else:
+            print(f"❌ Logo no encontrado en: {logo_path}")
             logo_label.setText("LOGO")
+
         logo_label.setAlignment(Qt.AlignCenter)
         logo_layout.addWidget(logo_label)
         header_layout.addLayout(logo_layout)

@@ -137,17 +137,22 @@ class LoginWindow(QWidget):
         button_layout.addItem(QSpacerItem(
             40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
+        # Botón Cancelar
+        self.cancel_button = QPushButton("Cancelar")
+        self.cancel_button.setProperty("class", "cancel-button")
+        self.cancel_button.clicked.connect(self.show_login)
+
+        # ✅ AGREGAR: Forzar aplicación del estilo
+        self.cancel_button.style().unpolish(self.cancel_button)
+        self.cancel_button.style().polish(self.cancel_button)
+
+        button_layout.addWidget(self.cancel_button)
+
         # Botón Guardar
         self.save_button = QPushButton("Guardar")
         self.save_button.setProperty("class", "success-button")
         self.save_button.clicked.connect(self.save_config)
         button_layout.addWidget(self.save_button)
-
-        # Botón Cancelar
-        self.cancel_button = QPushButton("Cancelar")
-        self.cancel_button.setProperty("class", "cancel-button")
-        self.cancel_button.clicked.connect(self.show_login)
-        button_layout.addWidget(self.cancel_button)
 
         layout.addLayout(button_layout)
         page.setLayout(layout)
