@@ -16,25 +16,21 @@ class LoginFormWidget(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(15)
 
-        # ✅ CORREGIR: Logo con ruta correcta
+        # Logo con ruta correcta
         self.logo_label = QLabel("Logotipo")
 
-        # ✅ Calcular ruta correcta desde gui/components/ hacia app-desktop/
+        # Calcular ruta correcta desde gui/components/ hacia app-desktop/
         current_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))  # Subir 3 niveles
         logo_path = os.path.join(current_dir, "logo.png")
-
-        print(f"🔍 DEBUG LoginForm: Buscando logo en: {logo_path}")
 
         logo_pixmap = QPixmap(logo_path)
         if not logo_pixmap.isNull():
             scaled_pixmap = logo_pixmap.scaled(
                 80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.logo_label.setPixmap(scaled_pixmap)
-            print(f"✅ Logo cargado en LoginForm desde: {logo_path}")
         else:
-            print(f"❌ Logo no encontrado en LoginForm: {logo_path}")
-            # ✅ Fallback: Mostrar texto estilizado
+            # Fallback: Mostrar texto estilizado
             self.logo_label.setText("🏛️ SEMEFO")
             self.logo_label.setStyleSheet("""
                 font-size: 24px; 

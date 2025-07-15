@@ -10,7 +10,6 @@ class BaseWindow(QWidget):
         super().__init__()
         self.config_service = config_service
         self.setWindowTitle(window_title)
-        # ✅ AGREGAR: Tamaño estándar para todas las ventanas
         self.resize(1024, 768)
         self.center_window()
 
@@ -21,7 +20,6 @@ class BaseWindow(QWidget):
         self.content_widget = QWidget()
         main_layout.addWidget(self.content_widget)
 
-    # ✅ AGREGAR: Método para centrar ventana
     def center_window(self):
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
@@ -70,13 +68,10 @@ class BaseWindowWithHeader(BaseWindow):
         logo_layout.setAlignment(Qt.AlignCenter)
         logo_label = QLabel()
 
-        # ✅ CAMBIAR: Ruta correcta del logo
+        # Ruta correcta del logo
         current_dir = os.path.dirname(os.path.dirname(
             os.path.abspath(__file__)))  # Subir dos niveles desde gui/
         logo_path = os.path.join(current_dir, "logo.png")
-
-        # ✅ AGREGAR: Debug de la ruta
-        print(f"🔍 DEBUG: Buscando logo en: {logo_path}")
 
         if os.path.exists(logo_path):
             logo_pixmap = QPixmap(logo_path)
@@ -84,12 +79,9 @@ class BaseWindowWithHeader(BaseWindow):
                 scaled_logo = logo_pixmap.scaled(
                     60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled_logo)
-                print(f"✅ Logo cargado desde: {logo_path}")
             else:
-                print(f"❌ Error cargando imagen: {logo_path}")
                 logo_label.setText("LOGO")
         else:
-            print(f"❌ Logo no encontrado en: {logo_path}")
             logo_label.setText("LOGO")
 
         logo_label.setAlignment(Qt.AlignCenter)
@@ -124,7 +116,6 @@ class BaseWindowWithHeader(BaseWindow):
         if self.medico_nombre:
             user_label = QLabel(self.medico_nombre)
             user_label.setAlignment(Qt.AlignCenter)
-            # ✅ AGREGAR: Texto en negritas
             user_label.setStyleSheet("font-weight: bold;")
             right_layout.addWidget(user_label)
 

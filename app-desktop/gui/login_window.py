@@ -8,7 +8,7 @@ from services.api_service import ApiService
 from services.utils import load_stylesheet
 from .components.services_status_widget import ServicesStatusWidget
 from .components.login_form_widget import LoginFormWidget
-from .components.login_header_widget import LoginHeaderWidget  # Nombre cambiado
+from .components.login_header_widget import LoginHeaderWidget
 from .components.config_tabs_widget import ConfigTabsWidget
 from .components.session_dialog_widget import SessionDialogWidget
 from .components.validation_utils import ValidationUtils
@@ -72,7 +72,7 @@ class LoginWindow(QWidget):
         page = QWidget()
         main_layout = QVBoxLayout()
 
-        # Header con botón de configuración - usando el nombre correcto
+        # Header con botón de configuración
         self.header_widget = LoginHeaderWidget()
         self.header_widget.config_requested.connect(self.show_config)
 
@@ -83,7 +83,6 @@ class LoginWindow(QWidget):
 
         # Widget de estados de servicios
         self.services_widget = ServicesStatusWidget(self.config_service)
-        # ✅ AGREGAR: Conectar señal cuando cambien los servicios
         self.services_widget.services_updated.connect(
             self.check_login_availability)
 
@@ -142,7 +141,7 @@ class LoginWindow(QWidget):
         self.cancel_button.setProperty("class", "cancel-button")
         self.cancel_button.clicked.connect(self.show_login)
 
-        # ✅ AGREGAR: Forzar aplicación del estilo
+        # Forzar aplicación del estilo
         self.cancel_button.style().unpolish(self.cancel_button)
         self.cancel_button.style().polish(self.cancel_button)
 
@@ -160,14 +159,12 @@ class LoginWindow(QWidget):
 
     def show_config(self):
         """Cambiar a la página de configuración"""
-        print("🔍 DEBUG: show_config() - Cambiando a página de configuración")
         self.load_current_config()
         self.stacked_widget.setCurrentWidget(self.config_page)
         self.setWindowTitle("SEMEFO - Configuración")
 
     def show_login(self):
         """Volver a la página de login desde configuración"""
-        print("🔍 DEBUG: show_login() - Cambiando a página de login")
         self.stacked_widget.setCurrentWidget(self.login_page)
         self.setWindowTitle("SEMEFO - Sistema")
         # Actualizar servicios al volver
@@ -246,10 +243,7 @@ class LoginWindow(QWidget):
 
     def check_login_availability(self):
         """Verificar si el login debe estar habilitado"""
-        # ✅ AGREGAR: Debug para ver el estado de los servicios
-        print(f"🔍 DEBUG: Verificando disponibilidad de servicios...")
         services_ok = self.services_widget.are_all_services_ok()
-        print(f"🔍 DEBUG: Servicios OK: {services_ok}")
 
         if services_ok:
             self.enable_login()
@@ -281,8 +275,6 @@ class LoginWindow(QWidget):
 
     def handle_login_request(self, username, password):
         """Manejar solicitud de login desde el widget"""
-        print("🔍 DEBUG: Entrando a función handle_login_request()")
-
         if not username or not password:
             QMessageBox.warning(self, "Campos requeridos",
                                 "Por favor ingrese usuario y contraseña.")
@@ -290,19 +282,14 @@ class LoginWindow(QWidget):
 
         try:
             # 1. PRIMERO verificar sesiones pendientes
-            print("🔍 DEBUG: Verificando sesiones pendientes...")
             session_response = self.login_service.check_pending_session(
                 username)
 
             if session_response:  # Si hay sesión pendiente
-                print("⚠️ DEBUG: Sesión pendiente encontrada, mostrando diálogo")
                 self.show_pending_session_dialog(session_response, username)
                 return  # Detener el flujo aquí
 
-            print("✅ DEBUG: No hay sesiones pendientes, continuando con autenticación...")
-
             # 2. Proceder con autenticación LDAP
-            print("🔍 DEBUG: Iniciando autenticación LDAP...")
             auth_result = self.login_service.authenticate_user(
                 username, password)
 
@@ -319,7 +306,7 @@ class LoginWindow(QWidget):
             user_info = auth_result['user_data']
             self.open_expediente_window(
                 user_info['displayName'],
-                username  # ✅ Pasar también el username LDAP
+                username  # Pasar también el username LDAP
             )
 
         except Exception as e:
@@ -395,12 +382,12 @@ class LoginWindow(QWidget):
                 QMessageBox.information(
                     self, "Sesión Cerrada", "La sesión activa ha sido cerrada correctamente.")
 
-                # ✅ Re-autenticar usuario para continuar (actualizar aquí también)
+                # Re-autenticar usuario para continuar
                 username, password = self.login_form_widget.get_credentials()
                 auth_result = self.login_service.authenticate_user(
                     username, password)
 
-                if auth_result['success']:  # ✅ Ahora es un dict
+                if auth_result['success']:
                     user_info = auth_result['user_data']
                     self.open_expediente_window(user_info['displayName'])
 
@@ -415,7 +402,6 @@ class LoginWindow(QWidget):
             QMessageBox.critical(
                 self, "Error", f"Error inesperado al cerrar sesión:\n{str(e)}")
 
-    # ✅ Agregar username_ldap
     def open_expediente_window(self, user_display_name, username_ldap):
         """Abrir ventana de expedientes"""
         try:
@@ -424,7 +410,7 @@ class LoginWindow(QWidget):
             self.expediente_window = ExpedienteWindow(
                 medico_nombre=user_display_name,
                 config_service=self.config_service,
-                username_ldap=username_ldap  # ✅ Pasar el username LDAP
+                username_ldap=username_ldap
             )
             self.expediente_window.show()
             self.close()
