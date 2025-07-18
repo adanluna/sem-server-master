@@ -33,3 +33,16 @@ backup-db:
 
 restore-db:
 	cat backups/semefo_backup.sql | docker exec -i postgres_db psql -U postgres -d semefo
+
+# 🔥 Workers locales en Mac
+
+stop-workers:
+	@echo "🚀 Deteniendo todos los workers locales..."
+	-pkill -f "celery -A" || true
+
+start-workers:
+	@echo "🚀 Iniciando workers locales con iniciar_workers.sh..."
+	./scripts/iniciar_workers.sh
+
+restart-workers: stop-workers start-workers
+	@echo "✅ Workers locales reiniciados correctamente."

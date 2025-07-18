@@ -15,6 +15,8 @@ class Investigacion(Base):
 
     sesiones = relationship(
         "Sesion", back_populates="investigacion", cascade="all, delete-orphan")
+    jobs = relationship(
+        "Job", back_populates="investigacion", cascade="all, delete-orphan")
 
 
 class Sesion(Base):
@@ -35,6 +37,8 @@ class Sesion(Base):
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
         "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan")
+    jobs = relationship(
+        "Job", back_populates="sesion", cascade="all, delete-orphan")
 
 
 class SesionArchivo(Base):
@@ -42,11 +46,14 @@ class SesionArchivo(Base):
 
     id = Column(Integer, primary_key=True)
     sesion_id = Column(Integer, ForeignKey("sesiones.id"), nullable=False)
-    tipo_archivo = Column(String(50))
+    tipo_archivo = Column(String(50), nullable=False)  # audio, video, etc.
     ruta_original = Column(Text)
     ruta_convertida = Column(Text)
     conversion_completa = Column(Boolean, default=False)
-    transcripcion_completa = Column(Boolean, default=False)
+    estado = Column(String(50), default="pendiente")  # nuevo campo
+    mensaje = Column(Text, nullable=True)             # nuevo campo
+    fecha_finalizacion = Column(DateTime, nullable=True)  # nuevo campo
+    fecha = Column(DateTime, default=datetime.utcnow)
 
     sesion = relationship("Sesion", back_populates="archivos")
 
@@ -59,3 +66,24 @@ class LogEvento(Base):
     descripcion = Column(Text)
     usuario_ldap = Column(String(255))
     fecha = Column(DateTime, default=datetime.utcnow)
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(Integer, primary_key=True)
+    investigacion_id = Column(Integer, ForeignKey(
+        "investigaciones.id"), nullable=False)
+    sesion_id = Column(Integer, ForeignKey("sesiones.id"), nullable=False)
+    tipo = Column(String(50), nullable=False)  # audio, video, transcripcion
+    archivo = Column(Text, nullable=False)
+    # pendiente, procesando, completado, error
+    estado = Column(String(50), default="pendiente")
+    resultado = Column(Text, nullable=True)  # ruta de salida o resultado
+    error = Column(Text, nullable=True)  # mensaje de error si falla
+    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    fecha_actualizacion = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    investigacion = relationship("Investigacion", back_populates="jobs")
+    sesion = relationship("Sesion", back_populates="jobs")

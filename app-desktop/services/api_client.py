@@ -590,3 +590,24 @@ class ApiClient:
         except Exception as e:
             logging.error(f"❌ Error creando sesión: {e}")
             raise e
+
+    def actualizar_sesion_estado(self, id_sesion: int, nuevo_estado: str) -> bool:
+        """Actualizar el estado de una sesión"""
+        try:
+            payload = {"estado": nuevo_estado}
+            endpoint = f"/sesiones/{id_sesion}"
+            response = self._make_request('PUT', endpoint, data=payload)
+
+            if response.status_code == 200:
+                logging.info(
+                    f"✅ Estado de la sesión {id_sesion} actualizado a '{nuevo_estado}'")
+                return True
+            else:
+                logging.error(
+                    f"❌ Error actualizando sesión {id_sesion}: {response.status_code} - {response.text}")
+                return False
+
+        except Exception as e:
+            logging.error(
+                f"❌ Error actualizando estado sesión {id_sesion}: {e}")
+            return False

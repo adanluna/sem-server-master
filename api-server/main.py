@@ -1,12 +1,25 @@
+from schemas import SesionArchivoEstadoUpdate
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from database import get_db, engine
-import models
 from datetime import datetime
 import logging
+import os
 
-# Configurar logging al inicio del archivo
+from database import get_db, engine
+import models
+from schemas import (
+    InvestigacionCreate,
+    InvestigacionUpdate,
+    SesionCreate,
+    JobCreate,
+    JobUpdate,
+    SesionArchivoCreate,
+    SesionArchivoResponse,
+)
+
+from worker.tasks import unir_audio, unir_video
+
+# Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -17,53 +30,22 @@ app = FastAPI(
     title="Sistema Forense SEMEFO",
     description="API del Sistema Integral de Grabación y Gestión de Autopsias del Gobierno del Estado de Nuevo León.",
     version="1.0.0",
-    contact={
-        "name": "Gobierno del Estado de Nuevo León",
-        "url": "https://www.nl.gob.mx",
-    },
-    license_info={
-        "name": "Privativo Fiscalía NL",
-        "url": "https://www.fiscalianl.gob.mx/",
-    },
+    contact={"name": "Gobierno del Estado de Nuevo León",
+             "url": "https://www.nl.gob.mx"},
+    license_info={"name": "Privativo Fiscalía NL",
+                  "url": "https://www.fiscalianl.gob.mx/"},
 )
 
 
 @app.get("/")
 async def root():
-    """Endpoint raíz"""
     return {"message": "SEMEFO API Server", "status": "running"}
 
 
 @app.get("/health")
 async def health_check():
-    """Endpoint de salud para verificar que la API está funcionando"""
     return {"status": "ok", "message": "API funcionando correctamente"}
 
-
-# 🚀 ---------- MODELOS PYDANTIC ----------
-
-class InvestigacionCreate(BaseModel):
-    numero_expediente: str
-    nombre_carpeta: str | None = None
-    observaciones: str | None = None
-
-
-class InvestigacionUpdate(BaseModel):
-    nombre_carpeta: str | None = None
-    observaciones: str | None = None
-
-
-class SesionCreate(BaseModel):
-    investigacion_id: int
-    nombre_sesion: str
-    observaciones: str | None = None
-    usuario_ldap: str
-    user_nombre: str | None = None
-    plancha_id: str
-    tablet_id: str
-
-
-# 🚀 ---------- ENDPOINTS DE INVESTIGACION ----------
 
 @app.post("/investigaciones/", response_model=InvestigacionCreate)
 def create_investigacion(invest: InvestigacionCreate, db: Session = Depends(get_db)):
@@ -108,8 +90,6 @@ def update_investigacion(numero_expediente: str, datos: InvestigacionUpdate, db:
     db.refresh(investigacion)
     return investigacion
 
-
-# 🚀 ---------- ENDPOINTS DE SESIONES ----------
 
 @app.post("/sesiones/")
 def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
@@ -284,10 +264,9 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     if not numero_expediente or not id_sesion:
         raise HTTPException(status_code=400, detail="Faltan parámetros")
 
-    # 🚀 Aquí irían tus Celery tasks reales, ejemplo:
-    # unir_audio.delay(numero_expediente, id_sesion)
-    # unir_video.delay(numero_expediente, id_sesion)
-    # transcribir_audio.delay(numero_expediente, id_sesion)
+    # 🔥 Llamadas reales a Celery
+    unir_audio.delay(numero_expediente, id_sesion)
+    unir_video.delay(numero_expediente, id_sesion)
 
     return {"message": f"Procesamiento lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
 
@@ -299,7 +278,6 @@ def procesar_audio(payload: dict, db: Session = Depends(get_db)):
     if not numero_expediente or not id_sesion:
         raise HTTPException(status_code=400, detail="Faltan parámetros")
 
-    # TODO: Agregar lógica específica de audio
     return {"message": f"Procesamiento de audio lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
 
 
@@ -310,5 +288,127 @@ def procesar_video(payload: dict, db: Session = Depends(get_db)):
     if not numero_expediente or not id_sesion:
         raise HTTPException(status_code=400, detail="Faltan parámetros")
 
-    # TODO: Agregar lógica específica de video
     return {"message": f"Procesamiento de video lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
+
+
+@app.post("/jobs/crear")
+def crear_job(job: JobCreate, db: Session = Depends(get_db)):
+    try:
+        logger.info(f"📥 API: Recibiendo nuevo job desde worker: {job}")
+        investigacion = db.query(models.Investigacion).filter_by(
+            numero_expediente=job.numero_expediente).first()
+        if not investigacion:
+            raise HTTPException(
+                status_code=404, detail="Investigación no encontrada")
+
+        sesion = db.query(models.Sesion).filter_by(
+            id=job.id_sesion, investigacion_id=investigacion.id).first()
+        if not sesion:
+            raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+        nuevo_job = models.Job(
+            investigacion_id=investigacion.id,
+            sesion_id=sesion.id,
+            tipo=job.tipo,
+            archivo=job.archivo,
+            estado=job.estado,
+            resultado=job.resultado,
+            error=job.error,
+        )
+
+        db.add(nuevo_job)
+        db.commit()
+        db.refresh(nuevo_job)
+
+        logger.info(f"✅ API: Job registrado correctamente (ID {nuevo_job.id})")
+
+        return {
+            "message": "Job creado correctamente",
+            "job_id": nuevo_job.id,
+            "estado": nuevo_job.estado,
+        }
+
+    except HTTPException as he:
+        logger.error(f"❌ API: Error HTTP al crear job: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"❌ API: Error inesperado al crear job: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail="Error interno al crear el job")
+
+
+@app.put("/jobs/{job_id}/actualizar")
+def actualizar_job(job_id: int, datos: JobUpdate, db: Session = Depends(get_db)):
+    job = db.query(models.Job).filter_by(id=job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    if datos.estado:
+        job.estado = datos.estado
+    if datos.resultado:
+        job.resultado = datos.resultado
+    if datos.error:
+        job.error = datos.error
+
+    db.commit()
+    db.refresh(job)
+    return {"message": "Job actualizado", "job_id": job.id, "estado": job.estado}
+
+
+@app.post("/archivos/", response_model=SesionArchivoResponse)
+def registrar_archivo(data: SesionArchivoCreate, db: Session = Depends(get_db)):
+    archivo = models.SesionArchivo(**data.dict())
+    db.add(archivo)
+    db.commit()
+    db.refresh(archivo)
+    return archivo
+
+
+@app.get("/sesiones/{sesion_id}/archivos", response_model=list[SesionArchivoResponse])
+def listar_archivos_por_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    archivos = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id).all()
+    if not archivos:
+        return []
+    return archivos
+
+
+@app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
+def actualizar_estado_archivo(
+    sesion_id: int,
+    tipo: str,
+    data: SesionArchivoEstadoUpdate,
+    db: Session = Depends(get_db)
+):
+    archivo = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id,
+        tipo_archivo=tipo
+    ).first()
+
+    if not archivo:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró archivo de tipo {tipo} para la sesión {sesion_id}"
+        )
+
+    archivo.estado = data.estado
+
+    if data.mensaje:
+        archivo.mensaje = data.mensaje
+
+    if data.fecha_finalizacion:
+        archivo.fecha_finalizacion = datetime.utcnow()
+
+    if data.ruta_convertida:
+        archivo.ruta_convertida = data.ruta_convertida
+
+    if data.conversion_completa is not None:
+        archivo.conversion_completa = data.conversion_completa
+
+    db.commit()
+    db.refresh(archivo)
+
+    return {
+        "message": f"Estado del archivo {tipo} en sesión {sesion_id} actualizado a '{data.estado}'"
+    }
