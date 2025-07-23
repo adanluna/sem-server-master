@@ -6,6 +6,7 @@ from services.api_client import ApiClient
 from services.audio_recorder import AudioRecorder
 import logging
 import os
+import requests
 
 
 class GrabarWindow(BaseWindowWithHeader):
@@ -194,6 +195,13 @@ class GrabarWindow(BaseWindowWithHeader):
                 f"🚀 Sesión enviada a procesamiento: {self.numero_expediente}/{self.id_sesion}")
         except Exception as e:
             logging.error(f"💥 Error enviando sesión a procesamiento: {e}")
+
+        # ✅ Finalizar sesión en backend
+        try:
+            self.api_client.finalizar_sesion(self.id_sesion)
+            logging.info(f"✅ Sesión {self.id_sesion} finalizada en backend")
+        except Exception as e:
+            logging.error(f"💥 Error finalizando sesión en API: {e}")
 
         from gui.success_window import SuccessWindow
         self.success_window = SuccessWindow(

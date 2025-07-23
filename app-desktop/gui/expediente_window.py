@@ -101,20 +101,34 @@ class ExpedienteWindow(BaseWindowWithHeader):
                 # Copia a archivos_grabados (respaldo crudo)
                 origen_audio = "storage_test/audios"
                 origen_video = "storage_test/videos"
+                origen_video2 = "storage_test/videos2"
+
                 destino_audio = f"storage/archivos_grabados/{numero_expediente}/{id_sesion}/audios"
                 destino_video = f"storage/archivos_grabados/{numero_expediente}/{id_sesion}/videos"
+                destino_video2 = f"storage/archivos_grabados/{numero_expediente}/{id_sesion}/videos2"
+
                 os.makedirs(destino_audio, exist_ok=True)
                 os.makedirs(destino_video, exist_ok=True)
+
                 for f in os.listdir(origen_audio):
                     shutil.copy2(os.path.join(origen_audio, f), destino_audio)
                 for f in os.listdir(origen_video):
                     shutil.copy2(os.path.join(origen_video, f), destino_video)
 
+                # ✅ Copiar carpeta videos2 si existe
+                if os.path.exists(origen_video2):
+                    os.makedirs(destino_video2, exist_ok=True)
+                    for f in os.listdir(origen_video2):
+                        shutil.copy2(os.path.join(
+                            origen_video2, f), destino_video2)
+
                 # ✅ Copia a archivos (para que el worker tenga audios/videos a unir)
                 destino_audio_final = f"storage/archivos/{numero_expediente}/{id_sesion}/audios"
                 destino_video_final = f"storage/archivos/{numero_expediente}/{id_sesion}/videos"
+
                 os.makedirs(destino_audio_final, exist_ok=True)
                 os.makedirs(destino_video_final, exist_ok=True)
+
                 for f in os.listdir(origen_audio):
                     shutil.copy2(os.path.join(origen_audio, f),
                                  destino_audio_final)
@@ -122,6 +136,7 @@ class ExpedienteWindow(BaseWindowWithHeader):
                     shutil.copy2(os.path.join(origen_video, f),
                                  destino_video_final)
 
+                # Mostrar siguiente ventana
                 from gui.grabar_window import GrabarWindow
                 self.grabar_window = GrabarWindow(
                     medico_nombre=self.medico_nombre,

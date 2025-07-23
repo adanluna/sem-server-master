@@ -4,3 +4,4 @@ services:
   celery:
     environment:
       - MODO_PRUEBA_VIDEO=1
+      - IS_DOCKER=1

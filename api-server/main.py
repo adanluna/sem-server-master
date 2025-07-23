@@ -17,7 +17,7 @@ from schemas import (
     SesionArchivoResponse,
 )
 
-from worker.tasks import unir_audio, unir_video
+from worker.tasks import unir_audio, unir_video, unir_video2
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -267,28 +267,9 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     # 🔥 Llamadas reales a Celery
     unir_audio.delay(numero_expediente, id_sesion)
     unir_video.delay(numero_expediente, id_sesion)
+    unir_video2.delay(numero_expediente, id_sesion)
 
     return {"message": f"Procesamiento lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
-
-
-@app.post("/procesar_audio")
-def procesar_audio(payload: dict, db: Session = Depends(get_db)):
-    numero_expediente = payload.get("numero_expediente")
-    id_sesion = payload.get("id_sesion")
-    if not numero_expediente or not id_sesion:
-        raise HTTPException(status_code=400, detail="Faltan parámetros")
-
-    return {"message": f"Procesamiento de audio lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
-
-
-@app.post("/procesar_video")
-def procesar_video(payload: dict, db: Session = Depends(get_db)):
-    numero_expediente = payload.get("numero_expediente")
-    id_sesion = payload.get("id_sesion")
-    if not numero_expediente or not id_sesion:
-        raise HTTPException(status_code=400, detail="Faltan parámetros")
-
-    return {"message": f"Procesamiento de video lanzado para expediente {numero_expediente}, sesión {id_sesion}"}
 
 
 @app.post("/jobs/crear")

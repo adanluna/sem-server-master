@@ -1,3 +1,4 @@
+
 version: '3.8'
 
 services:
@@ -62,7 +63,7 @@ services:
       dockerfile: worker/Dockerfile
     container_name: celery_worker
     working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q uniones_audio,uniones_video,conversiones_video --loglevel=info
+    command: celery -A worker.celery_app worker -Q uniones_audio,uniones_video --loglevel=info
     volumes:
       - .:/app
       - ./storage:/storage
@@ -80,7 +81,35 @@ services:
     restart: always
     user: "1000:1000"
     healthcheck:
-      test: ["CMD-SHELL", "celery -A worker.celery_app status || exit 1"]
+      test: ["CMD-SHELL", "ps aux | grep '[c]elery worker' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  celery_video2:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: celery_video2
+    working_dir: /app/worker
+    command: celery -A worker.celery_app worker -Q videos2 --loglevel=info --hostname=worker_videos2@%h
+    volumes:
+      - .:/app
+      - ./storage:/storage
+    env_file:
+      - .env
+    environment:
+      - TZ=America/Monterrey
+      - PYTHONPATH=/app
+      - DB_HOST=postgres_db
+    restart: always
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep '[c]elery worker' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

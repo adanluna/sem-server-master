@@ -457,28 +457,6 @@ class ApiClient:
             logging.error(f"❌ Error procesando sesión: {e}")
             return False
 
-    # ============= AGREGAR ENDPOINTS FALTANTES =============
-
-    def procesar_audio(self, numero_expediente: str, id_sesion: int) -> bool:
-        """Enviar audio para procesamiento - Placeholder"""
-        try:
-            # 🚀 Tu API no tiene este endpoint específico, usar procesar_sesion
-            return self.procesar_sesion(numero_expediente, id_sesion)
-
-        except Exception as e:
-            logging.error(f"❌ Error procesando audio: {e}")
-            return False
-
-    def procesar_video(self, numero_expediente: str, id_sesion: int) -> bool:
-        """Enviar video para procesamiento - Placeholder"""
-        try:
-            # 🚀 Tu API no tiene este endpoint específico, usar procesar_sesion
-            return self.procesar_sesion(numero_expediente, id_sesion)
-
-        except Exception as e:
-            logging.error(f"❌ Error procesando video: {e}")
-            return False
-
     # ============= USUARIOS/AUTENTICACIÓN =============
 
     def verificar_usuario_ldap(self, usuario: str, password: str) -> bool:
@@ -610,4 +588,22 @@ class ApiClient:
         except Exception as e:
             logging.error(
                 f"❌ Error actualizando estado sesión {id_sesion}: {e}")
+            return False
+
+    def finalizar_sesion(self, id_sesion: int) -> bool:
+        """Finalizar sesión utilizando método interno de request"""
+        try:
+            endpoint = f"/sesiones/finalizar/{id_sesion}"
+            response = self._make_request("PUT", endpoint)
+
+            if response.status_code == 200:
+                logging.info(f"✅ Sesión {id_sesion} finalizada correctamente")
+                return True
+            else:
+                logging.error(
+                    f"❌ Error al finalizar sesión {id_sesion}: {response.status_code} - {response.text}")
+                return False
+
+        except Exception as e:
+            logging.error(f"❌ Error finalizando sesión {id_sesion}: {e}")
             return False

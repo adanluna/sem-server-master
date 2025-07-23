@@ -72,12 +72,11 @@ def finalizar_archivo(id_sesion, tipo_archivo, ruta_convertida):
         return False
 
 
-def registrar_archivo(id_sesion, tipo_archivo, ruta_original):
+def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None):
     """
     Registra un archivo en la API si aún no existe.
     """
     try:
-        # Verificar si ya existe
         response = requests.get(f"{API_URL}/sesiones/{id_sesion}/archivos")
         response.raise_for_status()
         archivos = response.json()
@@ -90,6 +89,7 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original):
             "sesion_id": id_sesion,
             "tipo_archivo": tipo_archivo,
             "ruta_original": ruta_original,
+            "ruta_convertida": ruta_convertida or ruta_original,
             "conversion_completa": False
         }
 
