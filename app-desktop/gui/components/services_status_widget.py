@@ -19,7 +19,7 @@ class ServicesStatusWidget(QWidget):
         # Timer para verificar servicios periódicamente
         self.service_timer = QTimer()
         self.service_timer.timeout.connect(self.check_all_services)
-        self.service_timer.start(30000)  # Verificar cada 30 segundos
+        self.service_timer.start(10000)  # Verificar cada 30 segundos
 
         # Verificar servicios inicialmente
         self.check_all_services()

@@ -5,6 +5,7 @@ import logging
 from ldap3.core.exceptions import LDAPSocketOpenError, LDAPBindError
 from services.login_service import LoginService
 from services.api_service import ApiService
+from services.api_client import ApiClient
 from services.utils import load_stylesheet
 from .components.services_status_widget import ServicesStatusWidget
 from .components.login_form_widget import LoginFormWidget
@@ -22,6 +23,7 @@ class LoginWindow(QWidget):
         super().__init__()
         self.config_service = config_service
         self.login_service = LoginService(config_service)
+        self.api_client = ApiClient(config_service)
         self.api_service = ApiService()
 
         # Inicializar UI
@@ -113,7 +115,7 @@ class LoginWindow(QWidget):
 
         # Botón volver
         back_button = QPushButton("Regresar")
-        back_button.setProperty("class", "secondary")
+        back_button.setProperty("class", "action-button")
         back_button.clicked.connect(self.show_login)
         header_layout.addWidget(back_button)
 
@@ -264,13 +266,25 @@ class LoginWindow(QWidget):
         self.login_form_widget.set_button_text("Servicios no disponibles")
         self.login_form_widget.set_button_tooltip(
             "Todos los servicios (LDAP, API, RabbitMQ) deben estar activos")
-        logging.warning("Login deshabilitado: servicios no disponibles")
+        # ✅ Aplica la clase directamente al botón
+        self.login_form_widget.login_button.setProperty("class", "gray-button")
+        self.login_form_widget.login_button.style().unpolish(
+            self.login_form_widget.login_button)
+        self.login_form_widget.login_button.style().polish(
+            self.login_form_widget.login_button)
 
     def enable_login(self):
         """Habilitar login cuando todo está correcto"""
         self.login_form_widget.set_button_enabled(True)
         self.login_form_widget.set_button_text("Iniciar Sesión")
         self.login_form_widget.set_button_tooltip("")
+        # ✅ Quitar la clase gray-button del botón
+        self.login_form_widget.login_button.setProperty(
+            "class", "success-button")
+        self.login_form_widget.login_button.style().unpolish(
+            self.login_form_widget.login_button)
+        self.login_form_widget.login_button.style().polish(
+            self.login_form_widget.login_button)
         logging.info("Login habilitado: configuración y servicios OK")
 
     def handle_login_request(self, username, password):
@@ -351,7 +365,7 @@ class LoginWindow(QWidget):
     def show_pending_session_dialog(self, session_data, username):
         """Mostrar diálogo para sesión pendiente usando widget"""
         try:
-            dialog = SessionDialogWidget(session_data, username, self)
+            dialog = SessionDialogWidget(session_data, username, self.api_client, parent=self)
             dialog.session_close_requested.connect(
                 self.handle_close_session_request)
             dialog.exec()

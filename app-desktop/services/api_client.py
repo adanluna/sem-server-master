@@ -358,11 +358,9 @@ class ApiClient:
                 "investigacion_id": int(investigacion_id),
                 "nombre_sesion": str(descripcion),
                 "observaciones": "Sesión creada desde app desktop",
-                # ✅ Username de LDAP (ej: "forense1")
                 "usuario_ldap": str(usuario_ldap),
                 "plancha_id": str(plancha_id),
                 "tablet_id": str(tablet_id),
-                # ✅ Nombre completo (ej: "Forense 1 F1. Martinez")
                 "user_nombre": str(user_nombre or usuario_ldap),
                 "estado": "en_progreso"
             }

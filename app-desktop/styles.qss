@@ -20,8 +20,6 @@ QPushButton:pressed {
 
 /* ---------- BOTONES CON CLASS ---------- */
 QPushButton[class="success-button"],
-QPushButton[class="cancel-button"],
-QPushButton[class="secondary"],
 QPushButton[class="danger-button"],
 QPushButton[class="settings"],
 QPushButton[class="action-button"] {
@@ -39,22 +37,9 @@ QPushButton[class="finish-button"] {
     background-color: #28a745;
 }
 
-QPushButton[class="success-button"]:hover,
-QPushButton[class="cancel-button"]:hover,
-QPushButton[class="secondary"]:hover,
-QPushButton[class="danger-button"]:hover,
-QPushButton[class="settings"]:hover,
-QPushButton[class="action-button"]:hover {
+QPushButton[class="cancel-button"],
+QPushButton[class="secondary"] {
     background-color: #555555;
-}
-
-QPushButton[class="success-button"]:pressed,
-QPushButton[class="cancel-button"]:pressed,
-QPushButton[class="secondary"]:pressed,
-QPushButton[class="danger-button"]:pressed,
-QPushButton[class="settings"]:pressed,
-QPushButton[class="action-button"]:pressed {
-    background-color: #000000;
 }
 
 /* ---------- ESPECIALES PARA SETTINGS Y DANGER ---------- */

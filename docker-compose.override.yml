@@ -5,3 +5,8 @@ services:
     environment:
       - MODO_PRUEBA_VIDEO=1
       - IS_DOCKER=1
+
+  celery_video2:
+    environment:
+      - MODO_PRUEBA_VIDEO=1
+      - IS_DOCKER=1

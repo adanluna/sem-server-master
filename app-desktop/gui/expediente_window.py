@@ -7,6 +7,7 @@ from services.api_client import ApiClient
 import logging
 import os
 import shutil
+import re
 
 
 class ExpedienteWindow(BaseWindowWithHeader):
@@ -44,6 +45,8 @@ class ExpedienteWindow(BaseWindowWithHeader):
         self.input_expediente = QLineEdit()
         self.input_expediente.setPlaceholderText("Ej: EXP-2024-001")
         self.input_expediente.setMinimumWidth(450)
+        # ✅ Filtrar caracteres no válidos en tiempo real
+        self.input_expediente.textChanged.connect(self.filtrar_expediente)
         form_layout.addRow(expediente_label, self.input_expediente)
 
         sesion_label = QLabel("Nombre de la Sesión:")
@@ -77,9 +80,19 @@ class ExpedienteWindow(BaseWindowWithHeader):
         layout.addItem(QSpacerItem(
             20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
+    def filtrar_expediente(self, texto):
+        # Solo letras, números y guion bajo, todo en mayúsculas
+        texto_filtrado = re.sub(r'[^A-Z0-9_-]', '', texto.upper())
+        if texto != texto_filtrado:
+            cursor_pos = self.input_expediente.cursorPosition()
+            self.input_expediente.setText(texto_filtrado)
+            self.input_expediente.setCursorPosition(
+                cursor_pos - (len(texto) - len(texto_filtrado)))
+
     def go_to_next(self):
         try:
-            numero_expediente = self.input_expediente.text().strip()
+            numero_expediente = self.input_expediente.text(
+            ).strip().upper()
             nombre_sesion = self.input_sesion.text().strip()
 
             if not numero_expediente or not nombre_sesion:
