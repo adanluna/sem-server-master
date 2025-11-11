@@ -1,5 +1,5 @@
 import ldap3
-from ldap3 import Server, Connection, ALL, NTLM
+from ldap3 import Server, Connection, ALL
 from ldap3.core.exceptions import LDAPException
 import logging
 import os
@@ -194,3 +194,30 @@ class LoginService:
                 'user_data': {},
                 'error': error_msg
             }
+
+    def authenticate_ldap(self, username: str, password: str):
+        cfg = self.config_service.get_config()
+        ldap_cfg = cfg.get("ldap", {})
+        host = ldap_cfg.get("server_ip")
+        port = int(ldap_cfg.get("port", 389))
+        use_ssl = bool(ldap_cfg.get("use_ssl", False))
+        domain = ldap_cfg.get("domain", "")
+        upn = username if "@" in username else (
+            f"{username}@{domain}" if domain else username)
+
+        server = Server(host, port=port, use_ssl=use_ssl,
+                        get_info=ALL, connect_timeout=6)
+        conn = Connection(server, user=upn, password=password,
+                          raise_exceptions=False)
+        conn.open()
+        ok = conn.bind()
+        result = conn.result or {}
+        msg = (result.get("message") or getattr(
+            conn, "last_error", "") or "").lower()
+        conn.unbind()
+
+        if ok:
+            return True, ""
+        if "data 773" in msg:   # debe cambiar contraseña
+            return False, "PWD_CHANGE_REQUIRED"
+        return False, f"{result.get('description','error')}: {result.get('message','')}"

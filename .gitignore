@@ -14,11 +14,14 @@ VENV/
 .env.production
 *.env
 
-# Archivos de Python
+# Archivos de Python compilados
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyc
+
+# Distribución / empaquetado de Python
 .Python
 build/
 develop-eggs/
@@ -38,7 +41,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-.DS_Store
 
 # IDEs y editores
 .vscode/
@@ -50,19 +52,15 @@ MANIFEST
 # Logs
 *.log
 
-# Sistema operativo
+# Sistema operativo (macOS/Windows)
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.dbvenv/
-*.pyc
-__pycache__/
+Thumbs.db
 
-
-# Storage
+# Storage local
 storage/
 storage_test/
-.DS_Store
