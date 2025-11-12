@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  🧠 Respaldo automático de la base de datos SEMEFO
+#  Respaldo automático de la base de datos SEMEFO
 #  Autor: Adan Luna
 #  Fecha: $(date +%Y-%m-%d)
 #  Descripción:

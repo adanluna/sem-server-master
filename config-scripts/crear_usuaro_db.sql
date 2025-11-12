@@ -5,7 +5,7 @@ BEGIN
    IF NOT EXISTS (
       SELECT FROM pg_catalog.pg_roles WHERE rolname = 'semefo_user'
    ) THEN
-      CREATE USER semefo_user WITH PASSWORD 'Claudia01$!';
+      CREATE USER semefo_user WITH PASSWORD 'Semefo123$!';
    END IF;
 END
 $$;
