@@ -42,7 +42,15 @@ fi
 find "$BACKUP_DIR" -type f -mtime +7 -name "*.sql" -delete
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] 🔁 Respaldos antiguos eliminados (mayores a 7 días)." >> "$LOGFILE"
 
+# --- Rotación del log cada 7 días ---
+if [ -f "$LOGFILE" ]; then
+    LOG_AGE_DAYS=$(($(date +%s) - $(stat -c %Y "$LOGFILE"))/86400)
+    if [ $LOG_AGE_DAYS -ge 7 ]; then
+        mv "$LOGFILE" "$BACKUP_DIR/backup_$(date +'%Y-%m-%d').log"
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] 🧹 Log anterior archivado y nuevo log iniciado." >> "$BACKUP_DIR/backup.log"
+    fi
+fi
+
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] ✅ Proceso finalizado exitosamente." >> "$LOGFILE"
 echo "--------------------------------------------------------------" >> "$LOGFILE"
-
 exit 0
