@@ -1,9 +1,6 @@
 CONFIGURACIÓN DEL PROYECTO SEMEFO (SERVER MASTER)
 =================================================
 
-Este documento describe cómo configurar y desplegar el sistema SEMEFO en el servidor master una vez que el entorno base está instalado.
-
--------------------------------------------------
 1. ESTRUCTURA DE DIRECTORIOS
 -------------------------------------------------
 /opt/semefo
@@ -18,11 +15,9 @@ Este documento describe cómo configurar y desplegar el sistema SEMEFO en el ser
 │   ├── api.sql
 │   └── crear_usuario_db.sql
 ├── docker-compose.yml
-├── docker-compose.override.yml
 ├── docs/
 ├── logs/
-├── Makefile
-├── backups
+├── backups/
 ├── scripts/
 │   ├── backup_db.sh
 │   ├── detener_workers_master.sh
@@ -38,13 +33,12 @@ Este documento describe cómo configurar y desplegar el sistema SEMEFO en el ser
     ├── requirements.txt
     └── tasks.py
 
--------------------------------------------------
 2. CREAR Y CONFIGURAR BASE DE DATOS
 -------------------------------------------------
+docker compose up -d db rabbitmq
+docker exec -i postgres_db psql -U postgres < config-scripts/crear_usuario_db.sql
 docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/api.sql
-docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/crear_usuaro_db.sql
 
--------------------------------------------------
 3. CONFIGURAR RABBITMQ
 -------------------------------------------------
 docker exec -it rabbitmq bash
@@ -53,15 +47,16 @@ rabbitmqctl set_permissions -p / semefo_admin ".*" ".*" ".*"
 rabbitmqctl set_user_tags semefo_admin administrator
 exit
 
--------------------------------------------------
 4. VERIFICAR
 -------------------------------------------------
+docker ps
+sudo systemctl status semefo-master
 API → http://192.168.1.11:8000/docs
 RabbitMQ UI → http://192.168.1.11:15672
 PostgreSQL → docker exec -it postgres_db psql -U semefo_user -d semefo
 
--------------------------------------------------
 5. REINICIO DEL SISTEMA
 -------------------------------------------------
 sudo systemctl restart semefo-master
--------------------------------------------------
+
+🧠 NOTA: Los scripts de backup (2 AM) y reinicio de workers (3 AM) se ejecutan automáticamente mediante cron.

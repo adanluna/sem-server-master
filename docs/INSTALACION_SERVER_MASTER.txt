@@ -77,18 +77,25 @@ docker ps
 
 -------------------------------------------------
 8. SERVICIO SYSTEMD
+Este servicio (semefo-master.service) inicia, detiene y reinicia automáticamente todo el entorno 
+Docker del sistema SEMEFO (API, PostgreSQL, RabbitMQ y workers) al arrancar el servidor o cuando 
+se gestiona con systemctl.
 -------------------------------------------------
 Archivo: /etc/systemd/system/semefo-master.service
 [Unit]
 Description=SEMEFO Master Stack
 After=network-online.target docker.service
 Requires=docker.service
+
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/semefo
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
+ExecStart=/usr/bin/docker-compose up -d
+ExecStop=/usr/bin/docker-compose down
 RemainAfterExit=yes
+ExecReload=/usr/bin/docker-compose restart
+# systemd 254 no soporta append:, así que mandamos salida al syslog
+
 [Install]
 WantedBy=multi-user.target
 
@@ -104,13 +111,31 @@ sudo systemctl status semefo-master
 ss -tuln | grep -E '5432|5672|8000|15672'
 
 -------------------------------------------------
-10. AGREGAR BACKUP AUTOMÁTICO
+10. AGREGAR BACKUP AUTOMÁTICO 2 AM
 -------------------------------------------------
-sudo crontab -e
+sudo mkdir -p /opt/semefo/{logs,backups}
+sudo chown -R semefo:semefo /opt/semefo/{logs,backups}
+sudo chmod -R 750 /opt/semefo/{logs,backups}
+
+sudo chmod +x /opt/semefo/scripts/backup_db.sh
+sudo crontab -e -u semefo
 0 2 * * * /opt/semefo/scripts/backup_db.sh >> /opt/semefo/logs/backup.log 2>&1
 
 -------------------------------------------------
-SERVIDOR LISTO
+11. AGREGAR LIMPIEZA DE WORKERS 3 AM
+El script restart_workers_nightly.sh reinicia automáticamente los workers Celery cada madrugada para liberar memoria, 
+limpiar colas pendientes y mantener estable el procesamiento de tareas en SEMEFO.
 -------------------------------------------------
-Servicios activos: PostgreSQL, RabbitMQ, FastAPI, Celery
+sudo crontab -e -u semefo
+sudo chmod +x /opt/semefo/scripts/iniciar_workers_master.sh
+sudo chmod +x /opt/semefo/scripts/detener_workers_master.sh
+sudo chmod +x /opt/semefo/scripts/restart_workers_nightly.sh
+0 3 * * * /opt/semefo/scripts/restart_workers_nightly.sh >> /opt/semefo/logs/cron_workers.log 2>&1
+
+-------------------------------------------------
+🧠 NOTA IMPORTANTE:
+- Los cronjobs se ejecutan con el usuario semefo.
+- Los logs de mantenimiento se guardan en /opt/semefo/logs/
+- No es necesario reiniciar el stack completo a diario,
+  solo los workers, para liberar recursos y mantener estabilidad.
 -------------------------------------------------

@@ -1,0 +1,174 @@
+🧰 MANTENIMIENTO DEL SERVIDOR MASTER – SEMEFO
+=================================================
+
+Ubicación: /opt/semefo/docs/mantenimiento_master.txt
+Sistema operativo: Debian 12
+Última actualización: 12 noviembre 2025
+Responsable: Adan Luna
+
+-------------------------------------------------
+1. DESCRIPCIÓN GENERAL
+-------------------------------------------------
+El servidor master es el núcleo del sistema SEMEFO.
+
+Servicios principales:
+- PostgreSQL (base de datos)
+- RabbitMQ (cola de tareas)
+- FastAPI (API del sistema)
+- Celery (workers de procesamiento)
+- Systemd (servicio semefo-master.service)
+- Cron (tareas automáticas de backup y limpieza)
+
+-------------------------------------------------
+2. MANTENIMIENTO DIARIO
+-------------------------------------------------
+# Verificar contenedores activos
+docker ps
+
+# Revisar estado general del servicio
+sudo systemctl status semefo-master
+
+# Verificar espacio libre
+df -h /opt/semefo
+
+Todos los contenedores deben estar en estado “Up” y debe haber al menos 20 GB libres.
+
+-------------------------------------------------
+3. MANTENIMIENTO SEMANAL
+-------------------------------------------------
+# Revisar logs
+cd /opt/semefo/logs
+ls -lh
+
+Archivos importantes:
+- backup.log → Respaldo de BD
+- cron_workers.log → Reinicio nocturno
+- worker_*.log → Logs de workers Celery
+- systemd_start.log / systemd_error.log → Inicio del stack
+
+Si algún log supera 100 MB:
+sudo truncate -s 0 /opt/semefo/logs/worker_conversiones.log
+
+# Revisar API y RabbitMQ
+API:        http://192.168.1.11:8000/docs
+RabbitMQ:   http://192.168.1.11:15672
+
+-------------------------------------------------
+4. RESPALDOS AUTOMÁTICOS
+-------------------------------------------------
+Los backups se generan automáticamente a las 2:00 AM:
+0 2 * * * /opt/semefo/scripts/backup_db.sh >> /opt/semefo/logs/backup.log 2>&1
+
+Ruta:
+  /opt/semefo/backups/semefo_backup_YYYY-MM-DD_HH-MM-SS.sql
+
+# Restaurar un backup
+docker exec -i postgres_db psql -U semefo_user -d semefo < /opt/semefo/backups/semefo_backup_YYYY-MM-DD_HH-MM-SS.sql
+
+-------------------------------------------------
+5. REINICIO AUTOMÁTICO DE WORKERS
+-------------------------------------------------
+Cada madrugada a las 3:00 AM:
+0 3 * * * /opt/semefo/scripts/restart_workers_nightly.sh >> /opt/semefo/logs/cron_workers.log 2>&1
+
+Propósito:
+- Liberar memoria y recursos.
+- Releer configuración.
+- Limpiar colas atascadas.
+- Mantener estabilidad.
+
+No se pierden trabajos pendientes; RabbitMQ conserva las tareas sin confirmar.
+
+-------------------------------------------------
+6. REINICIO MANUAL
+-------------------------------------------------
+# Reiniciar todo el sistema
+sudo systemctl restart semefo-master
+
+# Reiniciar solo los workers
+bash /opt/semefo/scripts/restart_workers_nightly.sh
+
+# Verificar estado
+docker ps
+sudo systemctl status semefo-master
+
+-------------------------------------------------
+7. MONITOREO DE ESTADO
+-------------------------------------------------
+docker ps                              # Ver contenedores
+docker logs fastapi_app --tail 20      # Logs API
+sudo systemctl status semefo-master    # Estado general
+docker exec -it postgres_db psql -U semefo_user -d semefo -c "\dt"
+sudo journalctl -u semefo-master -n 20
+
+-------------------------------------------------
+8. LIMPIEZA DE ARCHIVOS ANTIGUOS (MENSUAL)
+-------------------------------------------------
+# Borrar backups mayores a 30 días
+find /opt/semefo/backups/ -type f -name "*.sql" -mtime +30 -delete
+
+# Borrar logs mayores a 15 días
+find /opt/semefo/logs/ -type f -mtime +15 -delete
+
+-------------------------------------------------
+9. ACTUALIZACIONES SEGURAS
+-------------------------------------------------
+# Actualizar imágenes Docker sin perder datos
+cd /opt/semefo
+docker compose pull
+docker compose up -d --build
+
+# Actualizar repositorio
+cd /opt/semefo
+git pull
+
+No ejecutar: docker compose down -v (borra base de datos)
+
+-------------------------------------------------
+10. DIAGNÓSTICO RÁPIDO
+-------------------------------------------------
+| Problema | Causa | Solución |
+|-----------|--------|----------|
+| API no carga | contenedor fastapi_app caído | docker restart fastapi_app |
+| Workers inactivos | RabbitMQ detenido | docker restart rabbitmq |
+| Colas llenas | jobs atascados | docker exec -it rabbitmq rabbitmqctl list_queues |
+| DB no responde | postgres_db detenido | docker restart postgres_db |
+| Espacio lleno | backups viejos | eliminar según sección 8 |
+
+-------------------------------------------------
+11. SEGURIDAD
+-------------------------------------------------
+- No exponer puertos 5432 ni 5672 a Internet.
+- Cambiar contraseñas del .env cada 6 meses.
+- Revisar permisos:
+  sudo chown -R semefo:semefo /opt/semefo/{logs,backups}
+  sudo chmod -R 750 /opt/semefo/{logs,backups}
+
+-------------------------------------------------
+12. VERIFICACIÓN MENSUAL COMPLETA
+-------------------------------------------------
+1. Verificar API, RabbitMQ y DB.
+2. Revisar espacio libre (df -h).
+3. Verificar logs y tamaño de backups.
+4. Reiniciar stack con sudo systemctl restart semefo-master.
+5. Confirmar que cronjobs sigan ejecutándose.
+
+-------------------------------------------------
+13. CRONJOBS AUTOMÁTICOS
+-------------------------------------------------
+| Hora | Script | Acción |
+|------|---------|--------|
+| 02:00 AM | backup_db.sh | Backup diario |
+| 03:00 AM | restart_workers_nightly.sh | Limpieza de workers |
+| Mensual | Limpieza de logs y backups | Ahorro de espacio |
+
+-------------------------------------------------
+14. APAGADO SEGURO
+-------------------------------------------------
+sudo systemctl stop semefo-master
+docker ps   # Verificar vacío
+sudo shutdown now
+
+-------------------------------------------------
+FIN DEL DOCUMENTO
+=================================================
