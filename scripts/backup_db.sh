@@ -44,10 +44,14 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] 🔁 Respaldos antiguos eliminados (mayores
 
 # --- Rotación del log cada 7 días ---
 if [ -f "$LOGFILE" ]; then
-    LOG_AGE_DAYS=$(($(date +%s) - $(stat -c %Y "$LOGFILE"))/86400)
-    if [ $LOG_AGE_DAYS -ge 7 ]; then
-        mv "$LOGFILE" "$BACKUP_DIR/backup_$(date +'%Y-%m-%d').log"
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] 🧹 Log anterior archivado y nuevo log iniciado." >> "$BACKUP_DIR/backup.log"
+    LOG_MOD_TIME=$(stat -c %Y "$LOGFILE" 2>/dev/null)
+    NOW_TIME=$(date +%s)
+    if [ -n "$LOG_MOD_TIME" ]; then
+        LOG_AGE_DAYS=$(( (NOW_TIME - LOG_MOD_TIME) / 86400 ))
+        if [ "$LOG_AGE_DAYS" -ge 7 ]; then
+            mv "$LOGFILE" "$BACKUP_DIR/backup_$(date +'%Y-%m-%d').log"
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] 🧹 Log anterior archivado y nuevo log iniciado." >> "$BACKUP_DIR/backup.log"
+        fi
     fi
 fi
 
