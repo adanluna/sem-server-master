@@ -146,7 +146,8 @@ USE_VIDEOTOOLBOX=0
 docker compose up -d db rabbitmq
 docker ps
 sudo chmod +x config-scripts/crear_db_desde_env.sh
-
+./config-scripts/crear_db_desde_env.sh
+docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/api.sql
 
 -------------------------------------------------
 8. SERVICIO SYSTEMD
