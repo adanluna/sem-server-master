@@ -69,53 +69,84 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 -------------------------------------------------
 sudo mkdir -p /opt/semefo
 sudo chown -R $USER:$USER /opt/semefo
-cd /opt/semefo
 
 -------------------------------------------------
 5. CLONAR REPOSITORIO
 -------------------------------------------------
 sudo apt install -y git
-git clone https://github.com/adanluna/semefo.git .
+--- crear llave ssh-rsa y subirla a github
+cd /opt/semefo
+sudo umount /opt/semefo/storage
+cd /opt/semefo
+sudo rm -rf storage
+git clone git@github.com:adanluna/sem-server-master.git .
+sudo mount /dev/sda1 /opt/semefo/storage
+sudo chown -R semefo:semefo /opt/semefo/storage
+sudo nano /etc/fstab
+/dev/sda1  /opt/semefo/storage  ext4  defaults,noatime  0  2
+sudo mount -a
 
 -------------------------------------------------
 6. CONFIGURAR ARCHIVO .env
 -------------------------------------------------
-# Base de datos PostgreSQL
+# =====================================================
+# BASE DE DATOS POSTGRESQL (DOCKER)
+# =====================================================
 DB_HOST=postgres_db
 DB_PORT=5432
 DB_NAME=semefo
 DB_USER=semefo_user
-DB_PASS=pass_user
+DB_PASS=Claudia01$!
 
-# RabbitMQ (broker de Celery)
+# =====================================================
+# RABBITMQ (DOCKER)
+# =====================================================
+# Usuario y contraseña que sí vamos a crear en RabbitMQ
 RABBITMQ_USER=semefo_admin
-RABBITMQ_PASS=pass_admin
-RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@192.168.1.11:5672//
+RABBITMQ_PASS=Pi$to01
 
-# Configuración de Celery
+# URL para Celery dentro de DOCKER (usa hostname del contenedor)
+RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+
+# =====================================================
+# CONFIGURACIÓN DE CELERY
+# =====================================================
 RABBITMQ_HOST=rabbitmq
 QUEUE_NAME=transcripciones
 
-# API Server
-API_SERVER_URL=192.168.1.11:8000
+# =====================================================
+# API SERVER (FUERA Y DENTRO DE DOCKER)
+# =====================================================
+# Aquí va la IP DEL SERVIDOR MASTER en tu red actual.
+API_SERVER_URL=192.168.1.220:8000
 
-# Configuración LDAP (Active Directory)
+# =====================================================
+# LDAP (Active Directory real del SEMEFO)
+# =====================================================
 LDAP_SERVER_IP=192.168.1.211
 LDAP_PORT=389
 LDAP_DOMAIN=semefo.local
 
-# Otros
+# =====================================================
+# OTROS
+# =====================================================
 MIN_DISK_SPACE_GB=10
 MODO_PRUEBA_VIDEO=1
-STORAGE_ROOT=/semefo
+
+# Rutas correctas SEMEFO
+STORAGE_ROOT=/opt/semefo/storage
+
+# FFMPEG y video
 FFMPEG_THREADS=4
 USE_VIDEOTOOLBOX=0
 
 -------------------------------------------------
-7. LEVANTAR STACK
+7. LEVANTAR STACK y USUARIOS DE RABIIT Y POSTGRESQL
 -------------------------------------------------
-docker compose up -d
+docker compose up -d db rabbitmq
 docker ps
+sudo chmod +x config-scripts/crear_db_desde_env.sh
+
 
 -------------------------------------------------
 8. SERVICIO SYSTEMD

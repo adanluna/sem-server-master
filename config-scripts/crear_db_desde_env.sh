@@ -3,9 +3,9 @@
 # 📘 Crear base de datos y usuario PostgreSQL usando variables del .env
 # ============================================================
 
-set -e  # detener si hay error
+set -e
 
-# Cargar variables desde el archivo .env
+# Cargar .env
 if [ -f "/opt/semefo/.env" ]; then
   export $(grep -v '^#' /opt/semefo/.env | xargs)
 else
@@ -13,7 +13,6 @@ else
   exit 1
 fi
 
-# Variables requeridas
 USER_NAME=${DB_USER:-semefo_user}
 USER_PASS=${DB_PASS:-Semefo123$!}
 DB_NAME=${DB_NAME:-semefo}
@@ -22,39 +21,43 @@ echo "============================================================"
 echo "🗄️ Creando base de datos '${DB_NAME}' y usuario '${USER_NAME}'..."
 echo "============================================================"
 
-# Ejecutar SQL dinámico
-docker exec -i postgres_db psql -U postgres <<EOF
-DO
-\$\$
+docker exec -i postgres_db psql -U ${DB_USER} <<EOF
+
+-- Crear usuario si no existe
+DO \$\$
 BEGIN
    IF NOT EXISTS (
-      SELECT FROM pg_catalog.pg_roles WHERE rolname = '${USER_NAME}'
+      SELECT FROM pg_roles WHERE rolname = '${USER_NAME}'
    ) THEN
-      CREATE USER ${USER_NAME} WITH PASSWORD '${USER_PASS}';
+      CREATE ROLE ${USER_NAME} WITH LOGIN PASSWORD '${USER_PASS}' CREATEDB;
    END IF;
 END
 \$\$;
 
-DO
-\$\$
+-- Crear base si no existe
+DO \$\$
 BEGIN
    IF NOT EXISTS (
       SELECT FROM pg_database WHERE datname = '${DB_NAME}'
    ) THEN
       CREATE DATABASE ${DB_NAME}
-          WITH OWNER = ${USER_NAME}
-          ENCODING = 'UTF8'
-          CONNECTION LIMIT = -1;
+      WITH OWNER = ${USER_NAME}
+      ENCODING = 'UTF8';
    END IF;
 END
 \$\$;
 
-\\connect ${DB_NAME}
-
-GRANT ALL ON SCHEMA public TO ${USER_NAME};
-ALTER SCHEMA public OWNER TO ${USER_NAME};
-
 EOF
 
+echo "============================================================"
+echo "💾 Conectando a la base y configurando permisos..."
+echo "============================================================"
+
+docker exec -i postgres_db psql -U ${USER_NAME} -d ${DB_NAME} <<EOF
+GRANT ALL ON SCHEMA public TO ${USER_NAME};
+ALTER SCHEMA public OWNER TO ${USER_NAME};
+EOF
+
+echo "============================================================"
 echo "✅ Base de datos y usuario creados correctamente."
 echo "============================================================"
