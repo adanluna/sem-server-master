@@ -4,37 +4,51 @@ import subprocess
 from datetime import datetime
 import requests
 from dotenv import load_dotenv
-LOCAL_LOG_PATH = "/opt/semefo/logs/manifest.log"
+
 load_dotenv()
 
-# ============================================
-#  CONFIGURACIÓN API Y LOGS
-# ============================================
+# ======================================================
+#  CONFIGURACIÓN DE RUTAS
+# ======================================================
+
+# Ruta segura dentro del volumen compartido
+BASE_LOG_DIR = "/storage/logs"
+os.makedirs(BASE_LOG_DIR, exist_ok=True)
+
+LOG_LOCAL = os.path.join(BASE_LOG_DIR, "manifest.log")
+
+# ======================================================
+#  CONFIGURACIÓN API
+# ======================================================
 
 API_HOST = os.getenv("API_SERVER_URL", "192.168.1.11:8000")
 API_URL = f"http://{API_HOST}"
 LOG_ENDPOINT = f"{API_URL}/logs"
 
-LOG_LOCAL = "/opt/semefo/logs/manifest.log"
-os.makedirs(os.path.dirname(LOG_LOCAL), exist_ok=True)
 
-
+# ======================================================
+#  LOG LOCAL
+# ======================================================
 def log_local(msg):
+    """Log técnico local dentro de /storage/logs/"""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        with open(LOG_LOCAL, "a") as f:
-            f.write(msg + "\n")
-    except:
+        with open(LOG_LOCAL, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {msg}\n")
+    except Exception:
         pass
 
 
+# ======================================================
+#  LOG A API
+# ======================================================
 def log_event(tipo, descripcion, usuario="system"):
-    # Log técnico local SIEMPRE
+    """Envía log técnico a local + log lógico a API"""
     log_local(f"{tipo}: {descripcion}")
 
-    # Log importante → BD vía FastAPI
     try:
         requests.post(
-            f"http://{API_URL}/logs",
+            LOG_ENDPOINT,
             json={
                 "tipo_evento": tipo,
                 "descripcion": descripcion,
@@ -43,19 +57,14 @@ def log_event(tipo, descripcion, usuario="system"):
             timeout=2
         )
     except Exception:
-        # No romper proceso por falla de red/API
-        log_local(f"ERROR enviando log a API")
+        log_local("ERROR enviando log a API")
 
-# ============================================
+
+# ======================================================
 #  FFPROBE
-# ============================================
-
-
+# ======================================================
 def ffprobe_info(path):
-    """
-    Obtiene creation_time y duración real del archivo.
-    Si no hay metadata, usa timestamps del sistema.
-    """
+    """Obtiene creation_time y duración real del archivo MKV"""
     try:
         result = subprocess.run(
             [
@@ -68,35 +77,31 @@ def ffprobe_info(path):
 
         data = json.loads(result.stdout or "{}")
 
-        creation = None
-        dur = None
-
         # --- CREATION TIME ---
         try:
             creation = data["format"]["tags"]["creation_time"]
         except:
-            # fallback → usar mtime
             creation = datetime.utcfromtimestamp(
                 os.path.getmtime(path)
             ).isoformat() + "Z"
 
-        # --- DURACION ---
+        # --- DURACIÓN ---
         try:
             dur = float(data["format"]["duration"])
         except:
-            # fallback → duración desconocida
             dur = 0.0
 
         return creation, dur
 
     except Exception as e:
-        log_event("manifest_error", f"ffprobe falló en {path}: {e}")
+        log_event("manifest_error",
+                  f"ffprobe falló en {path}: {e}")
         return None, None
 
 
-# ============================================
-#  MANIFEST UTILIDADES
-# ============================================
+# ======================================================
+#  UTILIDADES MANIFEST
+# ======================================================
 def cargar_manifest(path):
     if not os.path.exists(path):
         return None
@@ -109,23 +114,23 @@ def guardar_manifest(path, data):
         json.dump(data, f, indent=4)
 
 
-# ============================================
-#  MAIN FUNCTION: ACTUALIZAR MANIFEST
-# ============================================
+# ======================================================
+#  FUNCIÓN PRINCIPAL
+# ======================================================
 def actualizar_manifest(carpeta_dia, mac):
-    # 🟩 1. Log de inicio (local + BD)
     log_event("manifest_inicio",
               f"Iniciando manifest en {carpeta_dia} para cámara {mac}")
 
     manifest_path = os.path.join(carpeta_dia, "manifest.json")
-    archivos_fs = [f for f in os.listdir(carpeta_dia) if f.endswith(".mkv")]
+    archivos_fs = [f for f in os.listdir(carpeta_dia)
+                   if f.endswith(".mkv")]
 
     manifest = cargar_manifest(manifest_path)
     nuevos_count = 0
 
     if manifest is None:
         log_event("manifest_nuevo",
-                  f"Creando manifest nuevo para {mac} en {carpeta_dia}")
+                  f"Creando manifest nuevo para {mac}")
         manifest = {
             "fecha": carpeta_dia.split(os.sep)[-1],
             "camara_mac": mac,
@@ -133,16 +138,15 @@ def actualizar_manifest(carpeta_dia, mac):
         }
     else:
         log_event("manifest_existente",
-                  f"Manifest existente detectado: {manifest_path}")
+                  f"Manifest existente: {manifest_path}")
 
     archivos_indexados = {item["archivo"] for item in manifest["archivos"]}
 
     for archivo in archivos_fs:
         if archivo in archivos_indexados:
-            continue  # Ya está indexado (no duplicar)
+            continue
 
         ruta = os.path.join(carpeta_dia, archivo)
-
         creation, dur = ffprobe_info(ruta)
         if not creation:
             continue
@@ -162,20 +166,10 @@ def actualizar_manifest(carpeta_dia, mac):
 
         nuevos_count += 1
 
-    # Ordenar por inicio
     manifest["archivos"].sort(key=lambda x: x["inicio"])
-
     guardar_manifest(manifest_path, manifest)
 
-    # 🟩 2. Log final
     log_event("manifest_generado",
-              f"Manifest actualizado para {mac}. Archivos nuevos: {nuevos_count}")
+              f"Manifest actualizado. Archivos nuevos: {nuevos_count}")
 
     return manifest
-
-
-def log_local(msg):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    os.makedirs(os.path.dirname(LOCAL_LOG_PATH), exist_ok=True)
-    with open(LOCAL_LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(f"[{ts}] {msg}\n")
