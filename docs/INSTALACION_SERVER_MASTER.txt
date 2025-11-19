@@ -141,13 +141,18 @@ FFMPEG_THREADS=4
 USE_VIDEOTOOLBOX=0
 
 -------------------------------------------------
-7. LEVANTAR STACK y USUARIOS DE RABIIT Y POSTGRESQL
+7. LEVANTAR USUARIOS DE RABIIT Y POSTGRESQL
 -------------------------------------------------
 docker compose up -d db rabbitmq
 docker ps
 sudo chmod +x config-scripts/crear_db_desde_env.sh
 ./config-scripts/crear_db_desde_env.sh
 docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/api.sql
+
+-------------------------------------------------
+7. LEVANTAR FASTAPI
+-------------------------------------------------
+docker compose up -d fastapi
 
 -------------------------------------------------
 8. SERVICIO SYSTEMD

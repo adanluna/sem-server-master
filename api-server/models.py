@@ -4,6 +4,9 @@ from datetime import datetime
 from database import Base
 
 
+# ============================================================
+#  📁 TABLA: Investigaciones
+# ============================================================
 class Investigacion(Base):
     __tablename__ = "investigaciones"
 
@@ -14,11 +17,16 @@ class Investigacion(Base):
     observaciones = Column(Text)
 
     sesiones = relationship(
-        "Sesion", back_populates="investigacion", cascade="all, delete-orphan")
+        "Sesion", back_populates="investigacion", cascade="all, delete-orphan"
+    )
     jobs = relationship(
-        "Job", back_populates="investigacion", cascade="all, delete-orphan")
+        "Job", back_populates="investigacion", cascade="all, delete-orphan"
+    )
 
 
+# ============================================================
+#  🎥 TABLA: Sesiones de investigación
+# ============================================================
 class Sesion(Base):
     __tablename__ = "sesiones"
 
@@ -36,38 +44,50 @@ class Sesion(Base):
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
-        "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan")
+        "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan"
+    )
     jobs = relationship(
-        "Job", back_populates="sesion", cascade="all, delete-orphan")
+        "Job", back_populates="sesion", cascade="all, delete-orphan"
+    )
 
 
+# ============================================================
+#  🎬 TABLA: Archivos de sesión (audio, video, transcripción)
+# ============================================================
 class SesionArchivo(Base):
     __tablename__ = "sesion_archivos"
 
     id = Column(Integer, primary_key=True)
     sesion_id = Column(Integer, ForeignKey("sesiones.id"), nullable=False)
-    tipo_archivo = Column(String(50), nullable=False)  # audio, video, etc.
+    # audio, video, audio2, video2, transcripcion
+    tipo_archivo = Column(String(50), nullable=False)
     ruta_original = Column(Text)
     ruta_convertida = Column(Text)
     conversion_completa = Column(Boolean, default=False)
-    estado = Column(String(50), default="pendiente")  # nuevo campo
-    mensaje = Column(Text, nullable=True)             # nuevo campo
-    fecha_finalizacion = Column(DateTime, nullable=True)  # nuevo campo
+    estado = Column(String(50), default="pendiente")
+    mensaje = Column(Text, nullable=True)
+    fecha_finalizacion = Column(DateTime, nullable=True)
     fecha = Column(DateTime, default=datetime.utcnow)
 
     sesion = relationship("Sesion", back_populates="archivos")
 
 
+# ============================================================
+#  📚 TABLA: Logs de eventos del sistema
+# ============================================================
 class LogEvento(Base):
     __tablename__ = "logs_eventos"
 
-    id = Column(Integer, primary_key=True)
-    tipo_evento = Column(String(100))
-    descripcion = Column(Text)
-    usuario_ldap = Column(String(255))
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_evento = Column(String(100), nullable=False)
+    descripcion = Column(Text, nullable=False)
+    usuario_ldap = Column(String(200), nullable=True)
     fecha = Column(DateTime, default=datetime.utcnow)
 
 
+# ============================================================
+#  🧵 TABLA: Jobs (cola de tareas)
+# ============================================================
 class Job(Base):
     __tablename__ = "jobs"
 
@@ -77,23 +97,17 @@ class Job(Base):
     sesion_id = Column(Integer, ForeignKey("sesiones.id"), nullable=False)
     tipo = Column(String(50), nullable=False)  # audio, video, transcripcion
     archivo = Column(Text, nullable=False)
+
     # pendiente, procesando, completado, error
     estado = Column(String(50), default="pendiente")
-    resultado = Column(Text, nullable=True)  # ruta de salida o resultado
-    error = Column(Text, nullable=True)  # mensaje de error si falla
+    resultado = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     fecha_actualizacion = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     investigacion = relationship("Investigacion", back_populates="jobs")
     sesion = relationship("Sesion", back_populates="jobs")
-
-
-class LogEvento(Base):
-    __tablename__ = "logs_eventos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    tipo_evento = Column(String(100), nullable=False)
-    descripcion = Column(Text, nullable=False)
-    usuario_ldap = Column(String(200), nullable=True)
-    fecha = Column(DateTime, default=datetime.utcnow)
+# ============================================================
