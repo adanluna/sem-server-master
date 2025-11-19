@@ -14,7 +14,7 @@ USER_PASS=${DB_PASS:-Semefo123$!}
 DB_NAME=${DB_NAME:-semefo}
 
 echo "============================================================"
-echo "🗄️ Creando base de datos '${DB_NAME}' y usuario '${USER_NAME}'..."
+echo "🗄️ Creando base de datos '${DB_NAME}' y usuario '${USER_NAME}'...".
 echo "============================================================"
 
 # 👉 Conectar a la DB correcta para evitar error "database does not exist"
