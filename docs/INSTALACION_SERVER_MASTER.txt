@@ -5,21 +5,64 @@ INSTALACIÓN DEL SERVIDOR MASTER (DEBIAN 12)
 1. ACTUALIZAR EL SISTEMA
 -------------------------------------------------
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y ca-certificates curl wget lsb-release gnupg apt-transport-https software-properties-common
+sudo apt install -y ca-certificates curl wget lsb-release gnupg
 
 -------------------------------------------------
 2. INSTALAR PAQUETES BÁSICOS
 -------------------------------------------------
-sudo apt install -y git vim htop zip unzip tree tmux net-tools nmap iftop iotop wget curl rsync cron build-essential python3 python3-pip python3-venv python3-dev ffmpeg postgresql-client-common
+sudo apt install -y git vim htop zip unzip tree tmux net-tools nmap iftop iotop \
+wget curl rsync cron build-essential python3 python3-pip python3-venv python3-dev \
+ffmpeg postgresql-client-common
+
+-------------------------------------------------
+3. INSTALAR NVIDIA DRIVES
+-------------------------------------------------
+sudo nano /etc/apt/sources.list
+deb http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
+
+deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+
+deb http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
+
+sudo apt update
+sudo apt install -y linux-headers-$(uname -r)
+sudo apt install -y nvidia-driver firmware-misc-nonfree
+sudo reboot
 
 -------------------------------------------------
 3. INSTALAR DOCKER Y DOCKER COMPOSE
 -------------------------------------------------
-sudo apt install -y docker.io docker-compose
-sudo systemctl enable docker
-sudo systemctl start docker
-docker --version
-docker compose version
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker semefo
+exit
+ssh -conectarse de nuevo
+docker info
+
+-------------------------------------------------
+3. Instalar NVIDIA CONTAINER TOOLKIT
+-------------------------------------------------
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-archive-keyring.gpg
+
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+
+sudo nano /etc/apt/sources.list.d/nvidia-container-toolkit.list
+-- borrar todo y dejar
+deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-archive-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+--- esperar a que se descargue
+
+-------------------------------------------------
+4. CONFIGURAR DISCO DURO PARA STORAGE
+-------------------------------------------------
 
 -------------------------------------------------
 4. CREAR ESTRUCTURA BASE
@@ -31,6 +74,7 @@ cd /opt/semefo
 -------------------------------------------------
 5. CLONAR REPOSITORIO
 -------------------------------------------------
+sudo apt install -y git
 git clone https://github.com/adanluna/semefo.git .
 
 -------------------------------------------------
@@ -46,9 +90,7 @@ DB_PASS=pass_user
 # RabbitMQ (broker de Celery)
 RABBITMQ_USER=semefo_admin
 RABBITMQ_PASS=pass_admin
-RABBITMQ_URL_DOCKER=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-RABBITMQ_URL_LOCAL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@192.168.1.11:5672//
-IS_DOCKER=1
+RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@192.168.1.11:5672//
 
 # Configuración de Celery
 RABBITMQ_HOST=rabbitmq
@@ -65,7 +107,7 @@ LDAP_DOMAIN=semefo.local
 # Otros
 MIN_DISK_SPACE_GB=10
 MODO_PRUEBA_VIDEO=1
-STORAGE_ROOT=/opt/semefo/storage
+STORAGE_ROOT=/semefo
 FFMPEG_THREADS=4
 USE_VIDEOTOOLBOX=0
 
@@ -102,6 +144,26 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable semefo-master
 sudo systemctl start semefo-master
+
+-------------------------------------------------
+9. LOGROTATE LOGS MANIFEST CAMARA 2
+-------------------------------------------------
+
+nano /etc/logrotate.d/semefo_manifest
+/opt/semefo/logs/manifest.log {
+    daily
+    rotate 30
+    compress
+    missingok
+    notifempty
+    copytruncate
+    create 640 root adm
+}
+
+sudo mkdir -p /opt/semefo/logs
+sudo touch /opt/semefo/logs/manifest.log
+sudo chown -R semefo:semefo /opt/semefo/logs
+sudo chmod 664 /opt/semefo/logs/manifest.log
 
 -------------------------------------------------
 9. VALIDAR SERVICIOS

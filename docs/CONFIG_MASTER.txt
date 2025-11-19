@@ -36,7 +36,8 @@ CONFIGURACIÓN DEL PROYECTO SEMEFO (SERVER MASTER)
 2. CREAR Y CONFIGURAR BASE DE DATOS
 -------------------------------------------------
 docker compose up -d db rabbitmq
-docker exec -i postgres_db psql -U postgres < config-scripts/crear_usuario_db.sql
+sudo chmod +x /opt/semefo/config-scripts/crear_db_desde_env.sh
+./opt/semefo/config-scripts/crear_db_desde_env.sh
 docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/api.sql
 
 3. CONFIGURAR RABBITMQ

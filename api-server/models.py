@@ -87,3 +87,13 @@ class Job(Base):
 
     investigacion = relationship("Investigacion", back_populates="jobs")
     sesion = relationship("Sesion", back_populates="jobs")
+
+
+class LogEvento(Base):
+    __tablename__ = "logs_eventos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_evento = Column(String(100), nullable=False)
+    descripcion = Column(Text, nullable=False)
+    usuario_ldap = Column(String(200), nullable=True)
+    fecha = Column(DateTime, default=datetime.utcnow)

@@ -9,6 +9,8 @@ import json
 import time
 
 from worker.job_api_client import registrar_job, actualizar_job, finalizar_archivo, registrar_archivo
+from worker.manifest_builder import actualizar_manifest
+
 
 load_dotenv()
 
@@ -402,6 +404,21 @@ def unir_video2(numero_expediente, id_sesion):
                 print("✅ Carpeta temporal borrada")
         except Exception as e:
             print(f"⚠️ Error al borrar carpeta temporal: {e}")
+
+
+@celery_app.task(name="tasks.generar_manifest")
+def generar_manifest(carpeta_dia, mac_address):
+    try:
+        manifest = actualizar_manifest(carpeta_dia, mac_address)
+        return {
+            "status": "ok",
+            "archivos": len(manifest["archivos"])
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 
 def generar_comando_video(output_dir: str, lista_input: str, nombre_salida: str = "video.webm") -> str:

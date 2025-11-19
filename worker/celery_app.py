@@ -1,42 +1,39 @@
-# worker/celery_app.py
-import os
-from dotenv import load_dotenv
 from celery import Celery
+import os
 
-# Cargar variables de entorno
-env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-load_dotenv(dotenv_path=env_path)
+# El broker debe venir SIEMPRE desde RABBITMQ_URL (variable unificada)
+BROKER_URL = os.getenv("RABBITMQ_URL")
 
-# Detectar si estamos dentro de Docker
-IS_DOCKER = os.getenv("IS_DOCKER", "0") == "1"
-
-# Seleccionar el broker correcto
-if IS_DOCKER:
-    broker_url = os.getenv("RABBITMQ_URL_DOCKER")
-else:
-    broker_url = os.getenv("RABBITMQ_URL_LOCAL")
-
-# Configurar backend
-db_user = os.getenv("DB_USER")
-db_pass = os.getenv("DB_PASS")
-db_host = os.getenv("DB_HOST")
-db_port = os.getenv("DB_PORT")
-db_name = os.getenv("DB_NAME")
-result_backend = f"db+postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-
-# Instancia Celery
-celery_app = Celery(
-    "worker",
-    broker=broker_url,
-    backend=result_backend,
-    include=["worker.tasks"]
+# Backend en postgres (igual para workers Docker y Mac)
+RESULT_BACKEND = (
+    f"db+postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}"
+    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 )
 
+celery_app = Celery(
+    "worker",
+    broker=BROKER_URL,
+    backend=RESULT_BACKEND,
+    include=[
+        "worker.tasks",
+        "worker.manifest_builder"
+    ]
+)
+
+# ⭐ Rutas de las colas
 celery_app.conf.task_routes = {
+    "tasks.generar_manifest": {"queue": "manifest"},
     "worker.tasks.unir_audio": {"queue": "uniones_audio"},
     "worker.tasks.unir_video": {"queue": "uniones_video"},
-    "worker.tasks.transcribir_audio": {"queue": "transcripciones_audio"},
     "worker.tasks.unir_video2": {"queue": "videos2"},
 }
 
-celery_app.conf.broker_connection_retry_on_startup = True
+# ⭐ Configuración general
+celery_app.conf.update(
+    task_track_started=True,
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    timezone="America/Monterrey",
+    enable_utc=False,
+)
