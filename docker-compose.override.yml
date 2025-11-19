@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   celery:
     environment:
@@ -5,19 +7,7 @@ services:
       - IS_DOCKER=1
       - STORAGE_ROOT=/storage
 
-  celery_worker:
-    environment:
-      - MODO_PRUEBA_VIDEO=1
-      - IS_DOCKER=1
-      - STORAGE_ROOT=/storage
-
   celery_video2:
-    environment:
-      - MODO_PRUEBA_VIDEO=1
-      - IS_DOCKER=1
-      - STORAGE_ROOT=/storage
-
-  celery_manifest:
     environment:
       - MODO_PRUEBA_VIDEO=1
       - IS_DOCKER=1
