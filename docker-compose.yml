@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   db:
     image: postgres:15
@@ -19,11 +21,9 @@ services:
     image: rabbitmq:3-management
     container_name: rabbitmq
     restart: always
-    env_file:
-      - .env
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
       TZ: America/Monterrey
     ports:
       - "5672:5672"
@@ -38,7 +38,7 @@ services:
   fastapi:
     build: ./api-server
     container_name: fastapi_app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     working_dir: /code/api-server
     volumes:
       - .:/code
@@ -56,12 +56,13 @@ services:
       - TZ=America/Monterrey
       - PYTHONPATH=/code
       - DB_HOST=postgres_db
+      - DB_PORT=5432
 
   celery:
     build:
       context: .
       dockerfile: worker/Dockerfile
-    container_name: celery_worker
+    container_name: celery_uniones
     working_dir: /app/worker
     command: celery -A worker.celery_app worker -Q uniones_audio,uniones_video --loglevel=info
     volumes:
@@ -73,6 +74,7 @@ services:
       - TZ=America/Monterrey
       - PYTHONPATH=/app
       - DB_HOST=postgres_db
+      - DB_PORT=5432
     restart: always
     depends_on:
       rabbitmq:
@@ -80,13 +82,6 @@ services:
       db:
         condition: service_started
     user: "1000:1000"
-    healthcheck:
-      test:
-        ["CMD-SHELL", "celery -A worker.celery_app status | grep OK || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
   celery_video2:
     build:
@@ -104,6 +99,7 @@ services:
       - TZ=America/Monterrey
       - PYTHONPATH=/app
       - DB_HOST=postgres_db
+      - DB_PORT=5432
     restart: always
     depends_on:
       rabbitmq:
@@ -111,13 +107,7 @@ services:
       db:
         condition: service_started
     user: "1000:1000"
-    healthcheck:
-      test:
-        ["CMD-SHELL", "celery -A worker.celery_app status | grep OK || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+
   celery_manifest:
     build:
       context: .
@@ -134,6 +124,7 @@ services:
       - TZ=America/Monterrey
       - PYTHONPATH=/app
       - DB_HOST=postgres_db
+      - DB_PORT=5432
     restart: always
     depends_on:
       rabbitmq:
@@ -141,13 +132,6 @@ services:
       db:
         condition: service_started
     user: "1000:1000"
-    healthcheck:
-      test:
-        ["CMD-SHELL", "celery -A worker.celery_app status | grep OK || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
 volumes:
   postgres_data:

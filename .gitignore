@@ -65,3 +65,4 @@ Thumbs.db
 # Storage local
 storage/
 storage_test/
+docker-compose.override.yml
