@@ -1,192 +1,172 @@
-INSTALACIÓN DEL SERVIDOR MASTER (DEBIAN 12)
-=================================================
+INSTALACIÓN DEL SERVIDOR MASTER – SEMEFO (DEBIAN 12)
+============================================================
 
--------------------------------------------------
 1. ACTUALIZAR EL SISTEMA
--------------------------------------------------
+------------------------------------------------------------
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y ca-certificates curl wget lsb-release gnupg
 
--------------------------------------------------
+------------------------------------------------------------
 2. INSTALAR PAQUETES BÁSICOS
--------------------------------------------------
+------------------------------------------------------------
 sudo apt install -y git vim htop zip unzip tree tmux net-tools nmap iftop iotop \
 wget curl rsync cron build-essential python3 python3-pip python3-venv python3-dev \
 ffmpeg postgresql-client-common
 
--------------------------------------------------
-3. INSTALAR NVIDIA DRIVES
--------------------------------------------------
+------------------------------------------------------------
+3. INSTALAR NVIDIA DRIVERS (OPCIONAL, SOLO GPU)
+------------------------------------------------------------
 sudo nano /etc/apt/sources.list
+
+AGREGAR SOLO ESTO:
 deb http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
-
 deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-
 deb http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
 
+INSTALAR:
 sudo apt update
 sudo apt install -y linux-headers-$(uname -r)
 sudo apt install -y nvidia-driver firmware-misc-nonfree
 sudo reboot
 
--------------------------------------------------
-3. INSTALAR DOCKER Y DOCKER COMPOSE
--------------------------------------------------
+------------------------------------------------------------
+4. INSTALAR DOCKER Y DOCKER COMPOSE V2
+------------------------------------------------------------
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker semefo
 exit
-ssh -conectarse de nuevo
+(entrar de nuevo por ssh)
 docker info
 
--------------------------------------------------
-3. Instalar NVIDIA CONTAINER TOOLKIT
--------------------------------------------------
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+------------------------------------------------------------
+5. INSTALAR NVIDIA CONTAINER TOOLKIT (SI APLICA)
+------------------------------------------------------------
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey |
 sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-archive-keyring.gpg
 
-curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
 sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
 
 sudo nano /etc/apt/sources.list.d/nvidia-container-toolkit.list
--- borrar todo y dejar
+DEJAR SOLO:
 deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-archive-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+
 sudo apt update
 sudo apt install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
+
+VALIDAR GPU:
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
---- esperar a que se descargue
 
--------------------------------------------------
-4. CONFIGURAR DISCO DURO PARA STORAGE
--------------------------------------------------
-
--------------------------------------------------
-4. CREAR ESTRUCTURA BASE
--------------------------------------------------
+------------------------------------------------------------
+6. CREAR ESTRUCTURA BASE
+------------------------------------------------------------
 sudo mkdir -p /opt/semefo
-sudo chown -R $USER:$USER /opt/semefo
+sudo chown -R semefo:semefo /opt/semefo
 
--------------------------------------------------
-5. CLONAR REPOSITORIO
--------------------------------------------------
-sudo apt install -y git
---- crear llave ssh-rsa y subirla a github
+------------------------------------------------------------
+7. CLONAR REPOSITORIO
+------------------------------------------------------------
 cd /opt/semefo
-sudo umount /opt/semefo/storage
-cd /opt/semefo
-sudo rm -rf storage
 git clone git@github.com:adanluna/sem-server-master.git .
+
+MONTAR DISCO STORAGE:
+/dev/sda1 es ejemplo, cambiar según servidor
+
+sudo umount /opt/semefo/storage
+sudo rm -rf /opt/semefo/storage
+sudo mkdir /opt/semefo/storage
 sudo mount /dev/sda1 /opt/semefo/storage
 sudo chown -R semefo:semefo /opt/semefo/storage
+
 sudo nano /etc/fstab
-/dev/sda1  /opt/semefo/storage  ext4  defaults,noatime  0  2
+AGREGAR:
+ /dev/sda1  /opt/semefo/storage  ext4  defaults,noatime  0  2
+
 sudo mount -a
 
--------------------------------------------------
-6. CONFIGURAR ARCHIVO .env
--------------------------------------------------
-# =====================================================
-# BASE DE DATOS POSTGRESQL (DOCKER)
-# =====================================================
+------------------------------------------------------------
+8. CONFIGURAR ARCHIVO .env
+------------------------------------------------------------
 DB_HOST=postgres_db
 DB_PORT=5432
 DB_NAME=semefo
 DB_USER=semefo_user
 DB_PASS=Claudia01$!
 
-# =====================================================
-# RABBITMQ (DOCKER)
-# =====================================================
-# Usuario y contraseña que sí vamos a crear en RabbitMQ
 RABBITMQ_USER=semefo_admin
 RABBITMQ_PASS=Pi$to01
-
-# URL para Celery dentro de DOCKER (usa hostname del contenedor)
 RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
 
-# =====================================================
-# CONFIGURACIÓN DE CELERY
-# =====================================================
 RABBITMQ_HOST=rabbitmq
 QUEUE_NAME=transcripciones
 
-# =====================================================
-# API SERVER (FUERA Y DENTRO DE DOCKER)
-# =====================================================
-# Aquí va la IP DEL SERVIDOR MASTER en tu red actual.
 API_SERVER_URL=192.168.1.220:8000
 
-# =====================================================
-# LDAP (Active Directory real del SEMEFO)
-# =====================================================
 LDAP_SERVER_IP=192.168.1.211
 LDAP_PORT=389
 LDAP_DOMAIN=semefo.local
 
-# =====================================================
-# OTROS
-# =====================================================
 MIN_DISK_SPACE_GB=10
 MODO_PRUEBA_VIDEO=1
-
-# Rutas correctas SEMEFO
 STORAGE_ROOT=/opt/semefo/storage
-
-# FFMPEG y video
 FFMPEG_THREADS=4
 USE_VIDEOTOOLBOX=0
 
--------------------------------------------------
-7. LEVANTAR USUARIOS DE RABIIT Y POSTGRESQL
--------------------------------------------------
+------------------------------------------------------------
+9. LEVANTAR POSTGRESQL Y RABBITMQ
+------------------------------------------------------------
 docker compose up -d db rabbitmq
 docker ps
+
+CREAR USUARIO Y BD POSTGRES:
 sudo chmod +x config-scripts/crear_db_desde_env.sh
 ./config-scripts/crear_db_desde_env.sh
 docker exec -i postgres_db psql -U semefo_user -d semefo < config-scripts/api.sql
 
--------------------------------------------------
-7. LEVANTAR FASTAPI
--------------------------------------------------
+CREAR USUARIO RABBITMQ:
+docker exec -it rabbitmq rabbitmqctl add_user semefo_admin Pi$to01
+docker exec -it rabbitmq rabbitmqctl set_permissions -p / semefo_admin ".*" ".*" ".*"
+docker exec -it rabbitmq rabbitmqctl set_user_tags semefo_admin administrator
+docker exec -it rabbitmq rabbitmqctl delete_user guest
+
+------------------------------------------------------------
+10. LEVANTAR FASTAPI
+------------------------------------------------------------
 docker compose up -d fastapi
 
--------------------------------------------------
-8. SERVICIO SYSTEMD
-Este servicio (semefo-master.service) inicia, detiene y reinicia automáticamente todo el entorno 
-Docker del sistema SEMEFO (API, PostgreSQL, RabbitMQ y workers) al arrancar el servidor o cuando 
-se gestiona con systemctl.
--------------------------------------------------
+------------------------------------------------------------
+11. SERVICIO SYSTEMD – semefo-master.service
+------------------------------------------------------------
 Archivo: /etc/systemd/system/semefo-master.service
+
 [Unit]
-Description=SEMEFO Master Stack
+Description=SEMEFO Master Stack (API + PostgreSQL + RabbitMQ + Workers)
 After=network-online.target docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/semefo
-ExecStart=/usr/bin/docker-compose up -d
-ExecStop=/usr/bin/docker-compose down
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
 RemainAfterExit=yes
-ExecReload=/usr/bin/docker-compose restart
-# systemd 254 no soporta append:, así que mandamos salida al syslog
 
 [Install]
 WantedBy=multi-user.target
 
+ACTIVAR:
 sudo systemctl daemon-reload
 sudo systemctl enable semefo-master
 sudo systemctl start semefo-master
 
--------------------------------------------------
-9. LOGROTATE LOGS MANIFEST CAMARA 2
--------------------------------------------------
+------------------------------------------------------------
+12. LOGROTATE PARA MANIFEST (CÁMARA 2)
+------------------------------------------------------------
+sudo nano /etc/logrotate.d/semefo_manifest
 
-nano /etc/logrotate.d/semefo_manifest
 /opt/semefo/logs/manifest.log {
     daily
     rotate 30
@@ -194,47 +174,58 @@ nano /etc/logrotate.d/semefo_manifest
     missingok
     notifempty
     copytruncate
-    create 640 root adm
+    create 640 semefo semefo
 }
 
+CREAR LOG:
 sudo mkdir -p /opt/semefo/logs
 sudo touch /opt/semefo/logs/manifest.log
 sudo chown -R semefo:semefo /opt/semefo/logs
 sudo chmod 664 /opt/semefo/logs/manifest.log
 
--------------------------------------------------
-9. VALIDAR SERVICIOS
--------------------------------------------------
+------------------------------------------------------------
+13. VALIDAR SERVICIOS
+------------------------------------------------------------
 docker ps
 sudo systemctl status semefo-master
 ss -tuln | grep -E '5432|5672|8000|15672'
 
--------------------------------------------------
-10. AGREGAR BACKUP AUTOMÁTICO 2 AM
--------------------------------------------------
+------------------------------------------------------------
+14. BACKUP AUTOMÁTICO A LAS 2 AM
+------------------------------------------------------------
 sudo mkdir -p /opt/semefo/{logs,backups}
-sudo chown -R semefo:semefo /opt/semefo/{logs,backups}
 sudo chmod -R 750 /opt/semefo/{logs,backups}
+sudo chown -R semefo:semefo /opt/semefo/{logs,backups}
 
 sudo chmod +x /opt/semefo/scripts/backup_db.sh
 sudo crontab -e -u semefo
+
+AGREGAR:
 0 2 * * * /opt/semefo/scripts/backup_db.sh >> /opt/semefo/logs/backup.log 2>&1
 
--------------------------------------------------
-11. AGREGAR LIMPIEZA DE WORKERS 3 AM
-El script restart_workers_nightly.sh reinicia automáticamente los workers Celery cada madrugada para liberar memoria, 
-limpiar colas pendientes y mantener estable el procesamiento de tareas en SEMEFO.
--------------------------------------------------
-sudo crontab -e -u semefo
+------------------------------------------------------------
+15. REINICIO DE WORKERS A LAS 3 AM
+------------------------------------------------------------
 sudo chmod +x /opt/semefo/scripts/iniciar_workers_master.sh
 sudo chmod +x /opt/semefo/scripts/detener_workers_master.sh
 sudo chmod +x /opt/semefo/scripts/restart_workers_nightly.sh
+
+sudo crontab -e -u semefo
+
+AGREGAR:
 0 3 * * * /opt/semefo/scripts/restart_workers_nightly.sh >> /opt/semefo/logs/cron_workers.log 2>&1
 
--------------------------------------------------
-🧠 NOTA IMPORTANTE:
-- Los cronjobs se ejecutan con el usuario semefo.
-- Los logs de mantenimiento se guardan en /opt/semefo/logs/
-- No es necesario reiniciar el stack completo a diario,
-  solo los workers, para liberar recursos y mantener estabilidad.
--------------------------------------------------
+------------------------------------------------------------
+NOTAS IMPORTANTES
+------------------------------------------------------------
+- Los cronjobs SIEMPRE deben ejecutarse como el usuario 'semefo'.
+- Los logs de mantenimiento están en /opt/semefo/logs/.
+- No se debe reiniciar el stack completo diariamente, solo los workers.
+- No borrar volúmenes Docker en producción.
+- Validar 'docker ps' antes de habilitar systemd.
+- Los workers deben estar 'Up' o 'healthy' después del arranque.
+- RabbitMQ debe listar solo a 'semefo_admin'.
+
+============================================================
+FIN DEL DOCUMENTO
+============================================================
