@@ -1,0 +1,93 @@
+#suar asi: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+version: "3.8"
+
+services:
+  fastapi:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/code
+      - ./storage:/storage
+    environment:
+      - PYTHONPATH=/code
+      - TZ=America/Monterrey
+      - DB_HOST=postgres_db
+      - DB_PORT=5432
+
+  # Worker de uniones audio+video (debug en Mac)
+  celery_uniones:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: dev_celery_uniones
+    working_dir: /app/worker
+    command: celery -A worker.celery_app worker -Q uniones_audio,uniones_video --loglevel=debug --hostname=dev_uniones@%h
+    volumes:
+      - .:/app
+      - ./storage:/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - DB_HOST=postgres_db
+      - DB_PORT=5432
+      - TZ=America/Monterrey
+    depends_on:
+      - rabbitmq
+      - db
+    restart: always
+
+  # Worker para video2 (debug)
+  celery_video2:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: dev_celery_video2
+    working_dir: /app/worker
+    command: celery -A worker.celery_app worker -Q videos2 --loglevel=debug --hostname=dev_videos2@%h
+    volumes:
+      - .:/app
+      - ./storage:/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - DB_HOST=postgres_db
+      - DB_PORT=5432
+      - TZ=America/Monterrey
+    depends_on:
+      - rabbitmq
+      - db
+    restart: always
+
+  # Worker de manifest solo si lo necesitas en Mac
+  celery_manifest:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: dev_celery_manifest
+    working_dir: /app/worker
+    command: celery -A worker.celery_app worker -Q manifest --loglevel=debug --hostname=dev_manifest@%h
+    volumes:
+      - .:/app
+      - ./storage:/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - DB_HOST=postgres_db
+      - DB_PORT=5432
+      - TZ=America/Monterrey
+    depends_on:
+      - rabbitmq
+      - db
+    restart: always
+
+  # Base de datos y RabbitMQ deben venir del compose principal
+  db:
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"

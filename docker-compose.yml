@@ -21,9 +21,11 @@ services:
     image: rabbitmq:3-management
     container_name: rabbitmq
     restart: always
+    env_file:
+      - .env
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
       TZ: America/Monterrey
     ports:
       - "5672:5672"
