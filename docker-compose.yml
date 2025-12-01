@@ -44,7 +44,6 @@ services:
     working_dir: /code/api-server
     volumes:
       - .:/code
-      - ./storage:/storage
     env_file:
       - .env
     ports:
@@ -55,28 +54,30 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      - TZ=America/Monterrey
-      - PYTHONPATH=/code
-      - DB_HOST=postgres_db
-      - DB_PORT=5432
+      TZ: America/Monterrey
+      PYTHONPATH: /code
+      DB_HOST: postgres_db
+      DB_PORT: 5432
 
-  celery:
+  # ============================================================
+  # WORKER video principal (video.webm)
+  # ============================================================
+  celery_uniones:
     build:
       context: .
       dockerfile: worker/Dockerfile
     container_name: celery_uniones
     working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q uniones_audio,uniones_video --loglevel=info
+    command: celery -A worker.celery_app worker -Q uniones_video --loglevel=info --hostname=worker_uniones@%h
     volumes:
       - .:/app
-      - ./storage:/storage
     env_file:
       - .env
     environment:
-      - TZ=America/Monterrey
-      - PYTHONPATH=/app
-      - DB_HOST=postgres_db
-      - DB_PORT=5432
+      TZ: America/Monterrey
+      PYTHONPATH: /app
+      DB_HOST: postgres_db
+      DB_PORT: 5432
     restart: always
     depends_on:
       rabbitmq:
@@ -85,6 +86,9 @@ services:
         condition: service_started
     user: "1000:1000"
 
+  # ============================================================
+  # WORKER video secundario (video2.webm)
+  # ============================================================
   celery_video2:
     build:
       context: .
@@ -94,14 +98,13 @@ services:
     command: celery -A worker.celery_app worker -Q videos2 --loglevel=info --hostname=worker_videos2@%h
     volumes:
       - .:/app
-      - ./storage:/storage
     env_file:
       - .env
     environment:
-      - TZ=America/Monterrey
-      - PYTHONPATH=/app
-      - DB_HOST=postgres_db
-      - DB_PORT=5432
+      TZ: America/Monterrey
+      PYTHONPATH: /app
+      DB_HOST: postgres_db
+      DB_PORT: 5432
     restart: always
     depends_on:
       rabbitmq:
@@ -110,6 +113,9 @@ services:
         condition: service_started
     user: "1000:1000"
 
+  # ============================================================
+  # WORKER manifest
+  # ============================================================
   celery_manifest:
     build:
       context: .
@@ -119,14 +125,13 @@ services:
     command: celery -A worker.celery_app worker -Q manifest --loglevel=info --hostname=worker_manifest@%h
     volumes:
       - .:/app
-      - ./storage:/storage
     env_file:
       - .env
     environment:
-      - TZ=America/Monterrey
-      - PYTHONPATH=/app
-      - DB_HOST=postgres_db
-      - DB_PORT=5432
+      TZ: America/Monterrey
+      PYTHONPATH: /app
+      DB_HOST: postgres_db
+      DB_PORT: 5432
     restart: always
     depends_on:
       rabbitmq:

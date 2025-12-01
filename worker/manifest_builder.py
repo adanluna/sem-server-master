@@ -1,175 +1,165 @@
+# ============================================================
+#   SEMEFO — manifest_builder.py (FINAL)
+#   Generación y actualización de manifests por cámara
+# ============================================================
+
 import os
 import json
-import subprocess
-from datetime import datetime
-import requests
+import datetime
+from glob import glob
 from dotenv import load_dotenv
+from .celery_app import celery_app
 
 load_dotenv()
 
-# ======================================================
-#  CONFIGURACIÓN DE RUTAS
-# ======================================================
+# Directorio SMB donde están los MKV del grabador
+SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/semefo")
 
-# Ruta segura dentro del volumen compartido
-BASE_LOG_DIR = "/storage/logs"
-os.makedirs(BASE_LOG_DIR, exist_ok=True)
+# UUID del grabador (desde .env)
+GRABADOR_UUID = os.getenv("GRABADOR_UUID", "UNKNOWN_UUID")
 
-LOG_LOCAL = os.path.join(BASE_LOG_DIR, "manifest.log")
-
-# ======================================================
-#  CONFIGURACIÓN API
-# ======================================================
-
-API_HOST = os.getenv("API_SERVER_URL", "192.168.1.11:8000")
-API_URL = f"http://{API_HOST}"
-LOG_ENDPOINT = f"{API_URL}/logs"
+# Extensión de los fragmentos generados por Hanwha / Marshall
+EXT_FRAGMENTO = "*.mkv"
 
 
-# ======================================================
-#  LOG LOCAL
-# ======================================================
-def log_local(msg):
-    """Log técnico local dentro de /storage/logs/"""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ============================================================
+#   UTILIDADES
+# ============================================================
+
+def extraer_timestamp(filename):
+    """
+    Extrae la fecha y hora del nombre del archivo MKV.
+    Se espera un patrón del tipo:
+        Cam1_YYYYMMDD_HHMM.mkv
+    """
+
+    # El fragmento final después de "_"
     try:
-        with open(LOG_LOCAL, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] {msg}\n")
+        partes = filename.split("_")
+        fecha = partes[-2]            # YYYYMMDD
+        hora = partes[-1].split(".")[0]   # HHMM
+
+        yyyy = int(fecha[0:4])
+        mm = int(fecha[4:6])
+        dd = int(fecha[6:8])
+
+        HH = int(hora[0:2])
+        MM = int(hora[2:4])
+
+        inicio = datetime.datetime(yyyy, mm, dd, HH, MM)
+        fin = inicio + datetime.timedelta(minutes=1)
+
+        return inicio, fin
+
     except Exception:
-        pass
-
-
-# ======================================================
-#  LOG A API
-# ======================================================
-def log_event(tipo, descripcion, usuario="system"):
-    """Envía log técnico a local + log lógico a API"""
-    log_local(f"{tipo}: {descripcion}")
-
-    try:
-        requests.post(
-            LOG_ENDPOINT,
-            json={
-                "tipo_evento": tipo,
-                "descripcion": descripcion,
-                "usuario_ldap": usuario
-            },
-            timeout=2
-        )
-    except Exception:
-        log_local("ERROR enviando log a API")
-
-
-# ======================================================
-#  FFPROBE
-# ======================================================
-def ffprobe_info(path):
-    """Obtiene creation_time y duración real del archivo MKV"""
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_entries", "format_tags=creation_time,format=duration",
-                path
-            ],
-            capture_output=True, text=True
-        )
-
-        data = json.loads(result.stdout or "{}")
-
-        # --- CREATION TIME ---
-        try:
-            creation = data["format"]["tags"]["creation_time"]
-        except:
-            creation = datetime.utcfromtimestamp(
-                os.path.getmtime(path)
-            ).isoformat() + "Z"
-
-        # --- DURACIÓN ---
-        try:
-            dur = float(data["format"]["duration"])
-        except:
-            dur = 0.0
-
-        return creation, dur
-
-    except Exception as e:
-        log_event("manifest_error",
-                  f"ffprobe falló en {path}: {e}")
         return None, None
 
 
-# ======================================================
-#  UTILIDADES MANIFEST
-# ======================================================
-def cargar_manifest(path):
-    if not os.path.exists(path):
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def cargar_manifest(path_manifest):
+    """Carga manifest existente si existe; en caso contrario, regresa dict vacío."""
+    if os.path.exists(path_manifest):
+        try:
+            with open(path_manifest, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
 
-def guardar_manifest(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+def guardar_manifest(path_manifest, data):
+    """Guarda manifest formateado en JSON."""
+    os.makedirs(os.path.dirname(path_manifest), exist_ok=True)
+    with open(path_manifest, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-# ======================================================
-#  FUNCIÓN PRINCIPAL
-# ======================================================
-def actualizar_manifest(carpeta_dia, mac):
-    log_event("manifest_inicio",
-              f"Iniciando manifest en {carpeta_dia} para cámara {mac}")
+def calcular_ruta_manifest(mac, fecha):
+    """Genera la ruta del manifest según arquitectura oficial."""
+    yyyy = fecha.strftime("%Y")
+    mm = fecha.strftime("%m")
+    dd = fecha.strftime("%d")
 
-    manifest_path = os.path.join(carpeta_dia, "manifest.json")
-    archivos_fs = [f for f in os.listdir(carpeta_dia)
-                   if f.endswith(".mkv")]
+    return os.path.join(
+        SMB_ROOT,
+        "manifests",
+        GRABADOR_UUID,
+        mac,
+        yyyy,
+        dd,
+        "manifest.json"
+    )
 
-    manifest = cargar_manifest(manifest_path)
-    nuevos_count = 0
 
-    if manifest is None:
-        log_event("manifest_nuevo",
-                  f"Creando manifest nuevo para {mac}")
-        manifest = {
-            "fecha": carpeta_dia.split(os.sep)[-1],
-            "camara_mac": mac,
-            "archivos": []
+# ============================================================
+#   TAREA CELERY – GENERAR / ACTUALIZAR MANIFEST
+# ============================================================
+
+@celery_app.task(name="tasks.generar_manifest", queue="manifest")
+def generar_manifest(mac_camara, fecha_iso):
+    """
+    Genera o actualiza el manifest para una cámara y un día específico.
+    mac_camara: MAC de la cámara. Ej: E4-30-22-EE-0C-62
+    fecha_iso : "YYYY-MM-DD"
+    """
+
+    fecha = datetime.datetime.fromisoformat(fecha_iso).date()
+
+    # Directorio donde el grabador guarda los MKV de esta cámara
+    ruta_frag = os.path.join(
+        SMB_ROOT,
+        GRABADOR_UUID,
+        mac_camara,
+        fecha.strftime("%Y"),
+        fecha.strftime("%m"),
+        fecha.strftime("%d")
+    )
+
+    if not os.path.isdir(ruta_frag):
+        print(f"No existe carpeta de fragmentos: {ruta_frag}")
+        return False
+
+    path_manifest = calcular_ruta_manifest(mac_camara, fecha)
+    manifest = cargar_manifest(path_manifest)
+
+    if "uuid" not in manifest:
+        manifest["uuid"] = GRABADOR_UUID
+    if "fecha" not in manifest:
+        manifest["fecha"] = fecha_iso
+    if "camara_mac" not in manifest:
+        manifest["camara_mac"] = mac_camara
+    if "archivos" not in manifest:
+        manifest["archivos"] = []
+
+    # Construir set de nombres ya procesados
+    ya_registrados = {a["archivo"] for a in manifest["archivos"]}
+
+    # Buscar nuevos fragmentos MKV
+    nuevos = []
+    for file_path in sorted(glob(os.path.join(ruta_frag, EXT_FRAGMENTO))):
+        nombre = os.path.basename(file_path)
+
+        if nombre in ya_registrados:
+            continue
+
+        inicio, fin = extraer_timestamp(nombre)
+        if inicio is None:
+            continue
+
+        entry = {
+            "archivo": nombre,
+            "inicio": inicio.isoformat(),
+            "fin": fin.isoformat(),
+            "duracion_segundos": (fin - inicio).seconds,
+            "ruta_relativa": os.path.relpath(file_path, SMB_ROOT).replace("\\", "/")
         }
+
+        nuevos.append(entry)
+        manifest["archivos"].append(entry)
+
+    if nuevos:
+        guardar_manifest(path_manifest, manifest)
+        print(f"Manifest actualizado: {path_manifest}")
     else:
-        log_event("manifest_existente",
-                  f"Manifest existente: {manifest_path}")
+        print(f"Manifest sin cambios: {path_manifest}")
 
-    archivos_indexados = {item["archivo"] for item in manifest["archivos"]}
-
-    for archivo in archivos_fs:
-        if archivo in archivos_indexados:
-            continue
-
-        ruta = os.path.join(carpeta_dia, archivo)
-        creation, dur = ffprobe_info(ruta)
-        if not creation:
-            continue
-
-        dt_inicio = datetime.fromisoformat(creation.replace("Z", ""))
-        dt_fin = dt_inicio.timestamp() + dur
-
-        manifest["archivos"].append({
-            "archivo": archivo,
-            "ruta": ruta.replace("\\", "/"),
-            "inicio": creation,
-            "fin": datetime.utcfromtimestamp(dt_fin).isoformat() + "Z",
-            "duracion": dur,
-            "creado_fs": datetime.utcfromtimestamp(os.path.getctime(ruta)).isoformat() + "Z",
-            "modificado_fs": datetime.utcfromtimestamp(os.path.getmtime(ruta)).isoformat() + "Z"
-        })
-
-        nuevos_count += 1
-
-    manifest["archivos"].sort(key=lambda x: x["inicio"])
-    guardar_manifest(manifest_path, manifest)
-
-    log_event("manifest_generado",
-              f"Manifest actualizado. Archivos nuevos: {nuevos_count}")
-
-    return manifest
+    return True

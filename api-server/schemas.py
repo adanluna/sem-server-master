@@ -28,9 +28,13 @@ class SesionCreate(BaseModel):
     nombre_sesion: str
     observaciones: Optional[str] = None
     usuario_ldap: str
-    user_nombre: Optional[str] = None
     plancha_id: str
     tablet_id: str
+    estado: Optional[str] = "en_progreso"
+    user_nombre: Optional[str] = None
+    camara1_mac_address: Optional[str] = None
+    camara2_mac_address: Optional[str] = None
+    app_version: Optional[str] = None
 
 
 class SesionArchivoResponse(BaseModel):

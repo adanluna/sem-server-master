@@ -126,7 +126,10 @@ def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
             tablet_id=sesion_data.tablet_id,
             estado=getattr(sesion_data, 'estado', 'en_progreso'),
             user_nombre=getattr(sesion_data, 'user_nombre',
-                                sesion_data.usuario_ldap)
+                                sesion_data.usuario_ldap),
+            camara1_mac_address=sesion_data.camara1_mac_address,
+            camara2_mac_address=sesion_data.camara2_mac_address,
+            app_version=sesion_data.app_version
         )
 
         db.add(nueva_sesion)
@@ -150,7 +153,11 @@ def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
             "usuario_ldap": nueva_sesion.usuario_ldap,
             "plancha_id": nueva_sesion.plancha_id,
             "tablet_id": nueva_sesion.tablet_id,
-            "estado": nueva_sesion.estado
+            "estado": nueva_sesion.estado,
+            "user_nombre": nueva_sesion.user_nombre,
+            "camara1_mac_address": nueva_sesion.camara1_mac_address,
+            "camara2_mac_address": nueva_sesion.camara2_mac_address,
+            "app_version": nueva_sesion.app_version
         }
 
     except Exception as e:

@@ -41,14 +41,15 @@ class Sesion(Base):
     estado = Column(String(50), nullable=False, default="en_progreso")
     user_nombre = Column(String(200), nullable=True)
     fecha = Column(DateTime, default=datetime.utcnow)
+    camara1_mac_address = Column(String(100), nullable=True)
+    camara2_mac_address = Column(String(100), nullable=True)
+    app_version = Column(String(50), nullable=True)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
-        "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan"
-    )
-    jobs = relationship(
-        "Job", back_populates="sesion", cascade="all, delete-orphan"
-    )
+        "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan")
+    jobs = relationship("Job", back_populates="sesion",
+                        cascade="all, delete-orphan")
 
 
 # ============================================================

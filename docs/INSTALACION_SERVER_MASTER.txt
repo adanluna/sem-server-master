@@ -216,6 +216,12 @@ AGREGAR:
 0 3 * * * /opt/semefo/scripts/restart_workers_nightly.sh >> /opt/semefo/logs/cron_workers.log 2>&1
 
 ------------------------------------------------------------
+16. RESPALDO DE BASE DE DATOS
+------------------------------------------------------------
+30 2 * * * /opt/semefo/scripts/backup_db.sh >> /opt/semefo/logs/cron_backup.log 2>&1
+
+
+------------------------------------------------------------
 NOTAS IMPORTANTES
 ------------------------------------------------------------
 - Los cronjobs SIEMPRE deben ejecutarse como el usuario 'semefo'.
