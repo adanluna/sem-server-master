@@ -204,70 +204,86 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
 
 @app.post("/procesar_sesion")
 def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
-
-    numero_expediente = payload.get("numero_expediente")
-    id_sesion = payload.get("id_sesion")
-    cam1 = payload.get("camara1_mac_address")
-    cam2 = payload.get("camara2_mac_address")
-
-    if not numero_expediente or not id_sesion:
+    ses = payload.get("sesion_activa")
+    if not ses:
         raise HTTPException(
-            status_code=400, detail="Faltan parámetros obligatorios")
+            status_code=400, detail="Falta sesion_activa en el JSON")
+
+    expediente = ses.get("expediente")
+    id_sesion = ses.get("id_sesion")
+    cam1 = ses.get("camara1_mac_address")
+    cam2 = ses.get("camara2_mac_address")
+
+    if not expediente or not id_sesion:
+        raise HTTPException(
+            status_code=400, detail="Faltan expediente o id_sesion")
 
     if not cam1 or not cam2:
         raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
-    hoy = datetime.now().strftime("%Y-%m-%d")
+    # Convertir a datetime
+    try:
+        inicio_sesion = ses["inicio"]
+        fin_sesion = ses["fin"]
+    except:
+        raise HTTPException(
+            status_code=400, detail="Inicio o fin de sesión inválidos")
 
-    # ====== MANIFEST PARA CAM1 ======
+    # Formato ISO
+    inicio_iso = inicio_sesion
+    fin_iso = fin_sesion
+
+    # ==========================
+    #    FECHA PARA MANIFEST
+    # ==========================
+    fecha_solo = inicio_sesion.split("T")[0]  # "2025-11-10"
+    yyyy, mm, dd = fecha_solo.split("-")
+
+    hoy = fecha_solo
+
+    # MANIFEST 1
+    path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
+
+    # MANIFEST 2
+    path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
+
+    # ==========================
+    #     CREAR MANIFESTS
+    # ==========================
     celery_app.send_task(
         "tasks.generar_manifest",
-        args=[cam1, hoy],
+        args=[cam1, fecha_solo],
         queue="manifest"
     )
 
-    # ====== MANIFEST PARA CAM2 ======
     celery_app.send_task(
         "tasks.generar_manifest",
-        args=[cam2, hoy],
+        args=[cam2, fecha_solo],
         queue="manifest"
     )
 
-    # Rutas del manifest que tasks.py va a necesitar
-    manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{hoy[0:4]}/{hoy[5:7]}/{hoy[8:10]}/manifest.json"
-    manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{hoy[0:4]}/{hoy[5:7]}/{hoy[8:10]}/manifest.json"
+    # ==========================
+    #     PROCESAR VIDEOS
+    # ==========================
 
-    # ====== LANZAR WORKERS ======
     celery_app.send_task(
         "worker.tasks.unir_video",
-        args=[numero_expediente, id_sesion, manifest1,
-              hoy+"T00:00:00", hoy+"T23:59:59"],
+        args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
         queue="uniones_video"
     )
 
     celery_app.send_task(
         "worker.tasks.unir_video2",
-        args=[numero_expediente, id_sesion, manifest2,
-              hoy+"T00:00:00", hoy+"T23:59:59"],
+        args=[expediente, id_sesion, path_manifest2, inicio_iso, fin_iso],
         queue="videos2"
     )
 
     return {
         "status": "procesando",
-        "message": f"Procesando expediente {numero_expediente} sesión {id_sesion}",
-        "manifest1": manifest1,
-        "manifest2": manifest2
+        "expediente": expediente,
+        "id_sesion": id_sesion,
+        "inicio_sesion": inicio_iso,
+        "fin_sesion": fin_iso,
+        "manifest1": path_manifest1,
+        "manifest2": path_manifest2
     }
-
-
-@app.post("/manifest/test")
-def test_manifest():
-    """
-    Ejecuta la generación del manifest como prueba manual,
-    usando la ruta SMB estándar (/mnt/wave).
-    """
-    task = celery_app.send_task(
-        "worker.tasks.generar_manifest",
-        args=["/mnt/wave"]
-    )
-    return {"mensaje": "Tarea enviada", "task_id": task.id}

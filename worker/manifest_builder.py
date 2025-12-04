@@ -1,12 +1,13 @@
 # ============================================================
-#   SEMEFO — manifest_builder.py (FINAL)
-#   Generación de manifest por cámara y día.
+#   SEMEFO — manifest_builder.py (FINAL ACTUALIZADO 2025)
+#   Generación de manifest por cámara y día con DURACIÓN REAL.
 #   Compatible 100% con tasks.py (usa campo "ruta")
 # ============================================================
 
 import os
 import json
 import datetime
+import subprocess
 from glob import glob
 from dotenv import load_dotenv
 from .celery_app import celery_app
@@ -27,19 +28,42 @@ EXT_FRAGMENTO = "*.mkv"
 #   UTILIDADES
 # ============================================================
 
-def extraer_timestamp(filename):
+def obtener_duracion(path):
+    """Obtiene duración REAL del MKV usando ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet", "-show_entries",
+                "format=duration", "-of", "csv=p=0", path
+            ],
+            capture_output=True,
+            text=True
+        )
+        dur = float(result.stdout.strip())
+        return dur
+    except Exception as e:
+        print(f"[MANIFEST] Error obteniendo duración: {e}")
+        return 0.0
+
+
+def extraer_timestamps(filename, fullpath):
     """
     Convierte nombre como: 1764662554731_76000.mkv
-    a un rango de 1 minuto basado en su timestamp UNIX.
+    a timestamp de inicio real (UNIX ms → datetime).
+    Y obtiene FIN con ffprobe.
     """
     try:
         base = filename.split("_")[0]  # ej: 1764662554731
         ts_ms = int(base)
+
         inicio = datetime.datetime.fromtimestamp(ts_ms / 1000)
-        fin = inicio + datetime.timedelta(minutes=1)
-        return inicio, fin
+
+        dur = obtener_duracion(fullpath)
+        fin = inicio + datetime.timedelta(seconds=dur)
+
+        return inicio, fin, dur
     except:
-        return None, None
+        return None, None, 0
 
 
 def cargar_manifest(path_manifest):
@@ -60,7 +84,6 @@ def guardar_manifest(path_manifest, data):
 
 def ruta_manifest(mac, fecha):
     yyyy = fecha.strftime("%Y")
-    mm = fecha.strftime("%m")
     dd = fecha.strftime("%d")
 
     return os.path.join(
@@ -113,13 +136,15 @@ def generar_manifest(mac_camara, fecha_iso):
 
     nuevos = []
 
+    # Recorrer fragmentos
     for file_path in sorted(glob(os.path.join(ruta_frag, EXT_FRAGMENTO))):
         archivo = os.path.basename(file_path)
 
+        # Evitar duplicados
         if archivo in ya_registrados:
             continue
 
-        inicio, fin = extraer_timestamp(archivo)
+        inicio, fin, dur = extraer_timestamps(archivo, file_path)
         if inicio is None:
             continue
 
@@ -127,12 +152,14 @@ def generar_manifest(mac_camara, fecha_iso):
             "archivo": archivo,
             "inicio": inicio.isoformat(),
             "fin": fin.isoformat(),
+            "duracion_segundos": dur,
             "ruta": file_path  # <===== RUTA ABSOLUTA COMPATIBLE CON tasks.py
         }
 
         manifest["archivos"].append(entry)
         nuevos.append(entry)
 
+    # Guardar manifest final
     guardar_manifest(path_manifest, manifest)
 
     print(f"[MANIFEST] Guardado → {path_manifest}")

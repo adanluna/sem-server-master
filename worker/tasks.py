@@ -1,7 +1,7 @@
 # ============================================================
-#   SEMEFO — task.py (FINAL DEFINITIVO)
-#   Une fragmentos MKV según MANIFEST corregido
-#   y genera video.webm / video2.webm en:
+#   SEMEFO — task.py (VERSIÓN PRO 2025)
+#   Unión de fragmentos con detección de pausas, gaps y errores.
+#   Genera video.webm / video2.webm en:
 #       /mnt/wave/archivos_sistema_semefo/<expediente>/<id_sesion>/
 # ============================================================
 
@@ -10,6 +10,7 @@ import subprocess
 import os
 import shutil
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 
 from worker.job_api_client import (
@@ -55,33 +56,71 @@ def cargar_manifest(manifest_path):
 def ffmpeg_concat_cmd(lista_txt, salida_webm):
     if MODO_PRUEBA:
         return (
-            f"ffmpeg -y -f concat -safe 0 -i {lista_txt} "
+            f"ffmpeg -y -f concat -safe 0 -i \"{lista_txt}\" "
             f"-c:v libvpx-vp9 -b:v 1.5M -crf 35 -cpu-used 6 "
-            f"-pix_fmt yuv420p -threads {FFMPEG_THREADS} {salida_webm}"
+            f"-pix_fmt yuv420p -threads {FFMPEG_THREADS} \"{salida_webm}\""
         )
     else:
         return (
-            f"ffmpeg -y -f concat -safe 0 -i {lista_txt} "
+            f"ffmpeg -y -f concat -safe 0 -i \"{lista_txt}\" "
             f"-c:v libvpx-vp9 -b:v 3M -crf 28 -cpu-used 4 "
-            f"-pix_fmt yuv420p -threads {FFMPEG_THREADS} {salida_webm}"
+            f"-pix_fmt yuv420p -threads {FFMPEG_THREADS} \"{salida_webm}\""
         )
 
 
 def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
+    """
+    Filtra fragmentos por rango de sesión, detecta gaps y retorna lista ordenada.
+    """
     seleccionados = []
 
     for frag in manifest["archivos"]:
-        f_ini = frag["inicio"]
-        f_fin = frag["fin"]
+        f_ini = datetime.fromisoformat(frag["inicio"])
+        f_fin = datetime.fromisoformat(frag["fin"])
 
+        # Condición de superposición de intervalos
         if f_fin >= inicio_sesion and f_ini <= fin_sesion:
+            frag["_dt_ini"] = f_ini
+            frag["_dt_fin"] = f_fin
             seleccionados.append(frag)
 
     if not seleccionados:
         raise Exception(
             "No se encontraron fragmentos compatibles con la sesión.")
 
-    seleccionados.sort(key=lambda x: x["inicio"])
+    # Ordenar cronológicamente
+    seleccionados.sort(key=lambda x: x["_dt_ini"])
+
+    # ==========================
+    #   DETECTAR GAPS y ERRORES
+    # ==========================
+
+    warnings = []
+    for i in range(1, len(seleccionados)):
+        prev = seleccionados[i - 1]
+        curr = seleccionados[i]
+
+        # Gap en segundos
+        gap = (curr["_dt_ini"] - prev["_dt_fin"]).total_seconds()
+
+        # Gap normal esperado: 0.0 - 0.2s (la cámara admite microsaltos)
+        if gap > 0.5:
+            warnings.append(
+                f"GAP detectado de {gap:.2f}s entre {prev['archivo']} → {curr['archivo']}"
+            )
+
+        # Traslape inesperado
+        if gap < -0.5:
+            warnings.append(
+                f"Traslape sospechoso de {-gap:.2f}s entre {prev['archivo']} y {curr['archivo']}"
+            )
+
+    if warnings:
+        print("\n===== WARNINGS DE FRAGMENTOS =====")
+        for w in warnings:
+            print("[WARNING]", w)
+        print("=================================\n")
+
     return seleccionados
 
 
@@ -98,11 +137,11 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
 
     try:
         expediente = str(expediente)
-        id_sesion = str(id_sesion)
 
+        id_sesion = str(id_sesion)
         nombre_final = "video.webm" if tipo == "video" else "video2.webm"
 
-        # Registrar job
+        # Registrar job en API
         job_id = registrar_job(expediente, id_sesion, tipo, nombre_final)
 
         # Cargar manifest
@@ -111,39 +150,57 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         # Filtrar fragmentos
         frags = construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion)
 
+        # ============================
+        #   COPIAR FRAGMENTOS
+        # ============================
+
         lista_local = []
 
         for frag in frags:
-            src = frag["ruta"]  # <===== RUTA REAL DEL SMB
+            src = frag["ruta"]
 
             if not os.path.exists(src):
                 raise Exception(f"Fragmento no existe en SMB: {src}")
 
+            if os.path.getsize(src) < 50_000:
+                raise Exception(f"Fragmento corrupto o incompleto: {src}")
+
             dst = os.path.join(temp_dir, os.path.basename(src))
+
             shutil.copy2(src, dst)
             lista_local.append(dst)
 
-        # Crear list.txt
+        # ============================
+        #   CREAR list.txt
+        # ============================
+
         list_txt = os.path.join(temp_dir, "list.txt")
         with open(list_txt, "w") as f:
             for p in lista_local:
                 f.write(f"file '{p}'\n")
 
-        # Carpeta salida final en SMB
+        # ============================
+        #   EJECUTAR FFMPEG
+        # ============================
+
         carpeta_salida = f"{SMB_ROOT}/archivos_sistema_semefo/{expediente}/{id_sesion}"
         ensure_dir(carpeta_salida)
 
         salida = f"{carpeta_salida}/{nombre_final}"
 
-        # Ejecutar FFMPEG
         cmd = ffmpeg_concat_cmd(list_txt, salida)
-        print("FFMPEG CMD:", cmd)
-        subprocess.run(cmd, shell=True, check=True, timeout=1800)
+        print("\n========== FFMPEG CMD ==========")
+        print(cmd)
+        print("================================\n")
 
+        subprocess.run(cmd, shell=True, check=True, timeout=3600)
+
+        # Validación tamaño final
         if not os.path.exists(salida) or os.path.getsize(salida) < 1_000_000:
             raise Exception(
                 f"{nombre_final} es demasiado pequeño. Error en conversión.")
 
+        # Registrar archivo en API
         registrar_archivo(id_sesion, tipo, normalizar_ruta(salida))
         finalizar_archivo(id_sesion, tipo, normalizar_ruta(salida))
 
@@ -152,7 +209,7 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         return True
 
     except Exception as e:
-        print(f"ERROR unir_{tipo}:", e)
+        print(f"\n❌ ERROR unir_{tipo}: {e}\n")
         if job_id:
             actualizar_job(job_id, estado="error", error=str(e))
         return False
