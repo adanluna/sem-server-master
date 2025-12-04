@@ -36,7 +36,7 @@ API_URL = os.getenv("API_SERVER_URL").rstrip("/")   # ← importante
 PAUSA_MINIMA = 5  # segundos reales
 
 SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
-TEMP_ROOT = "/tmp/semefo_temp"
+TEMP_ROOT = os.getenv("TEMP_ROOT", "/opt/semefo/storage/tmp")
 FFMPEG_THREADS = int(os.getenv("FFMPEG_THREADS", 4))
 MODO_PRUEBA = os.getenv("MODO_PRUEBA_VIDEO", "0") == "1"
 

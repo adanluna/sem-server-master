@@ -183,6 +183,12 @@ sudo touch /opt/semefo/logs/manifest.log
 sudo chown -R semefo:semefo /opt/semefo/logs
 sudo chmod 664 /opt/semefo/logs/manifest.log
 
+crear espacio en disco grande
+sudo mkdir -p /opt/semefo/storage/tmp
+sudo chown -R 1000:1000 /opt/semefo/storage/tmp
+sudo chmod -R 777 /opt/semefo/storage/tmp
+
+
 ------------------------------------------------------------
 13. VALIDAR SERVICIOS
 ------------------------------------------------------------
