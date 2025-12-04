@@ -204,65 +204,57 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
 
 @app.post("/procesar_sesion")
 def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
+
     numero_expediente = payload.get("numero_expediente")
     id_sesion = payload.get("id_sesion")
-    cam1_mac = payload.get("camera1_mac")
-    cam2_mac = payload.get("camera2_mac")
+    cam1 = payload.get("camara1_mac_address")
+    cam2 = payload.get("camara2_mac_address")
 
     if not numero_expediente or not id_sesion:
         raise HTTPException(
-            status_code=400, detail="Faltan datos obligatorios")
+            status_code=400, detail="Faltan parámetros obligatorios")
 
-    if not cam1_mac or not cam2_mac:
+    if not cam1 or not cam2:
         raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
     hoy = datetime.now().strftime("%Y-%m-%d")
 
-    # LOG
-    log = models.LogEvento(
-        tipo_evento="procesar_sesion",
-        descripcion=f"Procesamiento iniciado para cámaras {cam1_mac} y {cam2_mac}",
-        usuario_ldap="sistema"
-    )
-    db.add(log)
-    db.commit()
-
-    # === MANIFEST PARA CAMARA 1
+    # ====== MANIFEST PARA CAM1 ======
     celery_app.send_task(
         "tasks.generar_manifest",
-        args=[cam1_mac, hoy],
+        args=[cam1, hoy],
         queue="manifest"
     )
 
-    # === MANIFEST PARA CAMARA 2
+    # ====== MANIFEST PARA CAM2 ======
     celery_app.send_task(
         "tasks.generar_manifest",
-        args=[cam2_mac, hoy],
+        args=[cam2, hoy],
         queue="manifest"
     )
 
-    # === AUDIO PRINCIPAL
-    celery_app.send_task(
-        "worker.tasks.unir_audio",
-        args=[numero_expediente, id_sesion],
-        queue="uniones_audio"
-    )
+    # Rutas del manifest que tasks.py va a necesitar
+    manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{hoy[0:4]}/{hoy[5:7]}/{hoy[8:10]}/manifest.json"
+    manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{hoy[0:4]}/{hoy[5:7]}/{hoy[8:10]}/manifest.json"
 
-    # === VIDEO 1
+    # ====== LANZAR WORKERS ======
     celery_app.send_task(
         "worker.tasks.unir_video",
-        args=[numero_expediente, id_sesion],
+        args=[numero_expediente, id_sesion, manifest1,
+              hoy+"T00:00:00", hoy+"T23:59:59"],
         queue="uniones_video"
     )
 
-    # === VIDEO 2
     celery_app.send_task(
         "worker.tasks.unir_video2",
-        args=[numero_expediente, id_sesion],
+        args=[numero_expediente, id_sesion, manifest2,
+              hoy+"T00:00:00", hoy+"T23:59:59"],
         queue="videos2"
     )
 
     return {
         "status": "procesando",
-        "message": f"Procesamiento iniciado para expediente {numero_expediente} sesión {id_sesion}"
+        "message": f"Procesando expediente {numero_expediente} sesión {id_sesion}",
+        "manifest1": manifest1,
+        "manifest2": manifest2
     }
