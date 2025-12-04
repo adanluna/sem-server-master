@@ -20,7 +20,6 @@ SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
 # UUID del WAVE configurado en .env
 GRABADOR_UUID = os.getenv("GRABADOR_UUID", "UNKNOWN_UUID")
 
-# Fragmentos MKV
 EXT_FRAGMENTO = "*.mkv"
 
 
@@ -62,7 +61,8 @@ def extraer_timestamps(filename, fullpath):
         fin = inicio + datetime.timedelta(seconds=dur)
 
         return inicio, fin, dur
-    except:
+    except Exception as e:
+        print(f"[MANIFEST] Error procesando timestamp: {e}")
         return None, None, 0
 
 
@@ -109,7 +109,7 @@ def generar_manifest(mac_camara, fecha_iso):
     """
     fecha = datetime.datetime.fromisoformat(fecha_iso).date()
 
-    # Carpeta del día en el SMB
+    # Ruta correcta según estructura real del WAVE
     ruta_frag = os.path.join(
         SMB_ROOT,
         GRABADOR_UUID,
@@ -133,11 +133,19 @@ def generar_manifest(mac_camara, fecha_iso):
     manifest.setdefault("archivos", [])
 
     ya_registrados = {a["archivo"] for a in manifest["archivos"]}
-
     nuevos = []
 
-    # Recorrer fragmentos
-    for file_path in sorted(glob(os.path.join(ruta_frag, EXT_FRAGMENTO))):
+    # ============================================================
+    #   🔥 BUSCAR MKV EN SUBCARPETAS POR HORA (00–23)
+    # ============================================================
+    pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
+    fragmentos = sorted(glob(pattern))
+
+    if not fragmentos:
+        print(f"[MANIFEST] No se encontraron fragmentos en {pattern}")
+
+    # Procesar cada archivo
+    for file_path in fragmentos:
         archivo = os.path.basename(file_path)
 
         # Evitar duplicados
@@ -153,7 +161,7 @@ def generar_manifest(mac_camara, fecha_iso):
             "inicio": inicio.isoformat(),
             "fin": fin.isoformat(),
             "duracion_segundos": dur,
-            "ruta": file_path  # <===== RUTA ABSOLUTA COMPATIBLE CON tasks.py
+            "ruta": file_path
         }
 
         manifest["archivos"].append(entry)

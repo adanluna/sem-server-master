@@ -1,0 +1,37 @@
+curl -X POST http: //127.0.0.1:8000/procesar_sesion \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sesion_activa": {
+        "id_sesion": 99,
+        "expediente": "INV-TEST-001",
+        "nombre": "Autopsia_Prueba_Manifest",
+        "inicio": "2025-12-04T13:00:00",
+        "fin": "2025-12-04T14:15:00",
+        "estado": "grabando",
+        "duracion_total": "01:15:00",
+        "pausas": [
+            {
+                "inicio": "2025-12-04T13:20:00",
+                "fin": "2025-12-04T13:22:30"
+            }
+        ],
+        "forense": {
+            "id_usuario": "adrian.morales@semefo.local",
+            "nombre": "Adrián Morales"
+        },
+        "forense_cerrar": {
+            "id_usuario": "adrian.morales@semefo.local",
+            "nombre": "Adrián Morales",
+            "fecha": "2025-12-04T14:15:00"
+        },
+        "tablet": "tablet_forense_01",
+        "plancha": "plancha_03",
+        "camara1_mac_address": "E4-30-22-A0-85-6F",
+        "camara2_mac_address": "713119e0e7660334da119e4d7e5c6b57",
+        "version_app": "1.0.0",
+        "ultima_actualizacion": "2025-12-04T14:15:00"
+    }
+}'
+
+
+docker logs -f celery_manifest
