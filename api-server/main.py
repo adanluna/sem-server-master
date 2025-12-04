@@ -208,10 +208,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
 def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     ses = payload.get("sesion_activa")
     if not ses:
-        raise HTTPException(
-            status_code=400,
-            detail="Falta 'sesion_activa' en el JSON"
-        )
+        raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
 
     expediente = ses.get("expediente")
     id_sesion = ses.get("id_sesion")
@@ -225,57 +222,51 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     if not cam1 or not cam2:
         raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
-    # ==========================
-    #   CONVERTIR INICIO / FIN
-    # ==========================
+    # ============================================
+    #  Convertir inicio/fin en datetime
+    # ============================================
     try:
         inicio_iso = ses["inicio"]
         fin_iso = ses["fin"]
-
         inicio_dt = datetime.fromisoformat(inicio_iso)
         fin_dt = datetime.fromisoformat(fin_iso)
-
-    except Exception:
+    except:
         raise HTTPException(
-            status_code=400,
-            detail="Formato inválido en inicio o fin de sesión"
-        )
+            status_code=400, detail="Formato inválido de inicio/fin")
 
-    # ==========================
-    #   CREAR SESIÓN SI NO EXISTE
-    # ==========================
+    # ============================================
+    #  Buscar si la sesión ya existe
+    # ============================================
     sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
 
     if not sesion_obj:
-
+        # Crear la sesión — usando SOLO campos existentes en el modelo
         sesion_obj = models.Sesion(
             id=id_sesion,
-            investigacion_id=None,  # si aplica, o pon el ID correcto
-            expediente=expediente,
-            inicio=inicio_dt,
-            fin=fin_dt,
-            estado="finalizada",     # o "cerrada" según tu flujo
-            plancha_id=ses.get("plancha"),
-            tablet_id=ses.get("tablet"),
-            usuario_ldap=ses.get("forense", {}).get(
-                "id_usuario", "desconocido")
+            investigacion_id=1,   # ⚠️ DE MOMENTO HARDCODEADO — luego lo amarramos al expediente real
+            nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
+            usuario_ldap=ses["forense"]["id_usuario"],
+            plancha_id=ses.get("plancha", "desconocida"),
+            tablet_id=ses.get("tablet", "desconocida"),
+            estado="en_progreso",
+            user_nombre=ses["forense"]["nombre"],
+            camara1_mac_address=cam1,
+            camara2_mac_address=cam2,
+            app_version=ses.get("version_app", "1.0.0")
         )
         db.add(sesion_obj)
         db.commit()
         db.refresh(sesion_obj)
-        print(f"[SESION] Creada automáticamente sesión {id_sesion}")
 
-    # ==========================
-    #   EXTRAER FECHA (YYYY-MM-DD)
-    # ==========================
-    fecha_solo = inicio_iso.split("T")[0]
-    yyyy, mm, dd = fecha_solo.split("-")
+        print(f"[SESION] Creada sesión {id_sesion}")
 
-    # ==========================
-    #   GUARDAR PAUSAS DE APP
-    # ==========================
+    else:
+        print(f"[SESION] Sesión {id_sesion} ya existía")
+
+    # ============================================
+    #  Registrar pausas de la APP (ahora sí existe la sesión)
+    # ============================================
     pausas = ses.get("pausas", [])
-
     for p in pausas:
         try:
             inicio_p = datetime.fromisoformat(p["inicio"])
@@ -283,43 +274,38 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             dur = (fin_p - inicio_p).total_seconds()
 
             nueva = models.LogPausa(
-                sesion_id=id_sesion,
+                sesion_id=sesion_obj.id,
                 inicio=inicio_p,
                 fin=fin_p,
                 duracion=dur,
                 fuente="app"
             )
             db.add(nueva)
-
         except Exception as e:
-            print(f"[PAUSAS] Error guardando pausa de APP: {e}")
+            print(f"[PAUSAS] Error guardando pausa APP: {e}")
 
     db.commit()
 
-    # ==========================
-    #   RUTAS MANIFEST
-    # ==========================
+    # ============================================
+    #   Construcción de rutas manifest
+    # ============================================
+    fecha_solo = inicio_iso.split("T")[0]
+    yyyy, mm, dd = fecha_solo.split("-")
+
     path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
     path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
 
-    # ==========================
+    # ============================================
     #   GENERAR MANIFESTS
-    # ==========================
-    celery_app.send_task(
-        "tasks.generar_manifest",
-        args=[cam1, fecha_solo],
-        queue="manifest"
-    )
+    # ============================================
+    celery_app.send_task("tasks.generar_manifest", args=[
+                         cam1, fecha_solo], queue="manifest")
+    celery_app.send_task("tasks.generar_manifest", args=[
+                         cam2, fecha_solo], queue="manifest")
 
-    celery_app.send_task(
-        "tasks.generar_manifest",
-        args=[cam2, fecha_solo],
-        queue="manifest"
-    )
-
-    # ==========================
-    #   UNIÓN DE VIDEO 1 y 2
-    # ==========================
+    # ============================================
+    #   PROCESO DE UNIÓN DE VIDEO 1 y VIDEO 2
+    # ============================================
     celery_app.send_task(
         "worker.tasks.unir_video",
         args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
