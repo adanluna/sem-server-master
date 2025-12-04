@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -112,3 +112,14 @@ class Job(Base):
     investigacion = relationship("Investigacion", back_populates="jobs")
     sesion = relationship("Sesion", back_populates="jobs")
 # ============================================================
+
+
+class LogPausa(Base):
+    __tablename__ = "log_pausas"
+
+    id = Column(Integer, primary_key=True)
+    sesion_id = Column(Integer, ForeignKey("sesiones.id", ondelete="CASCADE"))
+    inicio = Column(DateTime, nullable=False)
+    fin = Column(DateTime, nullable=False)
+    duracion = Column(Float, nullable=False)
+    fuente = Column(String(20), nullable=False)  # "app" | "auto"

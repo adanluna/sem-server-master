@@ -83,3 +83,22 @@ class SesionArchivoEstadoUpdate(BaseModel):
     fecha_finalizacion: Optional[bool] = False
     ruta_convertida: Optional[str] = None
     conversion_completa: Optional[bool] = None
+
+
+class PausaBase(BaseModel):
+    inicio: datetime
+    fin: datetime
+    duracion: float
+    fuente: str  # "app" o "auto"
+
+
+class PausaCreate(PausaBase):
+    sesion_id: int
+
+
+class PausaResponse(PausaBase):
+    id: int
+    sesion_id: int
+
+    class Config:
+        orm_mode = True

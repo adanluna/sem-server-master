@@ -14,7 +14,9 @@ from schemas import (
     JobUpdate,
     SesionArchivoCreate,
     SesionArchivoResponse,
-    SesionArchivoEstadoUpdate
+    SesionArchivoEstadoUpdate,
+    PausaCreate,
+    PausaResponse
 )
 
 from worker.celery_app import celery_app
@@ -207,7 +209,9 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     ses = payload.get("sesion_activa")
     if not ses:
         raise HTTPException(
-            status_code=400, detail="Falta sesion_activa en el JSON")
+            status_code=400,
+            detail="Falta 'sesion_activa' en el JSON"
+        )
 
     expediente = ses.get("expediente")
     id_sesion = ses.get("id_sesion")
@@ -216,40 +220,71 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
 
     if not expediente or not id_sesion:
         raise HTTPException(
-            status_code=400, detail="Faltan expediente o id_sesion")
+            status_code=400, detail="Faltan expediente o id_sesion"
+        )
 
     if not cam1 or not cam2:
-        raise HTTPException(status_code=400, detail="Faltan MAC addresses")
-
-    # Convertir a datetime
-    try:
-        inicio_sesion = ses["inicio"]
-        fin_sesion = ses["fin"]
-    except:
         raise HTTPException(
-            status_code=400, detail="Inicio o fin de sesión inválidos")
-
-    # Formato ISO
-    inicio_iso = inicio_sesion
-    fin_iso = fin_sesion
+            status_code=400, detail="Faltan MAC addresses"
+        )
 
     # ==========================
-    #    FECHA PARA MANIFEST
+    #   CONVERTIR INICIO / FIN
     # ==========================
-    fecha_solo = inicio_sesion.split("T")[0]  # "2025-11-10"
+    try:
+        inicio_iso = ses["inicio"]              # string ISO
+        fin_iso = ses["fin"]                    # string ISO
+
+        inicio_dt = datetime.fromisoformat(inicio_iso)
+        fin_dt = datetime.fromisoformat(fin_iso)
+
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato inválido en inicio o fin de sesión"
+        )
+
+    # ==========================
+    #      EXTRAER FECHA DÍA
+    # ==========================
+    fecha_solo = inicio_iso.split("T")[0]  # "YYYY-MM-DD"
     yyyy, mm, dd = fecha_solo.split("-")
 
-    hoy = fecha_solo
+    # ==========================
+    #   GUARDAR PAUSAS DE APP
+    # ==========================
+    pausas = ses.get("pausas", [])
 
-    # MANIFEST 1
+    for p in pausas:
+        try:
+            inicio_p = datetime.fromisoformat(p["inicio"])
+            fin_p = datetime.fromisoformat(p["fin"])
+            dur = (fin_p - inicio_p).total_seconds()
+
+            nueva = models.LogPausa(
+                sesion_id=id_sesion,
+                inicio=inicio_p,
+                fin=fin_p,
+                duracion=dur,
+                fuente="app"
+            )
+            db.add(nueva)
+
+        except Exception as e:
+            print(f"[PAUSAS] Error guardando pausa de APP: {e}")
+
+    db.commit()
+
+    # ==========================
+    #   RUTAS MANIFEST
+    # ==========================
     path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
-
-    # MANIFEST 2
     path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
 
     # ==========================
-    #     CREAR MANIFESTS
+    #   GENERAR MANIFEST
     # ==========================
+
     celery_app.send_task(
         "tasks.generar_manifest",
         args=[cam1, fecha_solo],
@@ -263,9 +298,8 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     )
 
     # ==========================
-    #     PROCESAR VIDEOS
+    #   UNIÓN DE VIDEO 1 y 2
     # ==========================
-
     celery_app.send_task(
         "worker.tasks.unir_video",
         args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
@@ -284,6 +318,79 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,
         "fin_sesion": fin_iso,
+        "pausas_app_registradas": len(pausas),
         "manifest1": path_manifest1,
         "manifest2": path_manifest2
     }
+
+
+@app.post("/sesiones/{sesion_id}/pausas_detectadas")
+def registrar_pausas_detectadas(sesion_id: int, data: dict, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    nuevas = data.get("pausas", [])
+
+    # Si ya existen pausas detectadas, las unimos
+    previas = sesion.pausas_detectadas or []
+
+    sesion.pausas_detectadas = previas + nuevas
+    db.commit()
+
+    return {"message": "Pausas registradas", "total": len(sesion.pausas_detectadas)}
+
+
+@app.post("/sesiones/{sesion_id}/pausas", response_model=PausaResponse)
+def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get_db)):
+    # Validar sesión
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    pausa = models.LogPausa(
+        sesion_id=sesion_id,
+        inicio=data.inicio,
+        fin=data.fin,
+        duracion=data.duracion,
+        fuente=data.fuente
+    )
+
+    db.add(pausa)
+    db.commit()
+    db.refresh(pausa)
+
+    return pausa
+
+
+@app.post("/sesiones/{sesion_id}/pausas_auto")
+def registrar_pausas_auto(sesion_id: int, data: dict, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    pausas = data.get("pausas", [])
+    count = 0
+
+    for p in pausas:
+        try:
+            inicio = datetime.fromisoformat(p["inicio"])
+            fin = datetime.fromisoformat(p["fin"])
+            dur = float(p["duracion"])
+
+            nueva = models.LogPausa(
+                sesion_id=sesion_id,
+                inicio=inicio,
+                fin=fin,
+                duracion=dur,
+                fuente="auto"
+            )
+            db.add(nueva)
+            count += 1
+
+        except Exception as e:
+            print(f"[PAUSA AUTO] Error procesando pausa: {e}")
+
+    db.commit()
+
+    return {"registradas": count}

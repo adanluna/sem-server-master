@@ -126,3 +126,15 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=No
         print(
             f"❌ Error registrando archivo {tipo_archivo} en sesión {id_sesion}: {e}")
         return None
+
+
+def registrar_pausas_auto(sesion_id, pausas):
+    url = f"{API_URL}/sesiones/{sesion_id}/pausas_auto"
+    payload = {"pausas": pausas}
+
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        print("[API] Error enviando pausas auto:", e)
+        return False

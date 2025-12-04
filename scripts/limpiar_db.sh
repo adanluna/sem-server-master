@@ -49,7 +49,8 @@ TRUNCATE TABLE
     jobs,
     sesiones,
     investigaciones,
-    logs_eventos
+    logs_eventos,
+    log_pausas
 RESTART IDENTITY CASCADE;
 EOF
 
@@ -60,6 +61,7 @@ echo "   - jobs"
 echo "   - sesiones"
 echo "   - investigaciones"
 echo "   - logs_eventos"
+echo "   - log_pausas"
 
 echo ""
 echo "▶ Reiniciando workers..."
