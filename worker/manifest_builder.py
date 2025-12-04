@@ -47,10 +47,16 @@ def obtener_duracion(path):
 
 def extraer_timestamps(filename, fullpath):
     """
-    Convierte nombre como: 1764662554731_76000.mkv
-    a timestamp de inicio real (UNIX ms → datetime).
-    Y obtiene FIN con ffprobe.
+    Convierte nombres como:
+      - 1764662554731_76000.mkv  (fragmento completo)
+      - 1764662554731.mkv        (fragmento parcial → se ignora)
     """
+
+    # Ignorar archivos sin "_" porque están en grabación
+    if "_" not in filename:
+        print(f"[MANIFEST] Ignorando fragmento incompleto: {filename}")
+        return None, None, 0
+
     try:
         base = filename.split("_")[0]  # ej: 1764662554731
         ts_ms = int(base)
@@ -61,6 +67,7 @@ def extraer_timestamps(filename, fullpath):
         fin = inicio + datetime.timedelta(seconds=dur)
 
         return inicio, fin, dur
+
     except Exception as e:
         print(f"[MANIFEST] Error procesando timestamp: {e}")
         return None, None, 0
