@@ -50,16 +50,16 @@ services:
   # ============================================================
   fastapi:
     build:
-      context: ./api_server
+      context: ./api-server # <--- CORREGIDO (antes era api_server)
       dockerfile: Dockerfile
     container_name: fastapi_app
     command: uvicorn main:app --host 0.0.0.0 --port 8000
-    working_dir: /code/api_server
+    working_dir: /code/api-server # <--- CORREGIDO (antes api_server)
     volumes:
-      - ./api_server:/code/api_server
+      - ./api-server:/code/api-server # <--- CORREGIDO
       - ./worker:/code/worker
       - ./logs:/code/logs
-      - /mnt/wave:/mnt/wave:ro # SMB desde el host montado con fstab (solo lectura)
+      - /mnt/wave:/mnt/wave:ro
     env_file:
       - .env
     environment:
