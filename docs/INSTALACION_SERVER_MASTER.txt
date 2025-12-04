@@ -222,6 +222,11 @@ AGREGAR:
 
 
 ------------------------------------------------------------
+17. Montaje automático de evidencia SEMEFO
+------------------------------------------------------------
+./config-scripts/montaje-smb.sh
+
+------------------------------------------------------------
 NOTAS IMPORTANTES
 ------------------------------------------------------------
 - Los cronjobs SIEMPRE deben ejecutarse como el usuario 'semefo'.
