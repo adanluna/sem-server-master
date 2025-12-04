@@ -8,4 +8,3 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar solo API y Worker
 COPY api-server /code/api-server
 COPY worker /code/worker
-COPY .env /code/.env

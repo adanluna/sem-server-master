@@ -50,13 +50,13 @@ services:
   # ============================================================
   fastapi:
     build:
-      context: ./api-server # <--- CORREGIDO (antes era api_server)
+      context: ./api-server
       dockerfile: Dockerfile
     container_name: fastapi_app
     command: uvicorn main:app --host 0.0.0.0 --port 8000
-    working_dir: /code/api-server # <--- CORREGIDO (antes api_server)
+    working_dir: /code/api-server
     volumes:
-      - ./api-server:/code/api-server # <--- CORREGIDO
+      - ./api-server:/code/api-server
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
