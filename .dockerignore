@@ -4,11 +4,15 @@ __pycache__/
 *.pyd
 *.sqlite3
 *.db
-.env
+
+env/
 venv/
 .venv/
+.env/     # <--- ESTA ES LA CLAVE
+
 storage/
 storage_test/
+
 app-desktop/
 *.log
 .DS_Store
