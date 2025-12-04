@@ -1,27 +1,34 @@
-# worker/job_api_client.py
+# ============================================================
+#   worker/job_api_client.py (FINAL)
+#   Comunicación del Worker → API Master
+# ============================================================
+
 import requests
 import os
 
-# Obtener URL del API desde .env
-server_url = os.getenv("API_SERVER_URL", "http://fastapi_app:8000")
+# Usar URL exacta del .env sin modificarla
+API_URL = os.getenv("API_SERVER_URL", "http://172.31.82.2:8000")
 
-# Agregar http:// si no está presente
-if not server_url.startswith(('http://', 'https://')):
-    server_url = f"http://{server_url}"
 
-API_URL = server_url
-
+# ============================================================
+#   JOBS
+# ============================================================
 
 def registrar_job(numero_expediente, id_sesion, tipo, archivo):
     try:
-        response = requests.post(f"{API_URL}/jobs/crear", json={
-            "numero_expediente": numero_expediente,
-            "id_sesion": id_sesion,
-            "tipo": tipo,
-            "archivo": archivo,
-        })
+        response = requests.post(
+            f"{API_URL}/jobs/crear",
+            json={
+                "numero_expediente": numero_expediente,
+                "id_sesion": id_sesion,
+                "tipo": tipo,
+                "archivo": archivo,
+            },
+            timeout=10
+        )
         response.raise_for_status()
         return response.json().get("job_id")
+
     except Exception as e:
         print(f"❌ Error registrando job en API: {e}")
         return None
@@ -38,22 +45,30 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
             payload["error"] = error
 
         response = requests.put(
-            f"{API_URL}/jobs/{job_id}/actualizar", json=payload)
+            f"{API_URL}/jobs/{job_id}/actualizar",
+            json=payload,
+            timeout=10
+        )
         response.raise_for_status()
         return True
+
     except Exception as e:
-        print(f"❌ Error actualizando job {job_id} en API: {e}")
+        print(f"❌ Error actualizando job {job_id}: {e}")
         return False
 
 
+# ============================================================
+#   ARCHIVOS
+# ============================================================
+
 def finalizar_archivo(id_sesion, tipo_archivo, ruta_convertida):
     """
-    Marca un archivo como completado y actualiza su estado en la API.
+    Marca un archivo como completado.
     """
     try:
         payload = {
             "estado": "completado",
-            "mensaje": f"Conversión finalizada: {ruta_convertida}",
+            "mensaje": f"Archivo finalizado correctamente: {ruta_convertida}",
             "fecha_finalizacion": True,
             "ruta_convertida": ruta_convertida,
             "conversion_completa": True
@@ -66,21 +81,26 @@ def finalizar_archivo(id_sesion, tipo_archivo, ruta_convertida):
         )
         response.raise_for_status()
         return True
+
     except Exception as e:
-        print(
-            f"❌ Error finalizando archivo {tipo_archivo} en sesión {id_sesion}: {e}")
+        print(f"❌ Error finalizando archivo {tipo_archivo}: {e}")
         return False
 
 
 def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None):
     """
-    Registra un archivo en la API si aún no existe.
+    Registra un archivo si no existe.
     """
     try:
-        response = requests.get(f"{API_URL}/sesiones/{id_sesion}/archivos")
+        # Listar archivos existentes
+        response = requests.get(
+            f"{API_URL}/sesiones/{id_sesion}/archivos",
+            timeout=10
+        )
         response.raise_for_status()
         archivos = response.json()
 
+        # Validar existencia previa
         ya_existe = any(a["tipo_archivo"] == tipo_archivo for a in archivos)
         if ya_existe:
             return
@@ -93,9 +113,15 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=No
             "conversion_completa": False
         }
 
-        response = requests.post(f"{API_URL}/archivos/", json=payload)
+        response = requests.post(
+            f"{API_URL}/archivos/",
+            json=payload,
+            timeout=10
+        )
         response.raise_for_status()
+
         return response.json().get("id")
+
     except Exception as e:
         print(
             f"❌ Error registrando archivo {tipo_archivo} en sesión {id_sesion}: {e}")

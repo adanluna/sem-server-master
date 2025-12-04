@@ -12,11 +12,18 @@ from .celery_app import celery_app
 
 load_dotenv()
 
+# ============================================================
+#   CONFIGURACIÓN GLOBAL
+# ============================================================
+
 # Directorio SMB donde están los MKV del grabador
-SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/semefo")
+SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave")
 
 # UUID del grabador (desde .env)
 GRABADOR_UUID = os.getenv("GRABADOR_UUID", "UNKNOWN_UUID")
+
+# Carpeta fija donde están los fragmentos de video
+QUALITY_FOLDER = "hi_quality"
 
 # Extensión de los fragmentos generados por Hanwha / Marshall
 EXT_FRAGMENTO = "*.mkv"
@@ -29,34 +36,27 @@ EXT_FRAGMENTO = "*.mkv"
 def extraer_timestamp(filename):
     """
     Extrae la fecha y hora del nombre del archivo MKV.
-    Se espera un patrón del tipo:
-        Cam1_YYYYMMDD_HHMM.mkv
-    """
+    Formato esperado (Hanwha/Marshall):
+       1764662554731_76000.mkv
 
-    # El fragmento final después de "_"
+    Donde el nombre NO incluye fecha, pero la fecha se obtiene
+    desde la estructura de carpetas (YYYY/MM/DD/HH).
+    """
     try:
         partes = filename.split("_")
-        fecha = partes[-2]            # YYYYMMDD
-        hora = partes[-1].split(".")[0]   # HHMM
+        hora_str = partes[-1].split(".")[0]   # ej: "76000"
+        HH = int(hora_str[0:2])
+        MM = int(hora_str[2:4])
 
-        yyyy = int(fecha[0:4])
-        mm = int(fecha[4:6])
-        dd = int(fecha[6:8])
-
-        HH = int(hora[0:2])
-        MM = int(hora[2:4])
-
-        inicio = datetime.datetime(yyyy, mm, dd, HH, MM)
-        fin = inicio + datetime.timedelta(minutes=1)
-
-        return inicio, fin
+        # La fecha verdadera la determinamos en generar_manifest()
+        return HH, MM
 
     except Exception:
         return None, None
 
 
 def cargar_manifest(path_manifest):
-    """Carga manifest existente si existe; en caso contrario, regresa dict vacío."""
+    """Carga manifest existente si existe; en caso contrario regresa dict vacío."""
     if os.path.exists(path_manifest):
         try:
             with open(path_manifest, "r", encoding="utf-8") as f:
@@ -98,20 +98,25 @@ def calcular_ruta_manifest(mac, fecha):
 def generar_manifest(mac_camara, fecha_iso):
     """
     Genera o actualiza el manifest para una cámara y un día específico.
-    mac_camara: MAC de la cámara. Ej: E4-30-22-EE-0C-62
+
+    mac_camara: MAC Hanwha o UUID Marshall
     fecha_iso : "YYYY-MM-DD"
     """
 
     fecha = datetime.datetime.fromisoformat(fecha_iso).date()
+    yyyy = fecha.strftime("%Y")
+    mm = fecha.strftime("%m")
+    dd = fecha.strftime("%d")
 
-    # Directorio donde el grabador guarda los MKV de esta cámara
+    # Ruta real en el grabador Hanwha/Marshall
     ruta_frag = os.path.join(
         SMB_ROOT,
         GRABADOR_UUID,
+        QUALITY_FOLDER,
         mac_camara,
-        fecha.strftime("%Y"),
-        fecha.strftime("%m"),
-        fecha.strftime("%d")
+        yyyy,
+        mm,
+        dd
     )
 
     if not os.path.isdir(ruta_frag):
@@ -130,31 +135,43 @@ def generar_manifest(mac_camara, fecha_iso):
     if "archivos" not in manifest:
         manifest["archivos"] = []
 
-    # Construir set de nombres ya procesados
+    # Construir set de nombres ya registrados
     ya_registrados = {a["archivo"] for a in manifest["archivos"]}
 
-    # Buscar nuevos fragmentos MKV
+    # Buscar nuevos fragmentos MKV en todas las carpetas hora (00–23)
     nuevos = []
-    for file_path in sorted(glob(os.path.join(ruta_frag, EXT_FRAGMENTO))):
-        nombre = os.path.basename(file_path)
 
-        if nombre in ya_registrados:
-            continue
+    for root, dirs, files in os.walk(ruta_frag):
+        for nombre in sorted(files):
+            if not nombre.endswith(".mkv"):
+                continue
 
-        inicio, fin = extraer_timestamp(nombre)
-        if inicio is None:
-            continue
+            if nombre in ya_registrados:
+                continue
 
-        entry = {
-            "archivo": nombre,
-            "inicio": inicio.isoformat(),
-            "fin": fin.isoformat(),
-            "duracion_segundos": (fin - inicio).seconds,
-            "ruta_relativa": os.path.relpath(file_path, SMB_ROOT).replace("\\", "/")
-        }
+            file_path = os.path.join(root, nombre)
 
-        nuevos.append(entry)
-        manifest["archivos"].append(entry)
+            HH, MM = extraer_timestamp(nombre)
+            if HH is None:
+                continue
+
+            # Crear timestamp real (fecha + hora encontrada)
+            inicio = datetime.datetime(
+                int(yyyy), int(mm), int(dd),
+                HH, MM
+            )
+            fin = inicio + datetime.timedelta(minutes=1)
+
+            entry = {
+                "archivo": nombre,
+                "inicio": inicio.isoformat(),
+                "fin": fin.isoformat(),
+                "duracion_segundos": (fin - inicio).seconds,
+                "ruta_relativa": os.path.relpath(file_path, SMB_ROOT).replace("\\", "/")
+            }
+
+            nuevos.append(entry)
+            manifest["archivos"].append(entry)
 
     if nuevos:
         guardar_manifest(path_manifest, manifest)

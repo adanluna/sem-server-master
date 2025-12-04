@@ -1,6 +1,9 @@
 version: "3.8"
 
 services:
+  # ============================================================
+  # POSTGRESQL
+  # ============================================================
   db:
     image: postgres:15
     container_name: postgres_db
@@ -17,6 +20,9 @@ services:
     ports:
       - "5432:5432"
 
+  # ============================================================
+  # RABBITMQ
+  # ============================================================
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
@@ -37,30 +43,35 @@ services:
       retries: 10
       start_period: 30s
 
+  # ============================================================
+  # FASTAPI BACKEND
+  # ============================================================
   fastapi:
-    build: ./api-server
+    build: ./api-server # <--- CORREGIDO
     container_name: fastapi_app
     command: uvicorn main:app --host 0.0.0.0 --port 8000
-    working_dir: /code/api-server
+    working_dir: /code/api-server # <--- CORREGIDO
     volumes:
       - .:/code
+      - /mnt/wave:/mnt/wave:rw
     env_file:
       - .env
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_started
       rabbitmq:
         condition: service_healthy
+      db:
+        condition: service_started
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /code
-      DB_HOST: postgres_db
-      DB_PORT: 5432
+      SMB_MOUNT: /mnt/wave
+      WINDOWS_WAVE_SHARE_MOUNT: /mnt/wave
+      GRABADOR_UUID: ${WINDOWS_WAVE_UUID}
 
   # ============================================================
-  # WORKER video principal (video.webm)
+  # WORKER: VIDEO PRINCIPAL (video.webm)
   # ============================================================
   celery_uniones:
     build:
@@ -71,13 +82,14 @@ services:
     command: celery -A worker.celery_app worker -Q uniones_video --loglevel=info --hostname=worker_uniones@%h
     volumes:
       - .:/app
+      - /mnt/wave:/mnt/wave:rw # <--- Necesario
+      - /tmp/semefo_temp:/tmp/semefo_temp # <--- Temp real usado por los workers
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
-      DB_HOST: postgres_db
-      DB_PORT: 5432
+      SMB_MOUNT: /mnt/wave
     restart: always
     depends_on:
       rabbitmq:
@@ -87,7 +99,7 @@ services:
     user: "1000:1000"
 
   # ============================================================
-  # WORKER video secundario (video2.webm)
+  # WORKER: VIDEO SECUNDARIO (video2.webm)
   # ============================================================
   celery_video2:
     build:
@@ -98,13 +110,14 @@ services:
     command: celery -A worker.celery_app worker -Q videos2 --loglevel=info --hostname=worker_videos2@%h
     volumes:
       - .:/app
+      - /mnt/wave:/mnt/wave:rw
+      - /tmp/semefo_temp:/tmp/semefo_temp
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
-      DB_HOST: postgres_db
-      DB_PORT: 5432
+      SMB_MOUNT: /mnt/wave
     restart: always
     depends_on:
       rabbitmq:
@@ -114,7 +127,7 @@ services:
     user: "1000:1000"
 
   # ============================================================
-  # WORKER manifest
+  # WORKER: MANIFEST
   # ============================================================
   celery_manifest:
     build:
@@ -125,13 +138,14 @@ services:
     command: celery -A worker.celery_app worker -Q manifest --loglevel=info --hostname=worker_manifest@%h
     volumes:
       - .:/app
+      - /mnt/wave:/mnt/wave:rw # <--- necesita leer MKV y escribir manifest.json
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
-      DB_HOST: postgres_db
-      DB_PORT: 5432
+      SMB_MOUNT: /mnt/wave
+      GRABADOR_UUID: ${WINDOWS_WAVE_UUID}
     restart: always
     depends_on:
       rabbitmq:

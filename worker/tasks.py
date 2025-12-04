@@ -1,10 +1,9 @@
 # ============================================================
-#   SEMEFO — task.py (FINAL)
-#   Master server (172.31.82.2)
-#   Une fragmentos de cámara 1 y cámara 2 usando su MANIFEST
-#   y genera video.webm y video2.webm en SMB.
-#
-#   No se guardan archivos en Linux.
+#   SEMEFO — task.py (FINAL CORREGIDO)
+#   Server Master
+#   Une fragmentos MKV según MANIFEST y genera video.webm/video2.webm
+#   Guardando SIEMPRE en:
+#       /mnt/wave/archivos_sistema_semefo/<expediente>/<id_sesion>/
 # ============================================================
 
 from .celery_app import celery_app
@@ -33,7 +32,9 @@ load_dotenv()
 #   CONFIG GLOBAL
 # ============================================================
 
-SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/semefo").rstrip("/")
+# Nueva ruta real del SMB
+SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
+
 FFMPEG_THREADS = int(os.getenv("FFMPEG_THREADS", 4))
 MODO_PRUEBA = os.getenv("MODO_PRUEBA_VIDEO", "0") == "1"
 
@@ -42,26 +43,21 @@ os.makedirs(TEMP_ROOT, exist_ok=True)
 
 GRABADOR_UUID = os.getenv("GRABADOR_UUID", "").strip()
 
+
 # ============================================================
 #   UTILIDADES
 # ============================================================
 
-
 def cargar_manifest(manifest_path):
-    """
-    Carga el manifest.json desde el SMB.
-    """
+    """Carga manifest.json desde el SMB."""
     if not os.path.exists(manifest_path):
         raise FileNotFoundError(f"No existe manifest: {manifest_path}")
-
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def ffmpeg_concat_cmd(lista_txt, salida_webm):
-    """
-    Genera comando FFMPEG final para unir videos.
-    """
+    """Comando final FFMPEG."""
     if MODO_PRUEBA:
         return (
             f"ffmpeg -y -f concat -safe 0 -i {lista_txt} "
@@ -77,11 +73,7 @@ def ffmpeg_concat_cmd(lista_txt, salida_webm):
 
 
 def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
-    """
-    Dado un manifest con fragmentos:
-        [{archivo, inicio, fin}, ...]
-    Devuelve solo los fragmentos cuya intersección con la sesión es válida.
-    """
+    """Devuelve fragmentos cuyo tiempo intersecta la sesión."""
     seleccionados = []
 
     for frag in manifest["archivos"]:
@@ -93,23 +85,23 @@ def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
 
     if not seleccionados:
         raise Exception(
-            "No se encontraron fragmentos que coincidan con la sesión")
+            "No se encontraron fragmentos para el rango solicitado")
 
     seleccionados.sort(key=lambda x: x["inicio"])
     return seleccionados
 
 
 # ============================================================
-#   UNIÓN DE VIDEO 1 (PRINCIPAL)
+#   FUNCIÓN PRINCIPAL DE UNIÓN DE VIDEO
 # ============================================================
 
-@celery_app.task(name="worker.tasks.unir_video")
-def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
+def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, tipo):
     """
-    Une fragmentos MKV de cámara 1 según MANIFEST externo.
-    Guarda video.webm en SMB.
+    tipo = "video"  → video.webm
+    tipo = "video2" → video2.webm
     """
-    temp_dir = os.path.join(TEMP_ROOT, f"vid1_{expediente}_{id_sesion}")
+
+    temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{expediente}_{id_sesion}")
     limpiar_temp(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -119,8 +111,9 @@ def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
         expediente = str(expediente)
         id_sesion = str(id_sesion)
 
-        # Registrar job
-        job_id = registrar_job(expediente, id_sesion, "video", "video.webm")
+        # Registrar job en API
+        nombre_final = "video.webm" if tipo == "video" else "video2.webm"
+        job_id = registrar_job(expediente, id_sesion, tipo, nombre_final)
 
         # Cargar manifest
         manifest = cargar_manifest(manifest_path)
@@ -128,10 +121,15 @@ def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
         # Seleccionar fragmentos
         frags = construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion)
 
-        # Copiar fragmentos a tmp
+        # Copiar fragmentos al TEMP
         lista_local = []
         for frag in frags:
-            src = frag["ruta"]
+            ruta_rel = frag["ruta_relativa"]
+            src = os.path.join(SMB_ROOT, ruta_rel)
+
+            if not os.path.exists(src):
+                raise Exception(f"Fragmento no encontrado en SMB: {src}")
+
             dst = os.path.join(temp_dir, os.path.basename(src))
             shutil.copy2(src, dst)
             lista_local.append(dst)
@@ -142,29 +140,30 @@ def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
             for frag in lista_local:
                 f.write(f"file '{frag}'\n")
 
-        # Ruta salida
-        carpeta_salida = f"{SMB_ROOT}/{expediente}/{id_sesion}"
+        # Carpeta destino REAL en SMB
+        carpeta_salida = f"{SMB_ROOT}/archivos_sistema_semefo/{expediente}/{id_sesion}"
         ensure_dir(carpeta_salida)
-        salida = f"{carpeta_salida}/video.webm"
 
-        # Ejecutar ffmpeg
+        salida = f"{carpeta_salida}/{nombre_final}"
+
+        # FFMPEG
         cmd = ffmpeg_concat_cmd(list_txt, salida)
-        print("FFMPEG VIDEO1 CMD:", cmd)
+        print("FFMPEG CMD:", cmd)
         subprocess.run(cmd, shell=True, check=True, timeout=1800)
 
-        # Validación
+        # Validar tamaño
         if not os.path.exists(salida) or os.path.getsize(salida) < 1_000_000:
-            raise Exception("video.webm generado con tamaño insuficiente")
+            raise Exception(f"{nombre_final} generado con tamaño insuficiente")
 
-        registrar_archivo(id_sesion, "video", normalizar_ruta(salida))
-        finalizar_archivo(id_sesion, "video", normalizar_ruta(salida))
+        registrar_archivo(id_sesion, tipo, normalizar_ruta(salida))
+        finalizar_archivo(id_sesion, tipo, normalizar_ruta(salida))
 
         actualizar_job(job_id, estado="completado",
                        resultado=normalizar_ruta(salida))
         return True
 
     except Exception as e:
-        print("ERROR unir_video:", e)
+        print(f"ERROR unir_{tipo}:", e)
         if job_id:
             actualizar_job(job_id, estado="error", error=str(e))
         return False
@@ -174,69 +173,14 @@ def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
 
 
 # ============================================================
-#   UNIÓN DE VIDEO 2 (RESPALDO)
+#   TAREAS CELERY
 # ============================================================
+
+@celery_app.task(name="worker.tasks.unir_video")
+def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
+    return _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, "video")
+
 
 @celery_app.task(name="worker.tasks.unir_video2")
 def unir_video2(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
-    """
-    Une fragmentos MKV de cámara 2 según MANIFEST externo.
-    Guarda video2.webm en SMB.
-    """
-    temp_dir = os.path.join(TEMP_ROOT, f"vid2_{expediente}_{id_sesion}")
-    limpiar_temp(temp_dir)
-    os.makedirs(temp_dir, exist_ok=True)
-
-    job_id = None
-
-    try:
-        expediente = str(expediente)
-        id_sesion = str(id_sesion)
-
-        job_id = registrar_job(expediente, id_sesion, "video2", "video2.webm")
-
-        # Cargar manifest
-        manifest = cargar_manifest(manifest_path)
-
-        # Seleccionar fragmentos
-        frags = construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion)
-
-        lista_local = []
-        for frag in frags:
-            src = frag["ruta"]
-            dst = os.path.join(temp_dir, os.path.basename(src))
-            shutil.copy2(src, dst)
-            lista_local.append(dst)
-
-        # list.txt
-        list_txt = os.path.join(temp_dir, "list.txt")
-        with open(list_txt, "w") as f:
-            for frag in lista_local:
-                f.write(f"file '{frag}'\n")
-
-        carpeta_salida = f"{SMB_ROOT}/{expediente}/{id_sesion}"
-        ensure_dir(carpeta_salida)
-        salida = f"{carpeta_salida}/video2.webm"
-
-        cmd = ffmpeg_concat_cmd(list_txt, salida)
-        print("FFMPEG VIDEO2 CMD:", cmd)
-        subprocess.run(cmd, shell=True, check=True, timeout=1800)
-
-        if not os.path.exists(salida) or os.path.getsize(salida) < 1_000_000:
-            raise Exception("video2.webm generado con tamaño insuficiente")
-
-        registrar_archivo(id_sesion, "video2", normalizar_ruta(salida))
-        finalizar_archivo(id_sesion, "video2", normalizar_ruta(salida))
-
-        actualizar_job(job_id, estado="completado",
-                       resultado=normalizar_ruta(salida))
-        return True
-
-    except Exception as e:
-        print("ERROR unir_video2:", e)
-        if job_id:
-            actualizar_job(job_id, estado="error", error=str(e))
-        return False
-
-    finally:
-        limpiar_temp(temp_dir)
+    return _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, "video2")
