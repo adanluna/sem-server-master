@@ -105,10 +105,10 @@ def ruta_manifest(mac, fecha):
         "manifest.json"
     )
 
+
 # ============================================================
 #   TAREA CELERY — GENERAR MANIFEST
 # ============================================================
-
 
 @celery_app.task(name="tasks.generar_manifest", queue="manifest")
 def generar_manifest(mac_camara, fecha_iso):
