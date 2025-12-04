@@ -90,7 +90,7 @@ services:
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw # Workers necesitan escribir video.webm
-      - /tmp/semefo_temp:/tmp/semefo_temp
+      - /opt/semefo/storage/tmp:/opt/semefo/storage/tmp
     env_file:
       - .env
     environment:
@@ -119,7 +119,7 @@ services:
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw
-      - /tmp/semefo_temp:/tmp/semefo_temp
+      - /opt/semefo/storage/tmp:/opt/semefo/storage/tmp
     env_file:
       - .env
     environment:

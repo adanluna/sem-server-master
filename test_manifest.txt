@@ -10,7 +10,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-        "id_sesion": 99,
+        "id_sesion": 100,
         "expediente": "INV-TEST-001",
         "nombre": "Autopsia_Prueba_Manifest",
         "inicio": "2025-12-04T13:00:00",
@@ -44,3 +44,4 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
 
 
 docker logs -f celery_manifest
+docker logs celery_uniones -f
