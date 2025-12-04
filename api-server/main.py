@@ -220,20 +220,17 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
 
     if not expediente or not id_sesion:
         raise HTTPException(
-            status_code=400, detail="Faltan expediente o id_sesion"
-        )
+            status_code=400, detail="Faltan expediente o id_sesion")
 
     if not cam1 or not cam2:
-        raise HTTPException(
-            status_code=400, detail="Faltan MAC addresses"
-        )
+        raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
     # ==========================
     #   CONVERTIR INICIO / FIN
     # ==========================
     try:
-        inicio_iso = ses["inicio"]              # string ISO
-        fin_iso = ses["fin"]                    # string ISO
+        inicio_iso = ses["inicio"]
+        fin_iso = ses["fin"]
 
         inicio_dt = datetime.fromisoformat(inicio_iso)
         fin_dt = datetime.fromisoformat(fin_iso)
@@ -245,9 +242,29 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         )
 
     # ==========================
-    #      EXTRAER FECHA DÍA
+    #   CREAR SESIÓN SI NO EXISTE
     # ==========================
-    fecha_solo = inicio_iso.split("T")[0]  # "YYYY-MM-DD"
+    sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
+
+    if not sesion_obj:
+        sesion_obj = models.Sesion(
+            id=id_sesion,
+            investigacion_id=1,  # Ajusta según tu lógica real
+            plancha_id=ses.get("plancha"),
+            tablet_id=ses.get("tablet"),
+            usuario_ldap=ses["forense"]["id_usuario"],
+            estado="en_progreso",
+            fecha_inicio=inicio_dt
+        )
+        db.add(sesion_obj)
+        db.commit()
+        db.refresh(sesion_obj)
+        print(f"[SESION] Creada automáticamente sesión {id_sesion}")
+
+    # ==========================
+    #   EXTRAER FECHA (YYYY-MM-DD)
+    # ==========================
+    fecha_solo = inicio_iso.split("T")[0]
     yyyy, mm, dd = fecha_solo.split("-")
 
     # ==========================
@@ -282,9 +299,8 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
 
     # ==========================
-    #   GENERAR MANIFEST
+    #   GENERAR MANIFESTS
     # ==========================
-
     celery_app.send_task(
         "tasks.generar_manifest",
         args=[cam1, fecha_solo],
