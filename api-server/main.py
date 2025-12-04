@@ -247,14 +247,18 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
 
     if not sesion_obj:
+
         sesion_obj = models.Sesion(
             id=id_sesion,
-            investigacion_id=1,  # Ajusta según tu lógica real
+            investigacion_id=None,  # si aplica, o pon el ID correcto
+            expediente=expediente,
+            inicio=inicio_dt,
+            fin=fin_dt,
+            estado="finalizada",     # o "cerrada" según tu flujo
             plancha_id=ses.get("plancha"),
             tablet_id=ses.get("tablet"),
-            usuario_ldap=ses["forense"]["id_usuario"],
-            estado="en_progreso",
-            fecha_inicio=inicio_dt
+            usuario_ldap=ses.get("forense", {}).get(
+                "id_usuario", "desconocido")
         )
         db.add(sesion_obj)
         db.commit()
