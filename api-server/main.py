@@ -258,3 +258,16 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         "manifest1": manifest1,
         "manifest2": manifest2
     }
+
+
+@app.post("/manifest/test")
+def test_manifest():
+    """
+    Ejecuta la generación del manifest como prueba manual,
+    usando la ruta SMB estándar (/mnt/wave).
+    """
+    task = celery_app.send_task(
+        "worker.tasks.generar_manifest",
+        args=["/mnt/wave"]
+    )
+    return {"mensaje": "Tarea enviada", "task_id": task.id}
