@@ -13,7 +13,7 @@
 set -e
 
 echo "============================================================"
-echo "   LIMPIEZA DE TABLAS DE PRUEBAS EN SEMEFO"
+echo "   LIMPIEZA DE TABLAS DE PRUEBAS EN SEMEFO SOLO TEST"
 echo "============================================================"
 
 # --- Cargar variables de entorno ---
