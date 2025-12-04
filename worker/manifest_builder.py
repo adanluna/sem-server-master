@@ -91,6 +91,7 @@ def guardar_manifest(path_manifest, data):
 
 def ruta_manifest(mac, fecha):
     yyyy = fecha.strftime("%Y")
+    mm = fecha.strftime("%m")
     dd = fecha.strftime("%d")
 
     return os.path.join(
@@ -99,14 +100,15 @@ def ruta_manifest(mac, fecha):
         GRABADOR_UUID,
         mac,
         yyyy,
+        mm,
         dd,
         "manifest.json"
     )
 
-
 # ============================================================
 #   TAREA CELERY — GENERAR MANIFEST
 # ============================================================
+
 
 @celery_app.task(name="tasks.generar_manifest", queue="manifest")
 def generar_manifest(mac_camara, fecha_iso):

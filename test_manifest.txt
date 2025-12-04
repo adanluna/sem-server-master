@@ -1,3 +1,11 @@
+curl -X POST http://127.0.0.1:8000/investigaciones/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "numero_expediente": "INV-TEST-001",
+    "nombre_carpeta": "INV-TEST-001",
+    "observaciones": "Prueba de integración"
+}'
+
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
