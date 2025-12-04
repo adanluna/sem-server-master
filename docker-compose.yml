@@ -1,4 +1,6 @@
-version: "3.8"
+# ============================================================
+#   SISTEMA FORENSE SEMEFO — DOCKER COMPOSE (FINAL)
+# ============================================================
 
 services:
   # ============================================================
@@ -47,28 +49,33 @@ services:
   # FASTAPI BACKEND
   # ============================================================
   fastapi:
-    build: ./api-server # <--- CORREGIDO
+    build:
+      context: ./api_server
+      dockerfile: Dockerfile
     container_name: fastapi_app
     command: uvicorn main:app --host 0.0.0.0 --port 8000
-    working_dir: /code/api-server # <--- CORREGIDO
+    working_dir: /code/api_server
     volumes:
-      - .:/code
-      - /mnt/wave:/mnt/wave:rw
+      - ./api_server:/code/api_server
+      - ./worker:/code/worker
+      - ./logs:/code/logs
+      - /mnt/wave:/mnt/wave:ro # SMB desde el host montado con fstab (solo lectura)
     env_file:
       - .env
-    ports:
-      - "8000:8000"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      db:
-        condition: service_started
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /code
-      SMB_MOUNT: /mnt/wave
       WINDOWS_WAVE_SHARE_MOUNT: /mnt/wave
-      GRABADOR_UUID: ${WINDOWS_WAVE_UUID}
+      WINDOWS_WAVE_UUID: ${WINDOWS_WAVE_UUID}
+      DB_HOST: postgres_db
+      DB_PORT: 5432
+    depends_on:
+      db:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
 
   # ============================================================
   # WORKER: VIDEO PRINCIPAL (video.webm)
@@ -82,14 +89,15 @@ services:
     command: celery -A worker.celery_app worker -Q uniones_video --loglevel=info --hostname=worker_uniones@%h
     volumes:
       - .:/app
-      - /mnt/wave:/mnt/wave:rw # <--- Necesario
-      - /tmp/semefo_temp:/tmp/semefo_temp # <--- Temp real usado por los workers
+      - /mnt/wave:/mnt/wave:rw # Workers necesitan escribir video.webm
+      - /tmp/semefo_temp:/tmp/semefo_temp
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
       SMB_MOUNT: /mnt/wave
+      TEMP_ROOT: /tmp/semefo_temp
     restart: always
     depends_on:
       rabbitmq:
@@ -118,6 +126,7 @@ services:
       TZ: America/Monterrey
       PYTHONPATH: /app
       SMB_MOUNT: /mnt/wave
+      TEMP_ROOT: /tmp/semefo_temp
     restart: always
     depends_on:
       rabbitmq:
@@ -127,7 +136,7 @@ services:
     user: "1000:1000"
 
   # ============================================================
-  # WORKER: MANIFEST
+  # WORKER: MANIFEST BUILDER
   # ============================================================
   celery_manifest:
     build:
@@ -138,7 +147,7 @@ services:
     command: celery -A worker.celery_app worker -Q manifest --loglevel=info --hostname=worker_manifest@%h
     volumes:
       - .:/app
-      - /mnt/wave:/mnt/wave:rw # <--- necesita leer MKV y escribir manifest.json
+      - /mnt/wave:/mnt/wave:rw # Escribe manifest.json directamente en SMB
     env_file:
       - .env
     environment:
