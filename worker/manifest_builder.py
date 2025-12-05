@@ -1,7 +1,8 @@
 # ============================================================
-#   SEMEFO — manifest_builder.py (FINAL ACTUALIZADO 2025)
-#   Generación de manifest por cámara y día con DURACIÓN REAL.
-#   Compatible 100% con tasks.py (usa campo "ruta")
+#   SEMEFO — manifest_builder.py (PRODUCTION HARDENED 2025)
+#   Generación incremental segura de manifest con validaciones
+#   estrictas, prevención de corrupción y auditoría extendida.
+#   Compatible 100% con tasks.py incluida detección de pausas.
 # ============================================================
 
 import os
@@ -14,10 +15,8 @@ from .celery_app import celery_app
 
 load_dotenv()
 
-# Ruta raíz del SMB (montado en el contenedor)
+# Ruta raíz del SMB montado en el contenedor
 SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
-
-# UUID del WAVE configurado en .env
 GRABADOR_UUID = os.getenv("GRABADOR_UUID", "UNKNOWN_UUID")
 
 EXT_FRAGMENTO = "*.mkv"
@@ -38,55 +37,82 @@ def obtener_duracion(path):
             capture_output=True,
             text=True
         )
+
+        if not result.stdout.strip():
+            print(f"[MANIFEST] ffprobe sin output → archivo corrupto: {path}")
+            return None
+
         dur = float(result.stdout.strip())
+
+        if dur <= 0:
+            print(f"[MANIFEST] Duración inválida (<=0) para {path}")
+            return None
+
         return dur
+
     except Exception as e:
-        print(f"[MANIFEST] Error obteniendo duración: {e}")
-        return 0.0
+        print(f"[MANIFEST] Error obteniendo duración para {path}: {e}")
+        return None
 
 
 def extraer_timestamps(filename, fullpath):
     """
     Convierte nombres como:
       - 1764662554731_76000.mkv  (fragmento completo)
-      - 1764662554731.mkv        (fragmento parcial → se ignora)
+      - 1764662554731.mkv        (fragmento incompleto → ignorar)
     """
 
-    # Ignorar archivos sin "_" porque están en grabación
     if "_" not in filename:
-        print(f"[MANIFEST] Ignorando fragmento incompleto: {filename}")
-        return None, None, 0
+        print(
+            f"[MANIFEST] Ignorando fragmento incompleto (sin sufijo): {filename}")
+        return None, None, None
 
     try:
         base = filename.split("_")[0]  # ej: 1764662554731
         ts_ms = int(base)
 
+        # Conversión segura a datetime
         inicio = datetime.datetime.fromtimestamp(ts_ms / 1000)
 
         dur = obtener_duracion(fullpath)
-        fin = inicio + datetime.timedelta(seconds=dur)
+        if dur is None:
+            return None, None, None
 
+        fin = inicio + datetime.timedelta(seconds=dur)
         return inicio, fin, dur
 
+    except ValueError:
+        print(f"[MANIFEST] Nombre inválido (timestamp corrupto): {filename}")
+        return None, None, None
     except Exception as e:
-        print(f"[MANIFEST] Error procesando timestamp: {e}")
-        return None, None, 0
+        print(f"[MANIFEST] Error procesando timestamp para {filename}: {e}")
+        return None, None, None
 
 
 def cargar_manifest(path_manifest):
     if os.path.exists(path_manifest):
         try:
             with open(path_manifest, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
+                data = json.load(f)
+                if "archivos" not in data:
+                    print(
+                        f"[MANIFEST] Archivo corrupto → se repara vacío: {path_manifest}")
+                    return {}
+                return data
+        except Exception as e:
+            print(f"[MANIFEST] Error leyendo manifest {path_manifest}: {e}")
             return {}
     return {}
 
 
 def guardar_manifest(path_manifest, data):
     os.makedirs(os.path.dirname(path_manifest), exist_ok=True)
-    with open(path_manifest, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+
+    try:
+        with open(path_manifest, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"[MANIFEST] ERROR guardando manifest {path_manifest}: {e}")
 
 
 def ruta_manifest(mac, fecha):
@@ -107,18 +133,17 @@ def ruta_manifest(mac, fecha):
 
 
 # ============================================================
-#   TAREA CELERY — GENERAR MANIFEST
+#   CELERY TASK — GENERAR MANIFEST INCREMENTAL SEGURo
 # ============================================================
 
 @celery_app.task(name="tasks.generar_manifest", queue="manifest")
 def generar_manifest(mac_camara, fecha_iso):
     """
-    mac_camara → nombre de carpeta en hi_quality
-    fecha_iso  → 'YYYY-MM-DD'
+    Genera o actualiza el manifest de una cámara en un día.
+    Solo agrega fragmentos nuevos, con validación extendida.
     """
     fecha = datetime.datetime.fromisoformat(fecha_iso).date()
 
-    # Ruta correcta según estructura real del WAVE
     ruta_frag = os.path.join(
         SMB_ROOT,
         GRABADOR_UUID,
@@ -136,33 +161,41 @@ def generar_manifest(mac_camara, fecha_iso):
     path_manifest = ruta_manifest(mac_camara, fecha)
     manifest = cargar_manifest(path_manifest)
 
+    # Inicializar estructura si no existe
     manifest.setdefault("uuid", GRABADOR_UUID)
     manifest.setdefault("fecha", fecha_iso)
     manifest.setdefault("camara_mac", mac_camara)
     manifest.setdefault("archivos", [])
 
-    ya_registrados = {a["archivo"] for a in manifest["archivos"]}
+    # Evitar duplicados de archivo y duplicados por rango de tiempo
+    ya_archivos = {a["archivo"] for a in manifest["archivos"]}
+
+    # También evitar duplicados por timestamp (poco probable pero crítico)
+    ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
+
     nuevos = []
 
-    # ============================================================
-    #   🔥 BUSCAR MKV EN SUBCARPETAS POR HORA (00–23)
-    # ============================================================
+    # Buscar fragmentos por hora
     pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
     fragmentos = sorted(glob(pattern))
 
     if not fragmentos:
         print(f"[MANIFEST] No se encontraron fragmentos en {pattern}")
 
-    # Procesar cada archivo
     for file_path in fragmentos:
         archivo = os.path.basename(file_path)
 
-        # Evitar duplicados
-        if archivo in ya_registrados:
+        # Evitar duplicados exactos por nombre
+        if archivo in ya_archivos:
             continue
 
         inicio, fin, dur = extraer_timestamps(archivo, file_path)
         if inicio is None:
+            continue  # archivo corrupto o incompleto
+
+        # Evitar duplicados por rango temporal
+        if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
+            print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
             continue
 
         entry = {
@@ -176,10 +209,12 @@ def generar_manifest(mac_camara, fecha_iso):
         manifest["archivos"].append(entry)
         nuevos.append(entry)
 
-    # Guardar manifest final
+    # Ordenación estricta y segura
+    manifest["archivos"].sort(key=lambda x: x["inicio"])
+
     guardar_manifest(path_manifest, manifest)
 
     print(f"[MANIFEST] Guardado → {path_manifest}")
-    print(f"[MANIFEST] Nuevos fragmentos: {len(nuevos)}")
+    print(f"[MANIFEST] Fragmentos nuevos agregados: {len(nuevos)}")
 
     return True

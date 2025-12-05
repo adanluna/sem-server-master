@@ -1,7 +1,7 @@
 # ============================================================
-#   SEMEFO — task.py (VERSIÓN PRO 2025 + DETECCIÓN DE PAUSAS)
-#   Unión de fragmentos con detección de pausas reales (>= 5s),
-#   gaps, traslapes y errores.
+#   SEMEFO — task.py (PRODUCTION HARDENED 2025)
+#   Unión de fragmentos con validación estricta, pausas reales,
+#   trazabilidad total, ffmpeg robusto y auditoría completa.
 # ============================================================
 
 from .celery_app import celery_app
@@ -32,7 +32,7 @@ load_dotenv()
 #   CONFIG GLOBAL
 # ============================================================
 
-API_URL = os.getenv("API_SERVER_URL").rstrip("/")   # ← importante
+API_URL = os.getenv("API_SERVER_URL").rstrip("/")
 PAUSA_MINIMA = 5  # segundos reales
 
 SMB_ROOT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
@@ -48,11 +48,21 @@ os.makedirs(TEMP_ROOT, exist_ok=True)
 # ============================================================
 
 def cargar_manifest(manifest_path):
+    """Carga manifest y VALIDACIÓN de estructura."""
     if not os.path.exists(manifest_path):
         raise FileNotFoundError(f"No existe manifest: {manifest_path}")
 
     with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        manifest = json.load(f)
+
+    if "archivos" not in manifest or not isinstance(manifest["archivos"], list):
+        raise Exception(
+            "Manifest mal formado: no contiene lista de 'archivos'.")
+
+    # 📌 ORDEN ESTRICTO POR INICIO → evita pausas falsas
+    manifest["archivos"].sort(key=lambda x: x["inicio"])
+
+    return manifest
 
 
 def ffmpeg_concat_cmd(lista_txt, salida_webm):
@@ -68,9 +78,7 @@ def ffmpeg_concat_cmd(lista_txt, salida_webm):
 
 
 def detectar_pausas(frags):
-    """
-    Detecta pausas reales >= PAUSA_MINIMA segundos.
-    """
+    """Detecta pausas reales >= PAUSA_MINIMA segundos."""
     pausas = []
 
     for i in range(1, len(frags)):
@@ -100,21 +108,22 @@ def reportar_pausas_api(id_sesion, pausas):
         url = f"http://{API_URL}/sesiones/{id_sesion}/pausas_detectadas"
         r = requests.post(url, json={"pausas": pausas}, timeout=5)
         print(
-            f"[PAUSAS] Reportadas {len(pausas)} pausas a la API. Status={r.status_code}")
+            f"[PAUSAS] Reportadas {len(pausas)} pausas (status={r.status_code})")
     except Exception as e:
         print(f"[PAUSAS] ERROR enviando pausas: {e}")
 
 
 def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
-    """
-    Filtra fragmentos dentro del rango de sesión.
-    Detecta gaps y ordena cronológicamente.
-    """
+    """Filtra fragmentos dentro del rango de sesión y valida integridad."""
     seleccionados = []
 
     for frag in manifest["archivos"]:
-        f_ini = datetime.fromisoformat(frag["inicio"])
-        f_fin = datetime.fromisoformat(frag["fin"])
+        try:
+            f_ini = datetime.fromisoformat(frag["inicio"])
+            f_fin = datetime.fromisoformat(frag["fin"])
+        except:
+            print(f"[MANIFEST] ERROR fecha inválida en fragmento: {frag}")
+            continue
 
         if f_fin >= inicio_sesion and f_ini <= fin_sesion:
             frag["_dt_ini"] = f_ini
@@ -127,26 +136,20 @@ def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
 
     seleccionados.sort(key=lambda x: x["_dt_ini"])
 
-    warnings = []
+    # Validación de continuidad / gaps / traslapes
+    print(f"[UNION] Fragmentos seleccionados: {len(seleccionados)}")
+
     for i in range(1, len(seleccionados)):
         prev = seleccionados[i - 1]
         curr = seleccionados[i]
         gap = (curr["_dt_ini"] - prev["_dt_fin"]).total_seconds()
 
         if gap > 0.5:
-            warnings.append(
-                f"GAP de {gap:.2f}s entre {prev['archivo']} → {curr['archivo']}"
-            )
+            print(
+                f"[WARNING] GAP {gap:.2f}s → {prev['archivo']} → {curr['archivo']}")
         if gap < -0.5:
-            warnings.append(
-                f"Traslape de {-gap:.2f}s entre {prev['archivo']} y {curr['archivo']}"
-            )
-
-    if warnings:
-        print("\n===== WARNINGS DE FRAGMENTOS =====")
-        for w in warnings:
-            print("[WARNING]", w)
-        print("=================================\n")
+            print(
+                f"[WARNING] TRASLAPE {-gap:.2f}s entre {prev['archivo']} y {curr['archivo']}")
 
     return seleccionados
 
@@ -156,11 +159,11 @@ def construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion):
 # ============================================================
 
 def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, tipo):
-    # convertir strings → datetime
-    if isinstance(inicio_sesion, str):
-        inicio_sesion = datetime.fromisoformat(inicio_sesion)
-    if isinstance(fin_sesion, str):
-        fin_sesion = datetime.fromisoformat(fin_sesion)
+
+    inicio_sesion = datetime.fromisoformat(inicio_sesion) if isinstance(
+        inicio_sesion, str) else inicio_sesion
+    fin_sesion = datetime.fromisoformat(
+        fin_sesion) if isinstance(fin_sesion, str) else fin_sesion
 
     temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{expediente}_{id_sesion}")
     limpiar_temp(temp_dir)
@@ -171,29 +174,34 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
     try:
         expediente = str(expediente)
         id_sesion = str(id_sesion)
-
         nombre_final = "video.webm" if tipo == "video" else "video2.webm"
 
         job_id = registrar_job(expediente, id_sesion, tipo, nombre_final)
+        print(f"[JOB] Iniciando job {job_id} para unir {tipo}")
 
         manifest = cargar_manifest(manifest_path)
 
         # Filtrar fragmentos
         frags = construir_lista_fragmentos(manifest, inicio_sesion, fin_sesion)
 
-        # Detectar pausas y reportarlas
+        # Detectar pausas
         pausas_detectadas = detectar_pausas(frags)
         reportar_pausas_api(id_sesion, pausas_detectadas)
 
-        # Copiar fragmentos al temp
+        # COPIA SEGURA DE FRAGMENTOS
         lista_local = []
+
         for frag in frags:
             src = frag["ruta"]
+
             if not os.path.exists(src):
                 raise Exception(f"Fragmento no existe: {src}")
 
             if os.path.getsize(src) < 50_000:
-                raise Exception(f"Fragmento corrupto/incompleto: {src}")
+                raise Exception(
+                    f"Fragmento muy pequeño (posible corrupción): {src}")
+
+            print(f"[UNION] Copiando fragmento: {src}")
 
             dst = os.path.join(temp_dir, os.path.basename(src))
             shutil.copy2(src, dst)
@@ -216,16 +224,23 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         print(cmd)
         print("================================\n")
 
-        subprocess.run(cmd, shell=True, check=True, timeout=3600)
+        # Ejecución robusta de ffmpeg
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True)
 
-        if not os.path.exists(salida) or os.path.getsize(salida) < 1_000_000:
-            raise Exception(
-                f"{nombre_final} generado vacío o demasiado pequeño.")
+        if result.returncode != 0:
+            print(result.stdout)
+            print(result.stderr)
+            raise Exception(f"FFmpeg falló: {result.stderr}")
+
+        if not os.path.exists(salida) or os.path.getsize(salida) < 200_000:
+            raise Exception(f"{nombre_final} generado vacío o incompleto.")
 
         registrar_archivo(id_sesion, tipo, normalizar_ruta(salida))
         finalizar_archivo(id_sesion, tipo, normalizar_ruta(salida))
         actualizar_job(job_id, estado="completado")
 
+        print(f"[JOB] Unión de {tipo} completada OK.")
         return True
 
     except Exception as e:

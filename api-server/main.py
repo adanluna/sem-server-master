@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import logging
 import os
+from celery import chain
 
 from database import get_db, engine
 import models
@@ -296,27 +297,34 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
 
     # ============================================
-    #   GENERAR MANIFESTS
+    #   PROCESO COMPLETO: GENERAR MANIFEST → UNIR VIDEO
     # ============================================
-    celery_app.send_task("tasks.generar_manifest", args=[
-                         cam1, fecha_solo], queue="manifest")
-    celery_app.send_task("tasks.generar_manifest", args=[
-                         cam2, fecha_solo], queue="manifest")
 
-    # ============================================
-    #   PROCESO DE UNIÓN DE VIDEO 1 y VIDEO 2
-    # ============================================
-    celery_app.send_task(
-        "worker.tasks.unir_video",
-        args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
-        queue="uniones_video"
-    )
+    chain(
+        celery_app.signature(
+            "tasks.generar_manifest",
+            args=[cam1, fecha_solo],
+            queue="manifest"
+        ),
+        celery_app.signature(
+            "worker.tasks.unir_video",
+            args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
+            queue="uniones_video"
+        )
+    ).apply_async()
 
-    celery_app.send_task(
-        "worker.tasks.unir_video2",
-        args=[expediente, id_sesion, path_manifest2, inicio_iso, fin_iso],
-        queue="videos2"
-    )
+    chain(
+        celery_app.signature(
+            "tasks.generar_manifest",
+            args=[cam2, fecha_solo],
+            queue="manifest"
+        ),
+        celery_app.signature(
+            "worker.tasks.unir_video2",
+            args=[expediente, id_sesion, path_manifest2, inicio_iso, fin_iso],
+            queue="videos2"
+        )
+    ).apply_async()
 
     return {
         "status": "procesando",
