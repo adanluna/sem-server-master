@@ -212,7 +212,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
             }
 
             requests.post(
-                f"http://{API_SERVER_URL}/whisper/enviar",
+                f"{API_SERVER_URL}/whisper/enviar",
                 json=payload,
                 timeout=5
             )
@@ -674,3 +674,64 @@ def enviar_a_whisper(data: dict):
     connection.close()
 
     return {"status": "whisper_job_enviado"}
+
+# ============================================================
+#  PROGRESO POR ARCHIVO (usado por workers)
+# ============================================================
+
+
+@app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
+def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db)):
+
+    progreso = data.get("progreso")
+    if progreso is None:
+        raise HTTPException(status_code=400, detail="Falta 'progreso'")
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    # Guardar progreso general de la sesión
+    sesion.progreso_porcentaje = progreso
+    db.commit()
+
+    print(f"[PROGRESO] Sesión {sesion_id} – {tipo_archivo}: {progreso}%")
+
+    return {"message": "Progreso actualizado"}
+
+# ============================================================
+#  VERIFICAR SI LA SESIÓN YA PUEDE FINALIZARSE
+# ============================================================
+
+
+@app.get("/sesiones/{sesion_id}/verificar_finalizacion")
+def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    archivos = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id).all()
+    completados = {
+        a.tipo_archivo for a in archivos if a.estado == "completado"}
+
+    requeridos = {"video", "video2", "audio", "transcripcion"}
+
+    if requeridos.issubset(completados):
+
+        if sesion.estado != "finalizada":
+            sesion.estado = "finalizada"
+            sesion.duracion_real = (
+                datetime.utcnow() - sesion.fecha).total_seconds()
+            db.commit()
+
+            print(
+                f"[SESION] Sesión {sesion_id} FINALIZADA automáticamente por verificación externa")
+
+        return {"status": "finalizada"}
+
+    return {
+        "status": "incompleta",
+        "faltan": list(requeridos - completados)
+    }

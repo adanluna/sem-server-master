@@ -48,7 +48,7 @@ os.makedirs(TEMP_ROOT, exist_ok=True)
 
 
 # ============================================================
-#   REPORTAR PROGRESO (solo log)
+#   REPORTAR PROGRESO
 # ============================================================
 
 def reportar_progreso(id_sesion: str, tipo_archivo: str, progreso: float):
@@ -226,14 +226,38 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         # ------------------------------------------------------------
         # MARCAR COMO COMPLETADO
         # ------------------------------------------------------------
-        finalizar_archivo(
-            sesion_id=str(id_sesion),
-            tipo_archivo=tipo,
-            ruta=normalizar_ruta(salida)
-        )
+        try:
+            payload = {
+                "estado": "completado",
+                "ruta_convertida": normalizar_ruta(salida),
+                "conversion_completa": True,
+                "mensaje": f"Archivo finalizado correctamente: {salida}"
+            }
+            url = f"{API_URL}/archivos/{id_sesion}/{tipo}/actualizar_estado"
+            r = requests.put(url, json=payload, timeout=5)
+            print(f"[API] Actualización archivo {tipo}: {r.status_code}")
+        except Exception as e:
+            print(f"[API ERROR] No se pudo actualizar archivo {tipo}: {e}")
 
         actualizar_job(job_id, estado="completado")
         print(f"[JOB] Unión {tipo} FINALIZADA")
+
+        # ------------------------------------------------------------
+        #  ENVIAR A WHISPER (solo si es VIDEO PRINCIPAL)
+        # ------------------------------------------------------------
+        if tipo == "video":
+            try:
+                payload = {
+                    "expediente": expediente,
+                    "sesion_id": id_sesion,
+                    "ruta_video": normalizar_ruta(salida)
+                }
+                r = requests.post(
+                    f"{API_URL}/whisper/enviar", json=payload, timeout=5)
+                print(
+                    f"[WHISPER] Enviado correctamente → status={r.status_code}")
+            except Exception as e:
+                print(f"[WHISPER] ERROR al enviar tarea: {e}")
 
     except Exception as e:
         error_msg = str(e)
