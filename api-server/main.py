@@ -742,22 +742,40 @@ def timeline_sesion(sesion_id: int, db: Session = Depends(get_db)):
 # ============================================================
 
 
-@app.put("/archivos/{sesion_id}/{tipo}/progreso")
-def actualizar_progreso(sesion_id: int, tipo: str, data: dict, db: Session = Depends(get_db)):
-    archivo = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id,
-        tipo_archivo=tipo
-    ).first()
+@app.get("/procesos/progreso/{sesion_id}")
+def progreso_sesion(sesion_id: int, db: Session = Depends(get_db)):
 
-    if not archivo:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    avance = data.get("progreso_porcentaje")
-    if avance is not None:
-        archivo.progreso_porcentaje = avance
-        db.commit()
+    expediente = db.query(models.Investigacion).filter_by(
+        id=sesion.investigacion_id).first().numero_expediente
 
-    return {"message": "Progreso actualizado", "progreso": archivo.progreso_porcentaje}
+    base_path = f"/mnt/wave/archivos_sistema_semefo/{expediente}/{sesion_id}"
+
+    def tamano_MB(nombre_archivo):
+        ruta = os.path.join(base_path, nombre_archivo)
+        if os.path.exists(ruta):
+            return round(os.path.getsize(ruta) / (1024 * 1024), 2)
+        return 0
+
+    return {
+        "sesion_id": sesion_id,
+        "expediente": expediente,
+        "estado_sesion": sesion.estado,
+        "progreso": {
+            "video": {
+                "estado_job": sesion.jobs[0].estado if sesion.jobs else None,
+                "tamano_actual_MB": tamano_MB("video.webm")
+            },
+            "video2": {
+                "estado_job": sesion.jobs[1].estado if len(sesion.jobs) > 1 else None,
+                "tamano_actual_MB": tamano_MB("video2.webm")
+            }
+        }
+    }
+
 
 # ============================================================
 #  FFmpeg Logs por Sesión
