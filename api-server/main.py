@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 models.Base.metadata.create_all(bind=engine)
 
+rabbit_user = os.getenv("RABBITMQ_USER")
+rabbit_pass = os.getenv("RABBITMQ_PASS")
+rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+
 app = FastAPI(
     title="Sistema Forense SEMEFO",
     description="API del Sistema Integral de Grabación y Gestión de Autopsias del Gobierno del Estado de Nuevo León.",
@@ -660,8 +664,16 @@ def enviar_a_whisper(data: dict):
 
     import pika
     import json
+    credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
+
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host="rabbitmq"))
+        pika.ConnectionParameters(
+            host=rabbit_host,
+            port=5672,
+            virtual_host="/",
+            credentials=credentials
+        )
+    )
     channel = connection.channel()
     channel.queue_declare(queue="transcripciones", durable=True)
 
