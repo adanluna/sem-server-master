@@ -258,10 +258,10 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
 # ============================================================
 
 @celery_app.task(name="worker.tasks.unir_video")
-def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
+def unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, *_):
     return _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, "video")
 
 
 @celery_app.task(name="worker.tasks.unir_video2")
-def unir_video2(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion):
+def unir_video2(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, *_):
     return _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion, "video2")

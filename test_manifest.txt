@@ -6,11 +6,14 @@ curl -X POST http://127.0.0.1:8000/investigaciones/ \
     "observaciones": "Prueba de integración"
 }'
 
+docker logs -f celery_manifest
+docker logs celery_uniones -f
+
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-        "id_sesion": 102,
+        "id_sesion": 103,
         "expediente": "INV-TEST-001",
         "nombre": "Autopsia_Prueba_Manifest",
         "inicio": "2025-12-04T13:00:00",
@@ -40,8 +43,3 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
         "ultima_actualizacion": "2025-12-04T14:15:00"
     }
 }'
-
-
-
-docker logs -f celery_manifest
-docker logs celery_uniones -f
