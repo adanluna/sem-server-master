@@ -1,5 +1,6 @@
 # ============================================================
 #   SISTEMA FORENSE SEMEFO — DOCKER COMPOSE (FINAL)
+#   Version con rutas usando .env (TEMP_ROOT)
 # ============================================================
 
 services:
@@ -60,6 +61,7 @@ services:
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
+      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- Agregado para usar ruta del .env
     env_file:
       - .env
     environment:
@@ -89,15 +91,15 @@ services:
     command: celery -A worker.celery_app worker -Q uniones_video --loglevel=info --hostname=worker_uniones@%h
     volumes:
       - .:/app
-      - /mnt/wave:/mnt/wave:rw # Workers necesitan escribir video.webm
-      - /opt/semefo/storage/tmp:/opt/semefo/storage/tmp
+      - /mnt/wave:/mnt/wave:rw
+      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- usando .env
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
       SMB_MOUNT: /mnt/wave
-      TEMP_ROOT: /tmp/semefo_temp
+      TEMP_ROOT: ${TEMP_ROOT}
     restart: always
     depends_on:
       rabbitmq:
@@ -119,14 +121,14 @@ services:
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw
-      - /opt/semefo/storage/tmp:/opt/semefo/storage/tmp
+      - ${TEMP_ROOT}:${TEMP_ROOT}
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
       SMB_MOUNT: /mnt/wave
-      TEMP_ROOT: /tmp/semefo_temp
+      TEMP_ROOT: ${TEMP_ROOT}
     restart: always
     depends_on:
       rabbitmq:
@@ -147,13 +149,15 @@ services:
     command: celery -A worker.celery_app worker -Q manifest --loglevel=info --hostname=worker_manifest@%h
     volumes:
       - .:/app
-      - /mnt/wave:/mnt/wave:rw # Escribe manifest.json directamente en SMB
+      - /mnt/wave:/mnt/wave:rw
+      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- AGREGADO (era la causa del crash)
     env_file:
       - .env
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /app
       SMB_MOUNT: /mnt/wave
+      TEMP_ROOT: ${TEMP_ROOT}
       GRABADOR_UUID: ${WINDOWS_WAVE_UUID}
     restart: always
     depends_on:
