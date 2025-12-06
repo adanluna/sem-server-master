@@ -44,6 +44,7 @@ class Sesion(Base):
     camara1_mac_address = Column(String(100), nullable=True)
     camara2_mac_address = Column(String(100), nullable=True)
     app_version = Column(String(50), nullable=True)
+    progreso_porcentaje = Column(Float, default=0)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(

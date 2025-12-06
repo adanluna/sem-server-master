@@ -736,3 +736,52 @@ def timeline_sesion(sesion_id: int, db: Session = Depends(get_db)):
         "estado": sesion.estado,
         "timeline": timeline
     }
+
+# ============================================================
+#  ACTUALIZAR SOLO PROGRESO (desde Workers)
+# ============================================================
+
+
+@app.put("/archivos/{sesion_id}/{tipo}/progreso")
+def actualizar_progreso(sesion_id: int, tipo: str, data: dict, db: Session = Depends(get_db)):
+    archivo = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id,
+        tipo_archivo=tipo
+    ).first()
+
+    if not archivo:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    avance = data.get("progreso_porcentaje")
+    if avance is not None:
+        archivo.progreso_porcentaje = avance
+        db.commit()
+
+    return {"message": "Progreso actualizado", "progreso": archivo.progreso_porcentaje}
+
+# ============================================================
+#  FFmpeg Logs por Sesión
+# ============================================================
+
+
+@app.get("/procesos/ffmpeg_log/{sesion_id}")
+def obtener_ffmpeg_log(sesion_id: int):
+
+    logs_path = "/opt/semefo/logs"
+    posibles = [
+        f"{logs_path}/ffmpeg_video_{sesion_id}.log",
+        f"{logs_path}/ffmpeg_video2_{sesion_id}.log"
+    ]
+
+    contenido = {}
+
+    for path in posibles:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                contenido[os.path.basename(path)] = f.read()
+
+    if not contenido:
+        raise HTTPException(
+            status_code=404, detail="No hay logs para esta sesión")
+
+    return contenido

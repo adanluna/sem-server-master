@@ -1,5 +1,5 @@
 # ============================================================
-#   SEMEFO — task.py (PRODUCTION HARDENED 2025 - FIXED)
+#   SEMEFO — task.py (PRODUCTION HARDENED 2025 - FIXED + PROGRESO)
 #   Unión de fragmentos con validación estricta, pausas reales,
 #   trazabilidad total, ffmpeg robusto y auditoría completa.
 # ============================================================
@@ -19,7 +19,6 @@ from worker.job_api_client import (
     registrar_archivo,
     finalizar_archivo
 )
-
 
 from worker.db_utils import (
     ensure_dir,
@@ -42,6 +41,23 @@ FFMPEG_THREADS = int(os.getenv("FFMPEG_THREADS", 4))
 MODO_PRUEBA = os.getenv("MODO_PRUEBA_VIDEO", "0") == "1"
 
 os.makedirs(TEMP_ROOT, exist_ok=True)
+
+
+# ============================================================
+#   >>> NUEVO: función para reportar progreso a la API
+# ============================================================
+
+def reportar_progreso(id_sesion: str, tipo_archivo: str, progreso: float):
+    """
+    Envía el porcentaje de avance (0-100) al endpoint:
+    PUT /archivos/{sesion_id}/{tipo}/progreso
+    """
+    try:
+        url = f"http://{API_URL}/archivos/{id_sesion}/{tipo_archivo}/progreso"
+        requests.put(url, json={"progreso_porcentaje": progreso}, timeout=5)
+        print(f"[PROGRESO] {tipo_archivo} {progreso}%")
+    except Exception as e:
+        print(f"[PROGRESO] Error enviando progreso: {e}")
 
 
 # ============================================================
@@ -157,7 +173,18 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         reportar_pausas_api(id_sesion, pausas_detectadas)
 
         lista_local = []
+
+        # ============================================================
+        #   >>> NUEVO: PROGRESO DE COPIA DE FRAGMENTOS
+        # ============================================================
+        total = len(frags)
+        procesados = 0
+
         for frag in frags:
+            procesados += 1
+            progreso = round((procesados / total) * 100, 2)
+            reportar_progreso(id_sesion, tipo, progreso)  # <<< NUEVO
+
             src = frag["ruta"]
             if not os.path.exists(src):
                 raise Exception(f"Fragmento no existe: {src}")
@@ -176,6 +203,11 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         carpeta = f"{SMB_ROOT}/archivos_sistema_semefo/{expediente}/{id_sesion}"
         ensure_dir(carpeta)
 
+        log_dir = "/opt/semefo/logs"
+        os.makedirs(log_dir, exist_ok=True)
+
+        log_path = os.path.join(log_dir, f"ffmpeg_{tipo}_{id_sesion}.log")
+
         salida = f"{carpeta}/{nombre_final}"
         cmd = ffmpeg_concat_cmd(list_txt, salida)
 
@@ -185,6 +217,7 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
 
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True)
+
         if result.returncode != 0:
             print(result.stdout)
             print(result.stderr)
@@ -193,7 +226,6 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         if not os.path.exists(salida) or os.path.getsize(salida) < 200_000:
             raise Exception(f"{nombre_final} generado vacío o incompleto.")
 
-        # 🔥 Registro correcto con firma REAL
         registrar_archivo(
             id_sesion=id_sesion,
             tipo_archivo=tipo,
@@ -217,7 +249,7 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
 
 
 # ============================================================
-#   TAREAS CELERY PÚBLICAS (FIX: no fallan si llega un arg extra)
+#   TAREAS CELERY PÚBLICAS
 # ============================================================
 
 @celery_app.task(name="worker.tasks.unir_video")
