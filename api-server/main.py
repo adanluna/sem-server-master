@@ -465,3 +465,274 @@ def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_d
     db.refresh(job)
 
     return {"message": "Job actualizado", "job_id": job.id}
+
+# ============================================================
+#  JOBS
+# ============================================================
+
+
+@app.get("/sesiones/{sesion_id}/jobs")
+def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+
+    return jobs
+
+# ============================================================
+#  MONITOREO DE PROCESAMIENTO (ENDPOINTS PARA DASHBOARD)
+# ============================================================
+
+# -------------------------------
+# 1) Jobs en progreso
+# -------------------------------
+
+
+@app.get("/jobs/en_progreso")
+def jobs_en_progreso(db: Session = Depends(get_db)):
+    jobs = (
+        db.query(models.Job)
+        .filter(models.Job.estado.in_(["pendiente", "procesando"]))
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+    return jobs
+
+
+# -------------------------------
+# 2) Jobs fallados
+# -------------------------------
+@app.get("/jobs/errores")
+def jobs_con_error(db: Session = Depends(get_db)):
+    jobs = (
+        db.query(models.Job)
+        .filter(models.Job.estado == "error")
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+    return jobs
+
+
+# -------------------------------
+# 3) Últimos N jobs
+# -------------------------------
+@app.get("/jobs/ultimos/{limite}")
+def ultimos_jobs(limite: int, db: Session = Depends(get_db)):
+    jobs = (
+        db.query(models.Job)
+        .order_by(models.Job.fecha_creacion.desc())
+        .limit(limite)
+        .all()
+    )
+    return jobs
+
+
+# -------------------------------
+# 4) Jobs por tipo (video, video2, audio, audio2, transcripcion)
+# -------------------------------
+@app.get("/jobs/tipo/{tipo}")
+def jobs_por_tipo(tipo: str, db: Session = Depends(get_db)):
+    if tipo not in ["video", "video2", "audio", "audio2", "transcripcion"]:
+        raise HTTPException(status_code=400, detail="Tipo inválido")
+
+    jobs = (
+        db.query(models.Job)
+        .filter_by(tipo=tipo)
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+    return jobs
+
+
+# -------------------------------
+# 5) Ver estado actual de una sesión (archivos + jobs)
+# -------------------------------
+@app.get("/sesiones/{sesion_id}/estatus_completo")
+def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    archivos = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id).all()
+    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
+
+    return {
+        "sesion": sesion,
+        "archivos": archivos,
+        "jobs": jobs
+    }
+
+
+# -------------------------------
+# 6) Sesiones actualmente procesándose
+# -------------------------------
+@app.get("/procesos/activos")
+def procesos_activos(db: Session = Depends(get_db)):
+    sesiones = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.estado.in_(["en_progreso", "grabando"]))
+        .all()
+    )
+
+    output = []
+
+    for ses in sesiones:
+        jobs = (
+            db.query(models.Job)
+            .filter_by(sesion_id=ses.id)
+            .order_by(models.Job.fecha_creacion.desc())
+            .all()
+        )
+        archivos = (
+            db.query(models.SesionArchivo)
+            .filter_by(sesion_id=ses.id)
+            .all()
+        )
+
+        output.append({
+            "sesion_id": ses.id,
+            "expediente": ses.investigacion.numero_expediente,
+            "estado_sesion": ses.estado,
+            "jobs": jobs,
+            "archivos": archivos
+        })
+
+    return output
+
+# ------------------------------------------------------------
+# 1) PROGRESO ESTIMADO DE LA UNIÓN DE VIDEOS
+# ------------------------------------------------------------
+
+
+@app.get("/procesos/progreso/{sesion_id}")
+def progreso_sesion(sesion_id: int, db: Session = Depends(get_db)):
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .all()
+    )
+
+    # Buscar archivos finales para estimar progreso
+    progreso = {}
+
+    for tipo in ["video", "video2"]:
+        salida = None
+        for a in archivos:
+            if a.tipo_archivo == tipo and a.ruta_convertida:
+                salida = a.ruta_convertida
+
+        if salida and os.path.exists(salida):
+            size_mb = round(os.path.getsize(salida) / (1024 * 1024), 2)
+        else:
+            size_mb = 0
+
+        job_tipo = next((j for j in jobs if j.tipo == tipo), None)
+
+        progreso[tipo] = {
+            "estado_job": job_tipo.estado if job_tipo else "no_inicio",
+            "resultado": job_tipo.resultado if job_tipo else None,
+            "error": job_tipo.error if job_tipo else None,
+            "tamano_actual_MB": size_mb
+        }
+
+    return {
+        "sesion_id": sesion_id,
+        "expediente": sesion.investigacion.numero_expediente,
+        "estado_sesion": sesion.estado,
+        "progreso": progreso
+    }
+
+
+# ------------------------------------------------------------
+# 2) TIMELINE COMPLETO DE UNA SESIÓN
+# ------------------------------------------------------------
+@app.get("/procesos/timeline/{sesion_id}")
+def timeline_sesion(sesion_id: int, db: Session = Depends(get_db)):
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.SesionArchivo.fecha.asc())
+        .all()
+    )
+
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.Job.fecha_creacion.asc())
+        .all()
+    )
+
+    pausas = (
+        db.query(models.LogPausa)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.LogPausa.inicio.asc())
+        .all()
+    )
+
+    timeline = []
+
+    for p in pausas:
+        timeline.append({
+            "tipo": "pausa",
+            "inicio": p.inicio,
+            "fin": p.fin,
+            "duracion": p.duracion,
+            "fuente": p.fuente
+        })
+
+    for j in jobs:
+        timeline.append({
+            "tipo": "job",
+            "id": j.id,
+            "task": j.tipo,
+            "archivo": j.archivo,
+            "estado": j.estado,
+            "resultado": j.resultado,
+            "error": j.error,
+            "fecha": j.fecha_creacion
+        })
+
+    for a in archivos:
+        timeline.append({
+            "tipo": "archivo",
+            "id": a.id,
+            "archivo": a.tipo_archivo,
+            "fecha": a.fecha,
+            "estado": a.estado,
+            "ruta": a.ruta_convertida
+        })
+
+    # Ordenar todo cronológicamente
+    timeline.sort(key=lambda x: x.get("fecha") or x.get("inicio"))
+
+    return {
+        "sesion_id": sesion_id,
+        "expediente": sesion.investigacion.numero_expediente,
+        "estado": sesion.estado,
+        "timeline": timeline
+    }
