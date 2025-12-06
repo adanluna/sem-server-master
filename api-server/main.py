@@ -304,12 +304,12 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         celery_app.signature(
             "tasks.generar_manifest",
             args=[cam1, fecha_solo],
-            queue="manifest"
+            immutable=True
         ),
         celery_app.signature(
             "worker.tasks.unir_video",
             args=[expediente, id_sesion, path_manifest1, inicio_iso, fin_iso],
-            queue="uniones_video"
+            immutable=True
         )
     ).apply_async()
 
@@ -317,12 +317,12 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         celery_app.signature(
             "tasks.generar_manifest",
             args=[cam2, fecha_solo],
-            queue="manifest"
+            immutable=True
         ),
         celery_app.signature(
             "worker.tasks.unir_video2",
             args=[expediente, id_sesion, path_manifest2, inicio_iso, fin_iso],
-            queue="videos2"
+            immutable=True
         )
     ).apply_async()
 
