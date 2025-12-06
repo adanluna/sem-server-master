@@ -408,3 +408,60 @@ def registrar_pausas_auto(sesion_id: int, data: dict, db: Session = Depends(get_
     db.commit()
 
     return {"registradas": count}
+
+# ============================================================
+#  JOBS (Usado por Workers)
+# ============================================================
+
+
+@app.post("/jobs/crear")
+def crear_job(data: JobCreate, db: Session = Depends(get_db)):
+    # Buscar investigación mediante el número de expediente
+    investigacion = db.query(models.Investigacion).filter_by(
+        numero_expediente=data.numero_expediente
+    ).first()
+
+    if not investigacion:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Investigación '{data.numero_expediente}' no encontrada"
+        )
+
+    # Crear nuevo Job con valores por defecto
+    nuevo = models.Job(
+        investigacion_id=investigacion.id,
+        sesion_id=data.id_sesion,
+        tipo=data.tipo,
+        archivo=data.archivo,
+        estado=data.estado or "pendiente",
+        resultado=data.resultado,
+        error=data.error
+    )
+
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    return {"job_id": nuevo.id}
+
+
+@app.put("/jobs/{job_id}/actualizar")
+def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_db)):
+
+    job = db.query(models.Job).filter_by(id=job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    if data.estado is not None:
+        job.estado = data.estado
+
+    if data.resultado is not None:
+        job.resultado = data.resultado
+
+    if data.error is not None:
+        job.error = data.error
+
+    db.commit()
+    db.refresh(job)
+
+    return {"message": "Job actualizado", "job_id": job.id}
