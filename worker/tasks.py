@@ -13,13 +13,13 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
-# 🔥 Importación corregida: usamos registrar_archivo_o_actualizar
 from worker.job_api_client import (
     registrar_job,
     actualizar_job,
-    registrar_archivo_o_actualizar,
+    registrar_archivo,
     finalizar_archivo
 )
+
 
 from worker.db_utils import (
     ensure_dir,
@@ -194,7 +194,7 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
             raise Exception(f"{nombre_final} generado vacío o incompleto.")
 
         # 🔥 Registro correcto con firma REAL
-        registrar_archivo_o_actualizar(
+        registrar_archivo(
             id_sesion=id_sesion,
             tipo_archivo=tipo,
             ruta_convertida=normalizar_ruta(salida),
