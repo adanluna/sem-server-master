@@ -755,70 +755,27 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
     }
 
 
-def ldap_authenticate(username: str, password: str):
+@app.get("/auth/ldap/debug")
+def ldap_debug():
     LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
-    LDAP_PORT = 389
-    LDAP_DOMAIN = "fiscalianl"
-
-    # UPN format
-    user_principal = f"{username}@{LDAP_DOMAIN}.local"
+    LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
 
     try:
-        server = Server(
-            LDAP_HOST,
-            port=LDAP_PORT,
-            use_ssl=False,
-            get_info=ALL
-        )
+        server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
 
-        conn = Connection(
-            server,
-            user=user_principal,
-            password=password,
-            authentication="SIMPLE",
-            auto_bind=False
-        )
-
-        # 🔥 Intentamos activar TLS
-        try:
-            conn.start_tls()
-        except Exception:
-            pass  # algunos AD funcionan sin TLS
-
-        # 🔥 Intentamos bind con UPN
-        if not conn.bind():
-            return {"success": False, "message": "Credenciales inválidas o el servidor requiere TLS/UPN"}
-
-        # Buscar atributos del usuario
-        search_base = "DC=fiscalianl,DC=local"
-
-        conn.search(
-            search_base,
-            f"(sAMAccountName={username})",
-            attributes=["displayName", "mail"]
-        )
-
-        info = {}
-        if conn.entries:
-            e = conn.entries[0]
-            info = {
-                "displayName": str(e.displayName) if "displayName" in e else None,
-                "mail": str(e.mail) if "mail" in e else None
-            }
-
-        conn.unbind()
+        # No requiere usuario ni contraseña
+        conn = Connection(server, auto_bind=True)
 
         return {
-            "success": True,
-            "message": "Autenticación correcta",
-            "user": {
-                "username": username,
-                **info
-            }
+            "naming_contexts": server.info.naming_contexts,
+            "defaultNamingContext": server.info.other.get("defaultNamingContext"),
+            "rootDomainNamingContext": server.info.other.get("rootDomainNamingContext"),
+            "serverName": server.info.other.get("serverName"),
+            "dnsHostName": server.info.other.get("dnsHostName")
         }
 
     except Exception as e:
-        return {"success": False, "message": f"Error LDAP: {str(e)}"}
+        return {"error": str(e)}
 
 
 @app.post("/auth/ldap")
