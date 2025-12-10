@@ -4,7 +4,7 @@ INSTALACIÓN DEL SERVIDOR MASTER – SEMEFO (DEBIAN 12)
 1. ACTUALIZAR EL SISTEMA
 ------------------------------------------------------------
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y ca-certificates curl wget lsb-release gnupg
+sudo apt install -y ca-certificates curl wget lsb-release gnupg libssl-dev
 
 ------------------------------------------------------------
 2. INSTALAR PAQUETES BÁSICOS

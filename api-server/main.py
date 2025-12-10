@@ -753,27 +753,28 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
 
 
 def ldap_authenticate(username: str, password: str):
+    import spnego
+
     LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
     LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
 
-    # User principal para NTLM: fiscalianl\username
     user_principal = f"{LDAP_DOMAIN}\\{username}"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+
         conn = Connection(
             server,
             user=user_principal,
             password=password,
-            authentication=NTLM,
-            auto_bind=True
+            authentication="NTLM",
+            auto_bind=False
         )
 
-        if not conn.bound:
+        if not conn.bind():
             return {"success": False, "message": "Credenciales inválidas"}
 
-        # Search base recomendado para Fiscalía (ajustable si cambian)
         search_base = "DC=fiscalianl,DC=local"
 
         conn.search(
@@ -795,10 +796,7 @@ def ldap_authenticate(username: str, password: str):
         return {
             "success": True,
             "message": "Autenticación correcta",
-            "user": {
-                "username": username,
-                **entry_data
-            }
+            "user": {"username": username, **entry_data}
         }
 
     except Exception as e:
