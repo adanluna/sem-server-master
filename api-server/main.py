@@ -1,3 +1,6 @@
+from ntlm_auth.ntlm import Ntlm
+import spnego
+from ldap3 import Server, Connection, ALL, SASL, KERBEROS, NTLM
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -757,8 +760,8 @@ def ldap_authenticate(username: str, password: str):
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
     LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
 
-    # SIMPLE BIND → userPrincipalName
-    user_principal = f"{username}@{LDAP_DOMAIN}.local"
+    # NTLM username
+    user_principal = f"{LDAP_DOMAIN}\\{username}"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
@@ -767,12 +770,14 @@ def ldap_authenticate(username: str, password: str):
             server,
             user=user_principal,
             password=password,
-            authentication="SIMPLE",
-            auto_bind=True
+            authentication=NTLM,  # NTLM ahora lo implementa ntlm-auth + pyspnego
+            auto_bind=False
         )
 
-        search_base = "DC=fiscalianl,DC=local"
+        if not conn.bind():
+            return {"success": False, "message": "Credenciales inválidas o dominio no permite SIMPLE BIND"}
 
+        search_base = "DC=fiscalianl,DC=local"
         conn.search(
             search_base,
             f"(sAMAccountName={username})",
