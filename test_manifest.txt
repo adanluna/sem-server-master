@@ -9,11 +9,15 @@ curl -X POST http://127.0.0.1:8000/investigaciones/ \
 docker logs -f celery_manifest
 docker logs celery_uniones -f
 
+curl -X POST http://localhost:8000/whisper/enviar \
+  -H "Content-Type: application/json" \
+  -d '{"sesion_id": 96, "expediente": "INV-TEST-001"}'
+
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-        "id_sesion": 94,
+        "id_sesion": 96,
         "expediente": "INV-TEST-001",
         "nombre": "Autopsia_Prueba_Manifest_Corta",
         "inicio": "2025-12-04T13:00:00",
