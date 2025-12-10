@@ -102,3 +102,33 @@ class PausaResponse(PausaBase):
 
     class Config:
         orm_mode = True
+
+
+class InvestigacionResponse(BaseModel):
+    id: int
+    numero_expediente: str
+    nombre_carpeta: Optional[str] = None
+    observaciones: Optional[str] = None
+    fecha_creacion: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class SesionResponse(BaseModel):
+    id: int
+    investigacion_id: int
+    nombre_sesion: str
+    usuario_ldap: str
+    plancha_id: str
+    tablet_id: str
+    estado: str
+    user_nombre: Optional[str]
+    camara1_mac_address: Optional[str]
+    camara2_mac_address: Optional[str]
+    app_version: Optional[str]
+    fecha: datetime
+
+    class Config:
+        from_attributes = True

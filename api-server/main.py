@@ -16,6 +16,7 @@ from schemas import (
     InvestigacionCreate,
     InvestigacionUpdate,
     SesionCreate,
+    SesionResponse,
     JobCreate,
     JobUpdate,
     SesionArchivoCreate,
@@ -23,6 +24,7 @@ from schemas import (
     SesionArchivoEstadoUpdate,
     PausaCreate,
     PausaResponse,
+    InvestigacionResponse
 )
 
 from models import LDAPLoginRequest
@@ -74,9 +76,9 @@ async def health():
 #  INVESTIGACIONES
 # ============================================================
 
-@app.post("/investigaciones/", response_model=InvestigacionCreate)
-def create_investigacion(invest: InvestigacionCreate, db: Session = Depends(get_db)):
-    nueva = models.Investigacion(**invest.dict())
+@app.post("/investigaciones/", response_model=InvestigacionResponse)
+def crear_investigacion(data: InvestigacionCreate, db: Session = Depends(get_db)):
+    nueva = models.Investigacion(**data.dict())
     db.add(nueva)
     db.commit()
     db.refresh(nueva)
@@ -120,10 +122,12 @@ def update_investigacion(numero_expediente: str, datos: InvestigacionUpdate, db:
 #  SESIONES
 # ============================================================
 
-@app.post("/sesiones/")
+@app.post("/sesiones/", response_model=SesionResponse)
 def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
+
     investigacion = db.query(models.Investigacion).filter_by(
-        id=sesion_data.investigacion_id).first()
+        id=sesion_data.investigacion_id
+    ).first()
 
     if not investigacion:
         raise HTTPException(
@@ -134,12 +138,11 @@ def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(nueva)
 
-    log = models.LogEvento(
+    db.add(models.LogEvento(
         tipo_evento="crear_sesion",
         descripcion=f"Sesión creada en plancha {nueva.plancha_id}, tablet {nueva.tablet_id}",
         usuario_ldap=nueva.usuario_ldap
-    )
-    db.add(log)
+    ))
     db.commit()
 
     return nueva
