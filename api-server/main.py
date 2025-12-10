@@ -757,27 +757,41 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
 
 def ldap_authenticate(username: str, password: str):
     LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
-    LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
-    LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
+    LDAP_PORT = 389
+    LDAP_DOMAIN = "fiscalianl"
 
-    # NTLM username
-    user_principal = f"{LDAP_DOMAIN}\\{username}"
+    # UPN format
+    user_principal = f"{username}@{LDAP_DOMAIN}.local"
 
     try:
-        server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+        server = Server(
+            LDAP_HOST,
+            port=LDAP_PORT,
+            use_ssl=False,
+            get_info=ALL
+        )
 
         conn = Connection(
             server,
             user=user_principal,
             password=password,
-            authentication=NTLM,  # NTLM ahora lo implementa ntlm-auth + pyspnego
+            authentication="SIMPLE",
             auto_bind=False
         )
 
-        if not conn.bind():
-            return {"success": False, "message": "Credenciales inválidas o dominio no permite SIMPLE BIND"}
+        # 🔥 Intentamos activar TLS
+        try:
+            conn.start_tls()
+        except Exception:
+            pass  # algunos AD funcionan sin TLS
 
+        # 🔥 Intentamos bind con UPN
+        if not conn.bind():
+            return {"success": False, "message": "Credenciales inválidas o el servidor requiere TLS/UPN"}
+
+        # Buscar atributos del usuario
         search_base = "DC=fiscalianl,DC=local"
+
         conn.search(
             search_base,
             f"(sAMAccountName={username})",
@@ -797,7 +811,10 @@ def ldap_authenticate(username: str, password: str):
         return {
             "success": True,
             "message": "Autenticación correcta",
-            "user": {"username": username, **info}
+            "user": {
+                "username": username,
+                **info
+            }
         }
 
     except Exception as e:
