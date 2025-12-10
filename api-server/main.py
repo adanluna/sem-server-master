@@ -753,12 +753,11 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
 
 
 def ldap_authenticate(username: str, password: str):
-    import spnego
-
     LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
     LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
 
+    # NTLM user principal
     user_principal = f"{LDAP_DOMAIN}\\{username}"
 
     try:
@@ -768,7 +767,7 @@ def ldap_authenticate(username: str, password: str):
             server,
             user=user_principal,
             password=password,
-            authentication="NTLM",
+            authentication='NTLM',   # pero NTLM pasa por pyspnego, NO por MD4
             auto_bind=False
         )
 
@@ -783,21 +782,17 @@ def ldap_authenticate(username: str, password: str):
             attributes=["displayName", "mail"]
         )
 
-        entry_data = {}
+        info = {}
         if conn.entries:
-            entry = conn.entries[0]
-            entry_data = {
-                "displayName": str(entry.displayName) if "displayName" in entry else None,
-                "mail": str(entry.mail) if "mail" in entry else None
+            e = conn.entries[0]
+            info = {
+                "displayName": str(e.displayName) if "displayName" in e else None,
+                "mail": str(e.mail) if "mail" in e else None
             }
 
         conn.unbind()
 
-        return {
-            "success": True,
-            "message": "Autenticación correcta",
-            "user": {"username": username, **entry_data}
-        }
+        return {"success": True, "user": {"username": username, **info}}
 
     except Exception as e:
         return {"success": False, "message": f"Error LDAP: {str(e)}"}
