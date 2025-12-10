@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
+from pydantic import BaseModel
 
 
 # ============================================================
@@ -127,3 +128,8 @@ class LogPausa(Base):
     fin = Column(DateTime, nullable=False)
     duracion = Column(Float, nullable=False)
     fuente = Column(String(20), nullable=False)  # "app" | "auto"
+
+
+class LDAPLoginRequest(BaseModel):
+    username: str
+    password: str

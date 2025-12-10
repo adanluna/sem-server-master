@@ -5,6 +5,7 @@ import logging
 import os
 from celery import chain
 import requests
+from ldap3 import Server, Connection, NTLM, ALL
 
 from database import get_db, engine
 import models
@@ -18,8 +19,10 @@ from schemas import (
     SesionArchivoResponse,
     SesionArchivoEstadoUpdate,
     PausaCreate,
-    PausaResponse
+    PausaResponse,
 )
+
+from models import LDAPLoginRequest
 
 from worker.celery_app import celery_app
 
@@ -747,3 +750,66 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
         "status": "incompleta",
         "faltan": list(requeridos - completados)
     }
+
+
+def ldap_authenticate(username: str, password: str):
+    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
+    LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
+    LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
+
+    # User principal para NTLM: fiscalianl\username
+    user_principal = f"{LDAP_DOMAIN}\\{username}"
+
+    try:
+        server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+        conn = Connection(
+            server,
+            user=user_principal,
+            password=password,
+            authentication=NTLM,
+            auto_bind=True
+        )
+
+        if not conn.bound:
+            return {"success": False, "message": "Credenciales inválidas"}
+
+        # Search base recomendado para Fiscalía (ajustable si cambian)
+        search_base = "DC=fiscalianl,DC=local"
+
+        conn.search(
+            search_base,
+            f"(sAMAccountName={username})",
+            attributes=["displayName", "mail"]
+        )
+
+        entry_data = {}
+        if conn.entries:
+            entry = conn.entries[0]
+            entry_data = {
+                "displayName": str(entry.displayName) if "displayName" in entry else None,
+                "mail": str(entry.mail) if "mail" in entry else None
+            }
+
+        conn.unbind()
+
+        return {
+            "success": True,
+            "message": "Autenticación correcta",
+            "user": {
+                "username": username,
+                **entry_data
+            }
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Error LDAP: {str(e)}"}
+
+
+@app.post("/auth/ldap")
+def auth_ldap(data: LDAPLoginRequest):
+    result = ldap_authenticate(data.username, data.password)
+
+    if not result["success"]:
+        raise HTTPException(status_code=401, detail=result["message"])
+
+    return result
