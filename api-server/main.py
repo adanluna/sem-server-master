@@ -822,3 +822,35 @@ def auth_ldap(data: LDAPLoginRequest):
         raise HTTPException(status_code=401, detail=result["message"])
 
     return result
+
+
+@app.get("/auth/ldap/userinfo/{username}")
+def ldap_user_info(username: str):
+    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
+    LDAP_PORT = 389
+
+    try:
+        server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+        conn = Connection(server, auto_bind=True)
+
+        search_base = "DC=fiscalianl,DC=gob"
+        conn.search(
+            search_base,
+            f"(sAMAccountName={username})",
+            attributes=["userPrincipalName", "sAMAccountName", "displayName"]
+        )
+
+        if not conn.entries:
+            return {"error": "Usuario no encontrado en LDAP"}
+
+        entry = conn.entries[0]
+
+        return {
+            "username": username,
+            "userPrincipalName": str(entry.userPrincipalName) if "userPrincipalName" in entry else None,
+            "displayName": str(entry.displayName) if "displayName" in entry else None,
+            "samAccountName": str(entry.sAMAccountName) if "sAMAccountName" in entry else None
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
