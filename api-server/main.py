@@ -76,12 +76,28 @@ async def health():
 #  INVESTIGACIONES
 # ============================================================
 
-@app.post("/investigaciones/", response_model=InvestigacionResponse)
-def crear_investigacion(data: InvestigacionCreate, db: Session = Depends(get_db)):
-    nueva = models.Investigacion(**data.dict())
+@app.post("/investigaciones/")
+def crear_o_devolver_investigacion(data: InvestigacionCreate, db: Session = Depends(get_db)):
+    existente = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=data.numero_expediente)
+        .first()
+    )
+
+    if existente:
+        return existente
+
+    nueva = models.Investigacion(
+        numero_expediente=data.numero_expediente,
+        nombre_carpeta=None,
+        observaciones=None,
+        fecha_creacion=datetime.now()
+    )
+
     db.add(nueva)
     db.commit()
     db.refresh(nueva)
+
     return nueva
 
 
