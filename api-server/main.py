@@ -757,8 +757,8 @@ def ldap_authenticate(username: str, password: str):
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
     LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "fiscalianl")
 
-    # NTLM user principal
-    user_principal = f"{LDAP_DOMAIN}\\{username}"
+    # SIMPLE BIND → userPrincipalName
+    user_principal = f"{username}@{LDAP_DOMAIN}.local"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
@@ -767,12 +767,9 @@ def ldap_authenticate(username: str, password: str):
             server,
             user=user_principal,
             password=password,
-            authentication='NTLM',   # pero NTLM pasa por pyspnego, NO por MD4
-            auto_bind=False
+            authentication="SIMPLE",
+            auto_bind=True
         )
-
-        if not conn.bind():
-            return {"success": False, "message": "Credenciales inválidas"}
 
         search_base = "DC=fiscalianl,DC=local"
 
@@ -792,7 +789,11 @@ def ldap_authenticate(username: str, password: str):
 
         conn.unbind()
 
-        return {"success": True, "user": {"username": username, **info}}
+        return {
+            "success": True,
+            "message": "Autenticación correcta",
+            "user": {"username": username, **info}
+        }
 
     except Exception as e:
         return {"success": False, "message": f"Error LDAP: {str(e)}"}
