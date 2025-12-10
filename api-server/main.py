@@ -755,27 +755,63 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
     }
 
 
-@app.get("/auth/ldap/debug")
-def ldap_debug():
+def ldap_authenticate(username: str, password: str):
     LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
+
+    # ESTE ES EL UPN REAL DEL DOMINIO
+    user_principal = f"{username}@fiscalianl.gob"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
 
-        # No requiere usuario ni contraseña
-        conn = Connection(server, auto_bind=True)
+        conn = Connection(
+            server,
+            user=user_principal,
+            password=password,
+            authentication="SIMPLE",
+            auto_bind=False
+        )
+
+        # Intento de TLS (si el servidor lo soporta)
+        try:
+            conn.start_tls()
+        except:
+            pass
+
+        if not conn.bind():
+            return {"success": False, "message": "Credenciales inválidas"}
+
+        # DefaultNamingContext detectado del servidor
+        search_base = "DC=fiscalianl,DC=gob"
+
+        conn.search(
+            search_base,
+            f"(sAMAccountName={username})",
+            attributes=["displayName", "mail"]
+        )
+
+        info = {}
+        if conn.entries:
+            entry = conn.entries[0]
+            info = {
+                "displayName": str(entry.displayName) if "displayName" in entry else None,
+                "mail": str(entry.mail) if "mail" in entry else None
+            }
+
+        conn.unbind()
 
         return {
-            "naming_contexts": server.info.naming_contexts,
-            "defaultNamingContext": server.info.other.get("defaultNamingContext"),
-            "rootDomainNamingContext": server.info.other.get("rootDomainNamingContext"),
-            "serverName": server.info.other.get("serverName"),
-            "dnsHostName": server.info.other.get("dnsHostName")
+            "success": True,
+            "message": "Autenticación correcta",
+            "user": {
+                "username": username,
+                **info
+            }
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"success": False, "message": f"Error LDAP: {str(e)}"}
 
 
 @app.post("/auth/ldap")
