@@ -166,11 +166,9 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
         pausas = detectar_pausas(frags)
         reportar_pausas_api(id_sesion, pausas)
 
+        # NUEVA LISTA FINAL (fragmentos recortados)
         lista_local = []
 
-        # ------------------------------------------------------------
-        # PROGRESO: COPIA FRAGMENTOS
-        # ------------------------------------------------------------
         total = len(frags)
         for idx, frag in enumerate(frags, start=1):
 
@@ -181,36 +179,91 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
             if not os.path.exists(src):
                 raise Exception(f"Fragmento no existe: {src}")
 
-            dst = os.path.join(temp_dir, os.path.basename(src))
-            shutil.copy2(src, dst)
+            dt_ini = frag["_dt_ini"]
+            dt_fin = frag["_dt_fin"]
+
+            # ------------------------------------------------------------
+            # CASO 1: fragmento completamente fuera del rango
+            # ------------------------------------------------------------
+            if dt_fin < inicio_sesion or dt_ini > fin_sesion:
+                continue
+
+            # ------------------------------------------------------------
+            # Determinar tiempos reales dentro del fragmento
+            # ------------------------------------------------------------
+
+            # offset dentro del fragmento (inicio corte)
+            recorte_inicio = max(0, (inicio_sesion - dt_ini).total_seconds())
+
+            # duración máxima del fragmento
+            duracion_frag = (dt_fin - dt_ini).total_seconds()
+
+            # duración real permitida hasta fin_sesion
+            recorte_fin = min(
+                duracion_frag, (fin_sesion - dt_ini).total_seconds())
+
+            # Si recorte_fin < recorte_inicio, no sirve el fragmento
+            if recorte_fin <= recorte_inicio:
+                continue
+
+            # ------------------------------------------------------------
+            # Crear archivo recortado temporal
+            # ------------------------------------------------------------
+            nombre_recorte = f"rec_{idx}.mkv"
+            dst = os.path.join(temp_dir, nombre_recorte)
+
+            ffmpeg_trim = (
+                f"ffmpeg -y -i \"{src}\" "
+                f"-ss {recorte_inicio} -to {recorte_fin} "
+                f"-c:v libvpx-vp9 -pix_fmt yuv420p -threads {FFMPEG_THREADS} "
+                f"-b:v 3M -crf 28 -cpu-used 4 "
+                f"\"{dst}\""
+            )
+
+            print(
+                f"[TRIM] Recortando fragmento {idx}: inicio={recorte_inicio} fin={recorte_fin}")
+            result = subprocess.run(
+                ffmpeg_trim, shell=True, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg trim falló:\n{result.stderr}")
+
+            if not os.path.exists(dst) or os.path.getsize(dst) < 80_000:
+                raise Exception("Recorte generado vacío o muy pequeño")
+
             lista_local.append(dst)
 
+        if not lista_local:
+            raise Exception("No se generaron fragmentos válidos tras recortes")
+
+        # ------------------------------------------------------------
         # Construir list.txt
+        # ------------------------------------------------------------
         list_txt = os.path.join(temp_dir, "list.txt")
         with open(list_txt, "w") as f:
             for p in lista_local:
                 f.write(f"file '{p}'\n")
 
         # ------------------------------------------------------------
-        # FFMPEG - GENERAR SALIDA FINAL
+        # FFMPEG - UNIR RECORTES
         # ------------------------------------------------------------
         salida = f"{EXPEDIENTES_PATH}/{expediente}/{id_sesion}/{nombre_final}"
         ensure_dir(os.path.dirname(salida))
 
         cmd = ffmpeg_concat_cmd(list_txt, salida)
 
-        print("\n========== FFMPEG CMD ==========")
+        print("\n========== FFMPEG CONCAT ==========")
         print(cmd)
         print("================================\n")
 
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True)
         if result.returncode != 0:
-            raise Exception(f"FFmpeg falló:\n{result.stderr}")
+            raise Exception(f"FFmpeg concat falló:\n{result.stderr}")
 
-        # Validación de tamaño
+        # Validación final
         if not os.path.exists(salida) or os.path.getsize(salida) < 200_000:
-            raise Exception("Archivo generado vacío o incompleto")
+            raise Exception("Archivo final vacío o incompleto")
 
         # ------------------------------------------------------------
         # REGISTRAR ARCHIVO EN API
@@ -223,28 +276,21 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
             estado="procesando"
         )
 
-        # ------------------------------------------------------------
-        # MARCAR COMO COMPLETADO
-        # ------------------------------------------------------------
-        try:
-            payload = {
-                "estado": "completado",
-                "ruta_convertida": normalizar_ruta(salida),
-                "conversion_completa": True,
-                "mensaje": f"Archivo finalizado correctamente: {salida}"
-            }
-            url = f"{API_URL}/archivos/{id_sesion}/{tipo}/actualizar_estado"
-            r = requests.put(url, json=payload, timeout=5)
-            print(f"[API] Actualización archivo {tipo}: {r.status_code}")
-        except Exception as e:
-            print(f"[API ERROR] No se pudo actualizar archivo {tipo}: {e}")
+        # MARCAR COMPLETADO
+        url = f"{API_URL}/archivos/{id_sesion}/{tipo}/actualizar_estado"
+        payload = {
+            "estado": "completado",
+            "ruta_convertida": normalizar_ruta(salida),
+            "conversion_completa": True,
+            "mensaje": f"Archivo finalizado correctamente: {salida}"
+        }
+        r = requests.put(url, json=payload, timeout=5)
+        print(f"[API] Actualización archivo {tipo}: {r.status_code}")
 
         actualizar_job(job_id, estado="completado")
         print(f"[JOB] Unión {tipo} FINALIZADA")
 
-        # ------------------------------------------------------------
-        #  ENVIAR A WHISPER (solo si es VIDEO PRINCIPAL)
-        # ------------------------------------------------------------
+        # ENVIAR A WHISPER SOLO PARA video PRINCIPAL
         if tipo == "video":
             try:
                 payload = {
@@ -254,10 +300,9 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion, fin_sesion,
                 }
                 r = requests.post(
                     f"{API_URL}/whisper/enviar", json=payload, timeout=5)
-                print(
-                    f"[WHISPER] Enviado correctamente → status={r.status_code}")
+                print(f"[WHISPER] Enviado → status={r.status_code}")
             except Exception as e:
-                print(f"[WHISPER] ERROR al enviar tarea: {e}")
+                print(f"[WHISPER] ERROR: {e}")
 
     except Exception as e:
         error_msg = str(e)
