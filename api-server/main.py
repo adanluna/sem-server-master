@@ -873,3 +873,36 @@ def ldap_user_info(username: str):
 
     except Exception as e:
         return {"error": str(e)}
+
+    # ============================================================
+#  LISTAR TODAS LAS PAUSAS (APP + AUTO) PARA PROCESAMIENTO
+# ============================================================
+
+
+@app.get("/sesiones/{sesion_id}/pausas_todas")
+def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    pausas = (
+        db.query(models.LogPausa)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.LogPausa.inicio.asc())
+        .all()
+    )
+
+    output = []
+    for p in pausas:
+        output.append({
+            "inicio": p.inicio.isoformat(),
+            "fin": p.fin.isoformat(),
+            "duracion": p.duracion,
+            "fuente": p.fuente
+        })
+
+    return {
+        "sesion_id": sesion_id,
+        "total": len(output),
+        "pausas": output
+    }
