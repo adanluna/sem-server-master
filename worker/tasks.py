@@ -60,7 +60,7 @@ def ffmpeg_concat_cmd(list_txt, salida):
 
 
 def obtener_pausas_api(id_sesion):
-    url = f"http://{API_URL}/sesiones/{id_sesion}/pausas_todas"
+    url = f"{API_URL}/sesiones/{id_sesion}/pausas_todas"
     try:
         r = requests.get(url, timeout=5)
         data = r.json()
