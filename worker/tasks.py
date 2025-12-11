@@ -119,18 +119,37 @@ def fragmentos_del_manifest(manifest, inicio, fin):
 
 
 def recortar_fragmento(src, inicio_seg, fin_seg, dst):
+    """
+    Recorte preciso para cámaras Wisenet/Wave.
+    -ss se mueve ANTES del -i para evitar saltos de GOP.
+    -t se usa en vez de -to.
+    """
+
+    duracion = fin_seg - inicio_seg
+    if duracion <= 0:
+        raise Exception(
+            f"Duración inválida al recortar: {inicio_seg} → {fin_seg}")
+
     cmd = (
-        f"ffmpeg -y -i \"{src}\" "
-        f"-ss {inicio_seg} -to {fin_seg} "
+        f"ffmpeg -y "
+        f"-ss {inicio_seg} -i \"{src}\" "
+        f"-t {duracion} "
         f"-c:v libvpx-vp9 -pix_fmt yuv420p "
         f"-threads {FFMPEG_THREADS} -b:v 3M -crf 28 -cpu-used 4 "
         f"\"{dst}\""
     )
+
+    print(f"[FFMPEG TRIM] {cmd}")
+
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
     if result.returncode != 0:
+        print(result.stderr)
         raise Exception(f"Trim falló:\n{result.stderr}")
+
+    # Archivo válido mínimo (80KB aprox)
     if not os.path.exists(dst) or os.path.getsize(dst) < 80_000:
-        raise Exception("Archivo recorte vacío")
+        raise Exception("Archivo recortado vacío o demasiado pequeño")
 
 
 # ============================================================

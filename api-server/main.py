@@ -62,6 +62,12 @@ if not GRABADOR_UUID:
 #  RUTAS BÁSICAS
 # ============================================================
 
+def parse_hhmmss_to_seconds(hhmmss: str) -> float:
+    partes = hhmmss.split(":")
+    h, m, s = partes
+    return int(h)*3600 + int(m)*60 + float(s)
+
+
 @app.get("/")
 async def root():
     return {"message": "SEMEFO API Server", "status": "running"}
@@ -276,17 +282,19 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
 
 @app.post("/procesar_sesion")
 def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
+
     ses = payload.get("sesion_activa")
     if not ses:
         raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
 
     # ---------------------------------------------------------
-    # CAMPOS BÁSICOS
+    # CAMPOS DEL JSON
     # ---------------------------------------------------------
     expediente = ses.get("expediente")
     id_sesion = ses.get("id_sesion")
     cam1 = ses.get("camara1_mac_address")
     cam2 = ses.get("camara2_mac_address")
+    duracion_total_str = ses.get("duracion_total")
 
     if not expediente or not id_sesion:
         raise HTTPException(
@@ -296,18 +304,25 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
     # ---------------------------------------------------------
-    # VALIDAR Y PARSEAR INICIO / FIN
+    # INICIO / FIN
     # ---------------------------------------------------------
     try:
         inicio_iso = ses["inicio"]
         fin_iso = ses["fin"]
         inicio_dt = datetime.fromisoformat(inicio_iso)
         fin_dt = datetime.fromisoformat(fin_iso)
-    except Exception:
+    except:
         raise HTTPException(
             status_code=400, detail="Formato inválido de inicio/fin")
 
-    duracion_total_seg = (fin_dt - inicio_dt).total_seconds()
+    # DURACIÓN REAL enviada por la app (HH:MM:SS → seg)
+    duracion_real_seg = None
+    if duracion_total_str:
+        try:
+            duracion_real_seg = parse_hhmmss_to_seconds(duracion_total_str)
+        except:
+            print("[ERROR] No se pudo parsear duracion_total")
+            duracion_real_seg = 0
 
     # ---------------------------------------------------------
     # OBTENER O CREAR SESIÓN
@@ -315,6 +330,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
 
     if not sesion_obj:
+        # Crear nueva sesión
         sesion_obj = models.Sesion(
             id=id_sesion,
             investigacion_id=1,
@@ -326,12 +342,16 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
             app_version=ses.get("version_app", "1.0.0"),
+
+            # ESTADO FINALIZADA (tablet ya terminó)
             estado="finalizada",
 
-            # 🔥 Ahora sí guardamos inicio/fin reales
+            # Guardamos inicio y fin exactos
             inicio=inicio_dt,
             fin=fin_dt,
-            duracion_sesion_seg=duracion_total_seg,
+
+            # Duración real (no duración bruta)
+            duracion_sesion_seg=duracion_real_seg
         )
 
         db.add(sesion_obj)
@@ -340,22 +360,25 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         print(f"[SESION] Creada sesión {id_sesion}")
 
     else:
-        print(f"[SESION] Sesión {id_sesion} ya existía. Actualizando datos...")
+        # Si ya existe, actualizamos datos
+        print(f"[SESION] Sesión {id_sesion} existente → actualizando")
 
         sesion_obj.camara1_mac_address = cam1
         sesion_obj.camara2_mac_address = cam2
         sesion_obj.app_version = ses.get("version_app", "1.0.0")
         sesion_obj.estado = "finalizada"
 
-        # 🔥 Guardar inicio/fin reales SIEMPRE
+        # Guardamos inicio/fin reales SIEMPRE
         sesion_obj.inicio = inicio_dt
         sesion_obj.fin = fin_dt
-        sesion_obj.duracion_sesion_seg = duracion_total_seg
+
+        # Duración corregida
+        sesion_obj.duracion_sesion_seg = duracion_real_seg
 
         db.commit()
 
     # ---------------------------------------------------------
-    # GUARDAR PAUSAS APP
+    # GUARDAR PAUSAS DE LA APP
     # ---------------------------------------------------------
     pausas = ses.get("pausas", [])
     for p in pausas:
@@ -373,12 +396,12 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             )
             db.add(nueva)
         except Exception as e:
-            print(f"[PAUSAS] Error guardando pausa APP: {e}")
+            print(f"[PAUSAS] Error registrando pausa: {e}")
 
     db.commit()
 
     # ---------------------------------------------------------
-    # RUTAS MANIFEST
+    # PREPARAR MANIFESTS
     # ---------------------------------------------------------
     fecha_solo = inicio_iso.split("T")[0]
     yyyy, mm, dd = fecha_solo.split("-")
@@ -390,23 +413,17 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     # LANZAR WORKERS
     # ---------------------------------------------------------
     chain(
-        celery_app.signature("tasks.generar_manifest",
-                             args=[cam1, fecha_solo],
-                             immutable=True),
-        celery_app.signature("worker.tasks.unir_video",
-                             args=[expediente, id_sesion,
-                                   path_manifest1, inicio_iso, fin_iso],
-                             immutable=True)
+        celery_app.signature("tasks.generar_manifest", args=[
+                             cam1, fecha_solo], immutable=True),
+        celery_app.signature("worker.tasks.unir_video", args=[
+                             expediente, id_sesion, path_manifest1, inicio_iso, fin_iso], immutable=True)
     ).apply_async()
 
     chain(
-        celery_app.signature("tasks.generar_manifest",
-                             args=[cam2, fecha_solo],
-                             immutable=True),
-        celery_app.signature("worker.tasks.unir_video2",
-                             args=[expediente, id_sesion,
-                                   path_manifest2, inicio_iso, fin_iso],
-                             immutable=True)
+        celery_app.signature("tasks.generar_manifest", args=[
+                             cam2, fecha_solo], immutable=True),
+        celery_app.signature("worker.tasks.unir_video2", args=[
+                             expediente, id_sesion, path_manifest2, inicio_iso, fin_iso], immutable=True)
     ).apply_async()
 
     # ---------------------------------------------------------
@@ -418,7 +435,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,
         "fin_sesion": fin_iso,
-        "duracion_total_seg": duracion_total_seg,
+        "duracion_total_seg": duracion_real_seg,
         "pausas_app_registradas": len(pausas),
         "manifest1": path_manifest1,
         "manifest2": path_manifest2
