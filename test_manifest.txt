@@ -6,8 +6,16 @@ curl -X POST http://127.0.0.1:8000/investigaciones/ \
     "observaciones": "Prueba de integración"
 }'
 
+docker compose build celery_manifest
+docker compose build celery_uniones
+docker compose build celery_video2
+docker compose build fastapi
+docker compose up -d
+
 docker logs -f celery_manifest
 docker logs celery_uniones -f
+docker compose logs celery_video2 -f
+docker compose logs fastapi -f
 
 curl -X POST http://localhost:8000/whisper/enviar \
   -H "Content-Type: application/json" \
