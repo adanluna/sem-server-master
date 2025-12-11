@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS sesiones (
     user_nombre VARCHAR(255),
     fecha_cierre TIMESTAMP,
     ultima_actualizacion TIMESTAMP DEFAULT NOW()
+    inicio TIMESTAMP,
+    fin TIMESTAMP
 );
 
 -- ===============================================

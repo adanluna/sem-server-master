@@ -139,8 +139,28 @@ def recortar_fragmento(src, inicio_seg, fin_seg, dst):
 
 def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion_iso, fin_sesion_iso, tipo):
 
-    inicio_sesion = datetime.fromisoformat(inicio_sesion_iso)
-    fin_sesion = datetime.fromisoformat(fin_sesion_iso)
+    info_url = f"{API_URL}/sesiones/{id_sesion}/pausas_todas"
+
+    try:
+        info = requests.get(info_url, timeout=5).json()
+
+        inicio_sesion_iso = info.get("inicio_sesion")
+        fin_sesion_iso = info.get("fin_sesion")
+        pausas = info.get("pausas", [])
+
+        if not inicio_sesion_iso or not fin_sesion_iso:
+            raise Exception(
+                "API no envió inicio_sesion o fin_sesion — No se puede unir el video")
+
+        inicio_sesion = datetime.fromisoformat(inicio_sesion_iso)
+        fin_sesion = datetime.fromisoformat(fin_sesion_iso)
+
+    except Exception as e:
+        raise Exception(f"Error obteniendo datos de sesión desde API: {e}")
+
+    print(f"[SESION] Inicio oficial: {inicio_sesion}")
+    print(f"[SESION] Fin oficial:   {fin_sesion}")
+    print(f"[PAUSAS] Recibidas:     {len(pausas)}")
 
     temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{expediente}_{id_sesion}")
     limpiar_temp(temp_dir)

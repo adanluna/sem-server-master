@@ -49,6 +49,8 @@ class Sesion(Base):
     sha256 = Column(String, nullable=True)
     duracion_archivo_seg = Column(Float, nullable=True)
     duracion_sesion_seg = Column(Float, nullable=True)
+    inicio = Column(DateTime, nullable=True)
+    fin = Column(DateTime, nullable=True)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(

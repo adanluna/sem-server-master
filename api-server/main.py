@@ -280,6 +280,9 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     if not ses:
         raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
 
+    # ---------------------------------------------------------
+    # CAMPOS BÁSICOS
+    # ---------------------------------------------------------
     expediente = ses.get("expediente")
     id_sesion = ses.get("id_sesion")
     cam1 = ses.get("camara1_mac_address")
@@ -292,15 +295,23 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     if not cam1 or not cam2:
         raise HTTPException(status_code=400, detail="Faltan MAC addresses")
 
+    # ---------------------------------------------------------
+    # VALIDAR Y PARSEAR INICIO / FIN
+    # ---------------------------------------------------------
     try:
         inicio_iso = ses["inicio"]
         fin_iso = ses["fin"]
         inicio_dt = datetime.fromisoformat(inicio_iso)
         fin_dt = datetime.fromisoformat(fin_iso)
-    except:
+    except Exception:
         raise HTTPException(
             status_code=400, detail="Formato inválido de inicio/fin")
 
+    duracion_total_seg = (fin_dt - inicio_dt).total_seconds()
+
+    # ---------------------------------------------------------
+    # OBTENER O CREAR SESIÓN
+    # ---------------------------------------------------------
     sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
 
     if not sesion_obj:
@@ -309,21 +320,43 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             investigacion_id=1,
             nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
             usuario_ldap=ses["forense"]["id_usuario"],
+            user_nombre=ses["forense"]["nombre"],
             plancha_id=ses.get("plancha", "desconocida"),
             tablet_id=ses.get("tablet", "desconocida"),
-            estado="en_progreso",
-            user_nombre=ses["forense"]["nombre"],
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
-            app_version=ses.get("version_app", "1.0.0")
+            app_version=ses.get("version_app", "1.0.0"),
+            estado="finalizado",
+
+            # 🔥 Ahora sí guardamos inicio/fin reales
+            inicio=inicio_dt,
+            fin=fin_dt,
+            duracion_sesion_seg=duracion_total_seg,
         )
+
         db.add(sesion_obj)
         db.commit()
         db.refresh(sesion_obj)
         print(f"[SESION] Creada sesión {id_sesion}")
-    else:
-        print(f"[SESION] Sesión {id_sesion} ya existía")
 
+    else:
+        print(f"[SESION] Sesión {id_sesion} ya existía. Actualizando datos...")
+
+        sesion_obj.camara1_mac_address = cam1
+        sesion_obj.camara2_mac_address = cam2
+        sesion_obj.app_version = ses.get("version_app", "1.0.0")
+        sesion_obj.estado = "finalizado"
+
+        # 🔥 Guardar inicio/fin reales SIEMPRE
+        sesion_obj.inicio = inicio_dt
+        sesion_obj.fin = fin_dt
+        sesion_obj.duracion_sesion_seg = duracion_total_seg
+
+        db.commit()
+
+    # ---------------------------------------------------------
+    # GUARDAR PAUSAS APP
+    # ---------------------------------------------------------
     pausas = ses.get("pausas", [])
     for p in pausas:
         try:
@@ -344,15 +377,22 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
 
     db.commit()
 
+    # ---------------------------------------------------------
+    # RUTAS MANIFEST
+    # ---------------------------------------------------------
     fecha_solo = inicio_iso.split("T")[0]
     yyyy, mm, dd = fecha_solo.split("-")
 
     path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
     path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
 
+    # ---------------------------------------------------------
+    # LANZAR WORKERS
+    # ---------------------------------------------------------
     chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam1, fecha_solo], immutable=True),
+        celery_app.signature("tasks.generar_manifest",
+                             args=[cam1, fecha_solo],
+                             immutable=True),
         celery_app.signature("worker.tasks.unir_video",
                              args=[expediente, id_sesion,
                                    path_manifest1, inicio_iso, fin_iso],
@@ -360,20 +400,25 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     ).apply_async()
 
     chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam2, fecha_solo], immutable=True),
+        celery_app.signature("tasks.generar_manifest",
+                             args=[cam2, fecha_solo],
+                             immutable=True),
         celery_app.signature("worker.tasks.unir_video2",
                              args=[expediente, id_sesion,
                                    path_manifest2, inicio_iso, fin_iso],
                              immutable=True)
     ).apply_async()
 
+    # ---------------------------------------------------------
+    # RESPUESTA
+    # ---------------------------------------------------------
     return {
         "status": "procesando",
         "expediente": expediente,
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,
         "fin_sesion": fin_iso,
+        "duracion_total_seg": duracion_total_seg,
         "pausas_app_registradas": len(pausas),
         "manifest1": path_manifest1,
         "manifest2": path_manifest2
@@ -885,16 +930,31 @@ def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    pausas = (
+    # ===========================
+    # 🔥 AGREGAMOS INICIO Y FIN 🔥
+    # ===========================
+    inicio_sesion = None
+    fin_sesion = None
+
+    if sesion.inicio:
+        inicio_sesion = sesion.inicio.isoformat()
+
+    if sesion.fin:
+        fin_sesion = sesion.fin.isoformat()
+
+    # ===========================
+    # PAUSAS
+    # ===========================
+    pausas_db = (
         db.query(models.LogPausa)
         .filter_by(sesion_id=sesion_id)
         .order_by(models.LogPausa.inicio.asc())
         .all()
     )
 
-    output = []
-    for p in pausas:
-        output.append({
+    pausas = []
+    for p in pausas_db:
+        pausas.append({
             "inicio": p.inicio.isoformat(),
             "fin": p.fin.isoformat(),
             "duracion": p.duracion,
@@ -903,6 +963,8 @@ def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
 
     return {
         "sesion_id": sesion_id,
-        "total": len(output),
-        "pausas": output
+        "inicio_sesion": inicio_sesion,
+        "fin_sesion": fin_sesion,
+        "total": len(pausas),
+        "pausas": pausas
     }
