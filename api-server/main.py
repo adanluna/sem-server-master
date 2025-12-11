@@ -326,7 +326,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
             app_version=ses.get("version_app", "1.0.0"),
-            estado="finalizado",
+            estado="finalizada",
 
             # 🔥 Ahora sí guardamos inicio/fin reales
             inicio=inicio_dt,
@@ -345,7 +345,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         sesion_obj.camara1_mac_address = cam1
         sesion_obj.camara2_mac_address = cam2
         sesion_obj.app_version = ses.get("version_app", "1.0.0")
-        sesion_obj.estado = "finalizado"
+        sesion_obj.estado = "finalizada"
 
         # 🔥 Guardar inicio/fin reales SIEMPRE
         sesion_obj.inicio = inicio_dt
