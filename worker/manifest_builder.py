@@ -136,12 +136,32 @@ def ruta_manifest(mac, fecha):
 #   CELERY TASK — GENERAR MANIFEST INCREMENTAL SEGURo
 # ============================================================
 
+# ============================================================
+#   CELERY TASK — GENERAR MANIFEST INCREMENTAL SEGURO
+# ============================================================
+
 @celery_app.task(name="tasks.generar_manifest", queue="manifest")
 def generar_manifest(mac_camara, fecha_iso):
     """
     Genera o actualiza el manifest de una cámara en un día.
     Solo agrega fragmentos nuevos, con validación extendida.
+    Ahora espera 5 minutos ANTES de generar el manifest.
     """
+    import time
+
+    # ============================================================
+    #   ESPERA REQUERIDA PARA ASEGURAR EL ÚLTIMO FRAGMENTO
+    # ============================================================
+    # por defecto 5 minutos
+    WAIT_SECONDS = int(os.getenv("MANIFEST_WAIT_SECONDS", "300"))
+
+    print(
+        f"[MANIFEST] Esperando {WAIT_SECONDS} segundos antes de generar manifest para cámara {mac_camara}...")
+    time.sleep(WAIT_SECONDS)
+    print(
+        f"[MANIFEST] Iniciando generación real del manifest para cámara {mac_camara}")
+
+    # ------------------- SIGUE TODO IGUAL ------------------------
     fecha = datetime.datetime.fromisoformat(fecha_iso).date()
 
     ruta_frag = os.path.join(
@@ -161,21 +181,16 @@ def generar_manifest(mac_camara, fecha_iso):
     path_manifest = ruta_manifest(mac_camara, fecha)
     manifest = cargar_manifest(path_manifest)
 
-    # Inicializar estructura si no existe
     manifest.setdefault("uuid", GRABADOR_UUID)
     manifest.setdefault("fecha", fecha_iso)
     manifest.setdefault("camara_mac", mac_camara)
     manifest.setdefault("archivos", [])
 
-    # Evitar duplicados de archivo y duplicados por rango de tiempo
     ya_archivos = {a["archivo"] for a in manifest["archivos"]}
-
-    # También evitar duplicados por timestamp (poco probable pero crítico)
     ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
 
     nuevos = []
 
-    # Buscar fragmentos por hora
     pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
     fragmentos = sorted(glob(pattern))
 
@@ -185,15 +200,13 @@ def generar_manifest(mac_camara, fecha_iso):
     for file_path in fragmentos:
         archivo = os.path.basename(file_path)
 
-        # Evitar duplicados exactos por nombre
         if archivo in ya_archivos:
             continue
 
         inicio, fin, dur = extraer_timestamps(archivo, file_path)
         if inicio is None:
-            continue  # archivo corrupto o incompleto
+            continue
 
-        # Evitar duplicados por rango temporal
         if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
             print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
             continue
@@ -209,7 +222,6 @@ def generar_manifest(mac_camara, fecha_iso):
         manifest["archivos"].append(entry)
         nuevos.append(entry)
 
-    # Ordenación estricta y segura
     manifest["archivos"].sort(key=lambda x: x["inicio"])
 
     guardar_manifest(path_manifest, manifest)
