@@ -1,3 +1,4 @@
+from datetime import timedelta
 from ntlm_auth.ntlm import Ntlm
 import spnego
 from ldap3 import Server, Connection, ALL, SASL, KERBEROS, NTLM
@@ -9,6 +10,11 @@ import os
 from celery import chain
 import requests
 from ldap3 import Server, Connection, NTLM, ALL
+from sqlalchemy import func, distinct
+import socket
+import shutil
+from sqlalchemy import text
+
 
 from database import get_db, engine
 import models
@@ -24,7 +30,8 @@ from schemas import (
     SesionArchivoEstadoUpdate,
     PausaCreate,
     PausaResponse,
-    InvestigacionResponse
+    InvestigacionResponse,
+    InfraEstadoCreate
 )
 
 from models import LDAPLoginRequest
@@ -39,6 +46,11 @@ models.Base.metadata.create_all(bind=engine)
 rabbit_user = os.getenv("RABBITMQ_USER")
 rabbit_pass = os.getenv("RABBITMQ_PASS")
 rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+
+EXPEDIENTES_PATH = os.getenv(
+    "EXPEDIENTES_PATH",
+    "/mnt/wave/archivos_sistema_semefo"
+).rstrip("/")
 
 app = FastAPI(
     title="Sistema Forense SEMEFO",
@@ -985,3 +997,331 @@ def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
         "total": len(pausas),
         "pausas": pausas
     }
+
+# ============================================================
+# Consultas para semefo
+# ============================================================
+
+
+@app.get("/consultas/expedientes/{numero_expediente}")
+def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
+
+    inv = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=numero_expediente)
+        .first()
+    )
+
+    if not inv:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+
+    sesiones_out = []
+
+    for s in inv.sesiones:
+        archivos = []
+        for a in s.archivos:
+            size_mb = 0
+            if a.ruta_convertida and os.path.exists(a.ruta_convertida):
+                size_mb = round(os.path.getsize(
+                    a.ruta_convertida) / (1024 * 1024), 2)
+
+            archivos.append({
+                "tipo": a.tipo_archivo,
+                "estado": a.estado,
+                "tamano_mb": size_mb,
+                "mensaje": a.mensaje
+            })
+
+        sesiones_out.append({
+            "sesion_id": s.id,
+            "fecha": s.fecha,
+            "usuario_ldap": s.usuario_ldap,
+            "estado": s.estado,
+            "duracion_sesion_seg": s.duracion_sesion_seg,
+            "archivos": archivos
+        })
+
+    return {
+        "numero_expediente": inv.numero_expediente,
+        "fecha_creacion": inv.fecha_creacion,
+        "sesiones": sesiones_out
+    }
+
+# ==========================================================
+# Dashboard Endpoints
+# ============================================================
+
+
+@app.get("/dashboard/expedientes")
+def dashboard_expedientes(
+    desde: datetime,
+    hasta: datetime,
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db)
+):
+    q = (
+        db.query(
+            models.Investigacion.numero_expediente,
+            models.Investigacion.fecha_creacion,
+            func.count(distinct(models.Sesion.id)).label("total_sesiones"),
+            func.count(models.SesionArchivo.id).label("total_archivos"),
+        )
+        .outerjoin(models.Sesion, models.Sesion.investigacion_id == models.Investigacion.id)
+        .outerjoin(models.SesionArchivo, models.SesionArchivo.sesion_id == models.Sesion.id)
+        .filter(models.Investigacion.fecha_creacion.between(desde, hasta))
+        .group_by(models.Investigacion.id)
+        .order_by(models.Investigacion.fecha_creacion.desc())
+    )
+
+    total = q.count()
+    data = q.offset((page - 1) * per_page).limit(per_page).all()
+
+    return {
+        "meta": {
+            "page": page,
+            "per_page": per_page,
+            "total": total
+        },
+        "data": [
+            {
+                "numero_expediente": r.numero_expediente,
+                "fecha_creacion": r.fecha_creacion,
+                "total_sesiones": r.total_sesiones,
+                "total_archivos": r.total_archivos
+            }
+            for r in data
+        ]
+    }
+
+
+@app.get("/dashboard/sesiones")
+def dashboard_sesiones(
+    desde: datetime,
+    hasta: datetime,
+    page: int = 1,
+    per_page: int = 25,
+    db: Session = Depends(get_db)
+):
+    q = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.fecha.between(desde, hasta))
+        .order_by(models.Sesion.fecha.desc())
+    )
+
+    total = q.count()
+    sesiones = q.offset((page - 1) * per_page).limit(per_page).all()
+
+    data = []
+    for s in sesiones:
+        jobs = (
+            db.query(
+                models.Job.estado,
+                func.count(models.Job.id).label("total")
+            )
+            .filter(models.Job.sesion_id == s.id)
+            .group_by(models.Job.estado)
+            .all()
+        )
+
+        resumen_jobs = {j.estado: j.total for j in jobs}
+
+        data.append({
+            "sesion_id": s.id,
+            "numero_expediente": s.investigacion.numero_expediente,
+            "usuario_ldap": s.usuario_ldap,
+            "fecha": s.fecha,
+            "estado": s.estado,
+            "duracion_sesion_seg": s.duracion_sesion_seg,
+            "jobs": {
+                "pendiente": resumen_jobs.get("pendiente", 0),
+                "procesando": resumen_jobs.get("procesando", 0),
+                "completado": resumen_jobs.get("completado", 0),
+                "error": resumen_jobs.get("error", 0),
+            }
+        })
+
+    return {
+        "meta": {
+            "page": page,
+            "per_page": per_page,
+            "total": total
+        },
+        "data": data
+    }
+
+
+@app.get("/dashboard/jobs")
+def dashboard_jobs(
+    estado: str,
+    page: int = 1,
+    per_page: int = 50,
+    db: Session = Depends(get_db)
+):
+    q = (
+        db.query(models.Job)
+        .filter(models.Job.estado == estado)
+        .order_by(models.Job.fecha_creacion.desc())
+    )
+
+    total = q.count()
+    jobs = q.offset((page - 1) * per_page).limit(per_page).all()
+
+    return {
+        "meta": {
+            "page": page,
+            "per_page": per_page,
+            "total": total
+        },
+        "data": [
+            {
+                "job_id": j.id,
+                "numero_expediente": j.investigacion.numero_expediente,
+                "sesion_id": j.sesion_id,
+                "tipo": j.tipo,
+                "archivo": j.archivo,
+                "estado": j.estado,
+                "fecha_creacion": j.fecha_creacion,
+                "error": j.error
+            }
+            for j in jobs
+        ]
+    }
+
+# Obtener estado de la infraestructura
+
+
+@app.post("/infra/estado")
+def registrar_infra_estado(
+    data: InfraEstadoCreate,
+    db: Session = Depends(get_db)
+):
+    nuevo = models.InfraEstado(**data.dict())
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    return {
+        "status": "ok",
+        "id": nuevo.id
+    }
+
+
+@app.get("/infra/estado/ultimo")
+def infra_estado_actual(db: Session = Depends(get_db)):
+    rows = (
+        db.query(models.InfraEstado)
+        .order_by(models.InfraEstado.fecha.desc())
+        .all()
+    )
+
+    resultado = {}
+    for r in rows:
+        if r.servidor not in resultado:
+            resultado[r.servidor] = {
+                "disco_total_gb": r.disco_total_gb,
+                "disco_usado_gb": r.disco_usado_gb,
+                "disco_libre_gb": r.disco_libre_gb,
+                "fecha": r.fecha
+            }
+
+    return resultado
+
+
+@app.get("/dashboard/infra/estado")
+def infra_estado_dashboard(db: Session = Depends(get_db)):
+    estado = {
+        "api": "ok",
+        "db": "error",
+        "rabbitmq": "error",
+        "workers": {
+            "video": "desconocido",
+            "audio": "desconocido",
+            "transcripcion": "desconocido"
+        },
+        "disco": {
+            "master": None,
+            "whisper": {
+                "status": "sin_reporte"
+            }
+        }
+    }
+
+    # -------------------------------------------------
+    # DB
+    # -------------------------------------------------
+    try:
+        db.execute(text("SELECT 1"))
+        estado["db"] = "ok"
+    except Exception:
+        estado["db"] = "error"
+
+    # -------------------------------------------------
+    # RabbitMQ (socket check)
+    # -------------------------------------------------
+    try:
+        rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+        rabbit_port = 5672
+        sock = socket.create_connection((rabbit_host, rabbit_port), timeout=2)
+        sock.close()
+        estado["rabbitmq"] = "ok"
+    except Exception:
+        estado["rabbitmq"] = "error"
+
+    # -------------------------------------------------
+    # Workers (heurística por jobs recientes)
+    # -------------------------------------------------
+    try:
+        limite = datetime.utcnow() - timedelta(minutes=10)
+
+        jobs = (
+            db.query(models.Job.tipo)
+            .filter(models.Job.fecha_actualizacion >= limite)
+            .all()
+        )
+
+        tipos_activos = {j.tipo for j in jobs}
+
+        estado["workers"]["video"] = "activo" if "video" in tipos_activos else "inactivo"
+        estado["workers"]["audio"] = "activo" if "audio" in tipos_activos else "inactivo"
+        estado["workers"]["transcripcion"] = (
+            "activo" if "transcripcion" in tipos_activos else "inactivo"
+        )
+    except Exception:
+        pass
+
+    # -------------------------------------------------
+    # Disco MASTER (en vivo)
+    # -------------------------------------------------
+    try:
+        total, used, free = shutil.disk_usage("/")
+        estado["disco"]["master"] = {
+            "total_gb": round(total / (1024 ** 3), 2),
+            "usado_gb": round(used / (1024 ** 3), 2),
+            "libre_gb": round(free / (1024 ** 3), 2)
+        }
+    except Exception:
+        estado["disco"]["master"] = None
+
+    # -------------------------------------------------
+    # Disco WHISPER (desde BD)
+    # -------------------------------------------------
+    whisper = (
+        db.query(models.InfraEstado)
+        .filter(models.InfraEstado.servidor == "whisper")
+        .order_by(models.InfraEstado.fecha.desc())
+        .first()
+    )
+
+    if whisper:
+        retraso = datetime.utcnow() - whisper.fecha
+
+        estado["disco"]["whisper"] = {
+            "total_gb": whisper.disco_total_gb,
+            "usado_gb": whisper.disco_usado_gb,
+            "libre_gb": whisper.disco_libre_gb,
+            "fecha": whisper.fecha,
+            "status": "stale" if retraso > timedelta(minutes=10) else "ok"
+        }
+
+    return estado

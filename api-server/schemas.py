@@ -132,3 +132,10 @@ class SesionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class InfraEstadoCreate(BaseModel):
+    servidor: str  # "master" | "whisper"
+    disco_total_gb: float
+    disco_usado_gb: float
+    disco_libre_gb: float

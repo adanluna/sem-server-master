@@ -135,3 +135,14 @@ class LogPausa(Base):
 class LDAPLoginRequest(BaseModel):
     username: str
     password: str
+
+
+class InfraEstado(Base):
+    __tablename__ = "infra_estado"
+
+    id = Column(Integer, primary_key=True)
+    servidor = Column(String(50), nullable=False)  # master | whisper
+    disco_total_gb = Column(Float, nullable=False)
+    disco_usado_gb = Column(Float, nullable=False)
+    disco_libre_gb = Column(Float, nullable=False)
+    fecha = Column(DateTime, default=datetime.utcnow, index=True)
