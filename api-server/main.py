@@ -1,19 +1,14 @@
-from datetime import timedelta
-from ntlm_auth.ntlm import Ntlm
-import spnego
-from ldap3 import Server, Connection, ALL, SASL, KERBEROS, NTLM
+from datetime import timedelta, datetime
+from ldap3 import Server, Connection, NTLM, ALL
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
+from sqlalchemy import func, distinct, text
 import logging
 import os
 from celery import chain
 import requests
-from ldap3 import Server, Connection, NTLM, ALL
-from sqlalchemy import func, distinct
 import socket
 import shutil
-from sqlalchemy import text
 
 
 from database import get_db, engine
@@ -30,8 +25,10 @@ from schemas import (
     SesionArchivoEstadoUpdate,
     PausaCreate,
     PausaResponse,
-    InvestigacionResponse,
-    InfraEstadoCreate
+    InfraEstadoCreate,
+    PlanchaResponse,
+    PlanchaUpdate,
+    PlanchaCreate
 )
 
 from models import LDAPLoginRequest
@@ -307,6 +304,14 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
     cam1 = ses.get("camara1_mac_address")
     cam2 = ses.get("camara2_mac_address")
     duracion_total_str = ses.get("duracion_total")
+    plancha_id = ses.get("plancha_id")
+    plancha_nombre = ses.get("plancha_nombre")
+
+    if not plancha_id or not plancha_nombre:
+        raise HTTPException(
+            status_code=400,
+            detail="Falta plancha_id o plancha_nombre en sesion_activa"
+        )
 
     if not expediente or not id_sesion:
         raise HTTPException(
@@ -349,7 +354,8 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
             nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
             usuario_ldap=ses["forense"]["id_usuario"],
             user_nombre=ses["forense"]["nombre"],
-            plancha_id=ses.get("plancha", "desconocida"),
+            plancha_id=plancha_id,
+            plancha_nombre=plancha_nombre,
             tablet_id=ses.get("tablet", "desconocida"),
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
@@ -375,6 +381,8 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
         # Si ya existe, actualizamos datos
         print(f"[SESION] Sesión {id_sesion} existente → actualizando")
 
+        sesion_obj.plancha_id = plancha_id
+        sesion_obj.plancha_nombre = plancha_nombre
         sesion_obj.camara1_mac_address = cam1
         sesion_obj.camara2_mac_address = cam2
         sesion_obj.app_version = ses.get("version_app", "1.0.0")
@@ -1325,3 +1333,111 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
         }
 
     return estado
+# ============================================================
+#  PLANCHAS
+# ============================================================
+
+
+@app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
+def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
+    plancha = models.Plancha(**data.dict())
+
+    db.add(plancha)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe una plancha con ese nombre o datos inválidos"
+        )
+
+    db.refresh(plancha)
+    return plancha
+
+
+@app.get("/planchas/", response_model=list[PlanchaResponse])
+def listar_planchas(
+    incluir_inactivas: bool = True,
+    db: Session = Depends(get_db)
+):
+    q = db.query(models.Plancha)
+
+    if not incluir_inactivas:
+        q = q.filter(models.Plancha.activo == True)
+
+    return q.order_by(models.Plancha.nombre.asc()).all()
+
+
+@app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    return plancha
+
+
+@app.put("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def actualizar_plancha(
+    plancha_id: int,
+    data: PlanchaUpdate,
+    db: Session = Depends(get_db)
+):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    for field, value in data.dict(exclude_unset=True).items():
+        setattr(plancha, field, value)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Error al actualizar la plancha"
+        )
+
+    db.refresh(plancha)
+    return plancha
+
+
+@app.delete("/planchas/{plancha_id}", status_code=204)
+def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    # 🔒 Borrado lógico (CRÍTICO PARA GOBIERNO)
+    plancha.activo = False
+    db.commit()
+
+
+@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
+def listar_planchas_disponibles(db: Session = Depends(get_db)):
+    return (
+        db.query(models.Plancha)
+        .filter(
+            models.Plancha.activo == True,
+            models.Plancha.asignada == False
+        )
+        .order_by(models.Plancha.nombre.asc())
+        .all()
+    )

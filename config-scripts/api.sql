@@ -1,12 +1,12 @@
 -- =====================================================================
---  SEMEFO - ESTRUCTURA EXTENDIDA OFICIAL (POSTGRESQL 15)
+--  SEMEFO - ESTRUCTURA OFICIAL UNIFICADA (POSTGRESQL 15)
 -- =====================================================================
 
 \connect semefo;
 
--- ===============================================
+-- =====================================================
 -- ENUMS
--- ===============================================
+-- =====================================================
 
 CREATE TYPE tipo_archivo_enum AS ENUM (
     'audio',
@@ -36,9 +36,9 @@ CREATE TYPE estado_job_enum AS ENUM (
     'error'
 );
 
--- ===============================================
+-- =====================================================
 -- TABLA: investigaciones
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS investigaciones (
     id SERIAL PRIMARY KEY,
@@ -48,78 +48,111 @@ CREATE TABLE IF NOT EXISTS investigaciones (
     observaciones TEXT
 );
 
--- ===============================================
+-- =====================================================
+-- TABLA: planchas
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS planchas (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL UNIQUE,
+
+    camara1_ip INET,
+    camara1_id VARCHAR(100),
+    camara1_activa BOOLEAN DEFAULT TRUE,
+
+    camara2_ip INET,
+    camara2_id VARCHAR(100),
+    camara2_activa BOOLEAN DEFAULT TRUE,
+
+    fecha_registro TIMESTAMP DEFAULT NOW(),
+    activo BOOLEAN DEFAULT TRUE,
+    asignada BOOLEAN DEFAULT FALSE
+);
+
+-- =====================================================
 -- TABLA: sesiones
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS sesiones (
     id SERIAL PRIMARY KEY,
     investigacion_id INTEGER NOT NULL REFERENCES investigaciones(id) ON DELETE CASCADE,
+
     nombre_sesion VARCHAR(255),
-    fecha TIMESTAMP DEFAULT NOW(),
-    observaciones TEXT,
     usuario_ldap VARCHAR(255) NOT NULL,
-    tablet_id VARCHAR(255),
-    plancha_id VARCHAR(255),
-    camara VARCHAR(255),
-    estado estado_sesion_enum DEFAULT 'en_progreso',
     user_nombre VARCHAR(255),
-    fecha_cierre TIMESTAMP,
-    ultima_actualizacion TIMESTAMP DEFAULT NOW()
+
+    tablet_id VARCHAR(255),
+    plancha_id INTEGER REFERENCES planchas(id),
+    plancha_nombre VARCHAR(255),
+
+    estado estado_sesion_enum DEFAULT 'en_progreso',
+
     inicio TIMESTAMP,
-    fin TIMESTAMP
+    fin TIMESTAMP,
+    fecha_cierre TIMESTAMP,
+
+    progreso_porcentaje DOUBLE PRECISION DEFAULT 0,
+    pausas_detectadas JSONB DEFAULT '[]',
+
+    camara1_mac_address VARCHAR(100),
+    camara2_mac_address VARCHAR(100),
+    app_version VARCHAR(50),
+
+    observaciones TEXT,
+    fecha TIMESTAMP DEFAULT NOW(),
+    ultima_actualizacion TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
--- TABLA: dispositivos (tablets / cámaras / planchas)
--- ===============================================
-
-CREATE TABLE IF NOT EXISTS dispositivos (
-    id SERIAL PRIMARY KEY,
-    tipo VARCHAR(50) NOT NULL,   -- tablet, camara, plancha
-    nombre VARCHAR(255) NOT NULL,
-    descripcion TEXT,
-    activo BOOLEAN DEFAULT TRUE,
-    fecha_registro TIMESTAMP DEFAULT NOW()
-);
-
--- ===============================================
+-- =====================================================
 -- TABLA: jobs
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS jobs (
     id SERIAL PRIMARY KEY,
     investigacion_id INTEGER REFERENCES investigaciones(id) ON DELETE CASCADE,
     sesion_id INTEGER REFERENCES sesiones(id) ON DELETE CASCADE,
+
     tipo tipo_archivo_enum NOT NULL,
     archivo VARCHAR(255),
+
     estado estado_job_enum DEFAULT 'pendiente',
     resultado VARCHAR(255),
     error TEXT,
+
     fecha_creacion TIMESTAMP DEFAULT NOW(),
     fecha_actualizacion TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
+-- =====================================================
 -- TABLA: sesion_archivos
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS sesion_archivos (
     id SERIAL PRIMARY KEY,
     sesion_id INTEGER NOT NULL REFERENCES sesiones(id) ON DELETE CASCADE,
+
     tipo_archivo tipo_archivo_enum NOT NULL,
+
     ruta_original TEXT,
     ruta_convertida TEXT,
+
+    sha256 TEXT,
+    duracion_archivo_seg DOUBLE PRECISION,
+    duracion_sesion_seg DOUBLE PRECISION,
+
+    progreso_porcentaje DOUBLE PRECISION DEFAULT 0,
+
     conversion_completa BOOLEAN DEFAULT FALSE,
     estado estado_archivo_enum DEFAULT 'pendiente',
     mensaje TEXT,
+
     fecha_finalizacion TIMESTAMP,
     fecha TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
+-- =====================================================
 -- TABLA: transcripciones
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS transcripciones (
     id SERIAL PRIMARY KEY,
@@ -129,9 +162,9 @@ CREATE TABLE IF NOT EXISTS transcripciones (
     fecha TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
+-- =====================================================
 -- TABLA: manifest
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS manifest (
     id SERIAL PRIMARY KEY,
@@ -141,9 +174,22 @@ CREATE TABLE IF NOT EXISTS manifest (
     fecha TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
+-- =====================================================
+-- TABLA: log_pausas
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS log_pausas (
+    id SERIAL PRIMARY KEY,
+    sesion_id INTEGER NOT NULL REFERENCES sesiones(id) ON DELETE CASCADE,
+    inicio TIMESTAMP NOT NULL,
+    fin TIMESTAMP NOT NULL,
+    duracion DOUBLE PRECISION NOT NULL,
+    fuente VARCHAR(20) NOT NULL
+);
+
+-- =====================================================
 -- TABLA: logs_eventos
--- ===============================================
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS logs_eventos (
     id SERIAL PRIMARY KEY,
@@ -153,21 +199,21 @@ CREATE TABLE IF NOT EXISTS logs_eventos (
     fecha TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
--- TABLA: usuarios (admins internos del sistema)
--- ===============================================
+-- =====================================================
+-- TABLA: usuarios
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
     usuario_ldap VARCHAR(255) UNIQUE NOT NULL,
     nombre VARCHAR(255),
-    rol VARCHAR(50),  -- admin, forense, sistema
+    rol VARCHAR(50),
     fecha TIMESTAMP DEFAULT NOW()
 );
 
--- ===============================================
--- VISTA: estatus_archivos (para endpoint /estatus_archivos)
--- ===============================================
+-- =====================================================
+-- VISTA: estatus archivos
+-- =====================================================
 
 CREATE OR REPLACE VIEW vw_estatus_archivos AS
 SELECT
@@ -180,9 +226,9 @@ SELECT
 FROM sesiones s
 LEFT JOIN sesion_archivos sa ON sa.sesion_id = s.id;
 
--- ===============================================
+-- =====================================================
 -- TRIGGER: actualizar fecha_actualizacion en jobs
--- ===============================================
+-- =====================================================
 
 CREATE OR REPLACE FUNCTION actualizar_fecha_actualizacion()
 RETURNS TRIGGER AS $$
@@ -199,6 +245,6 @@ BEFORE UPDATE ON jobs
 FOR EACH ROW
 EXECUTE FUNCTION actualizar_fecha_actualizacion();
 
--- ============================================================================
--- FIN DEL SCRIPT
--- ============================================================================
+-- =====================================================
+-- FIN
+-- =====================================================

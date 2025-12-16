@@ -3,6 +3,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy.sql import func
 
 
 # ============================================================
@@ -37,7 +39,8 @@ class Sesion(Base):
     nombre_sesion = Column(String(200), nullable=False)
     observaciones = Column(Text)
     usuario_ldap = Column(String(100), nullable=False)
-    plancha_id = Column(String(100), nullable=False)
+    plancha_id = Column(Integer, ForeignKey("planchas.id"))
+    plancha_nombre = Column(String(255))   # 👈 NUEVO
     tablet_id = Column(String(100), nullable=False)
     estado = Column(String(50), nullable=False, default="en_progreso")
     user_nombre = Column(String(200), nullable=True)
@@ -146,3 +149,27 @@ class InfraEstado(Base):
     disco_usado_gb = Column(Float, nullable=False)
     disco_libre_gb = Column(Float, nullable=False)
     fecha = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Plancha(Base):
+    __tablename__ = "planchas"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    nombre = Column(String(100), unique=True, nullable=False)
+
+    camara1_ip = Column(INET, nullable=True)
+    camara1_id = Column(String(100), nullable=True)
+    camara1_activa = Column(Boolean, default=True)
+
+    camara2_ip = Column(INET, nullable=True)
+    camara2_id = Column(String(100), nullable=True)
+    camara2_activa = Column(Boolean, default=True)
+
+    activo = Column(Boolean, default=True)
+    asignada = Column(Boolean, default=False)
+
+    fecha_registro = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )

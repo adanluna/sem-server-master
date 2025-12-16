@@ -1,6 +1,7 @@
 from pydantic import Field
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, IPvAnyAddress
 from typing import Optional
+from datetime import datetime
 from datetime import datetime
 
 
@@ -28,7 +29,8 @@ class SesionCreate(BaseModel):
     nombre_sesion: str
     observaciones: Optional[str] = None
     usuario_ldap: str
-    plancha_id: str
+    plancha_id: Optional[int] = None
+    plancha_nombre: Optional[str] = None
     tablet_id: str
     estado: Optional[str] = "en_progreso"
     user_nombre: Optional[str] = None
@@ -139,3 +141,61 @@ class InfraEstadoCreate(BaseModel):
     disco_total_gb: float
     disco_usado_gb: float
     disco_libre_gb: float
+
+
+# ======================================================
+# Planchas
+# ======================================================
+
+class PlanchaBase(BaseModel):
+    nombre: str
+
+    camara1_ip: Optional[IPvAnyAddress] = None
+    camara1_id: Optional[str] = None
+    camara1_activa: bool = True
+
+    camara2_ip: Optional[IPvAnyAddress] = None
+    camara2_id: Optional[str] = None
+    camara2_activa: bool = True
+
+    activo: bool = True
+    asignada: bool = False
+
+
+# ======================================================
+# Planchas Create
+# ======================================================
+
+class PlanchaCreate(PlanchaBase):
+    pass
+
+
+# ======================================================
+# Planchas Update (parcial)
+# ======================================================
+
+class PlanchaUpdate(BaseModel):
+    nombre: Optional[str] = None
+
+    camara1_ip: Optional[IPvAnyAddress] = None
+    camara1_id: Optional[str] = None
+    camara1_activa: Optional[bool] = None
+
+    camara2_ip: Optional[IPvAnyAddress] = None
+    camara2_id: Optional[str] = None
+    camara2_activa: Optional[bool] = None
+
+    activo: Optional[bool] = None
+    asignada: Optional[bool] = None
+
+
+# ======================================================
+# Planchas Response
+# ======================================================
+
+class PlanchaResponse(PlanchaBase):
+    id: int
+    fecha_registro: datetime
+
+    class Config:
+        from_attributes = True
