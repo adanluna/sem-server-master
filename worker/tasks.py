@@ -29,7 +29,7 @@ EXPEDIENTES_PATH = os.getenv(
     "EXPEDIENTES_PATH", "/mnt/wave/archivos_sistema_semefo").rstrip("/")
 TEMP_ROOT = os.getenv("TEMP_ROOT", "/opt/semefo/storage/tmp")
 FFMPEG_THREADS = int(os.getenv("FFMPEG_THREADS", 4))
-MODO_PRUEBA = os.getenv("MODO_PRUEBA_VIDEO", "0") == "1"
+ENCODER = os.getenv("VIDEO_ENCODER", "cpu").lower()
 
 os.makedirs(TEMP_ROOT, exist_ok=True)
 
@@ -51,8 +51,11 @@ def cargar_manifest(path):
 
 def ffmpeg_concat_cmd(list_txt, salida):
     return (
-        f"ffmpeg -y -f concat -safe 0 -i \"{list_txt}\" "
-        f"-c copy \"{salida}\""
+        f"ffmpeg -y "
+        f"-f concat -safe 0 -i \"{list_txt}\" "
+        f"-map 0:v:0 -map 0:a? "
+        f"-c:v copy -c:a copy "
+        f"\"{salida}\""
     )
 
 
@@ -127,14 +130,33 @@ def recortar_fragmento(src, inicio_seg, fin_seg, dst):
         raise Exception(
             f"Duración inválida al recortar: {inicio_seg} → {fin_seg}")
 
-    cmd = (
-        f"ffmpeg -y "
-        f"-ss {inicio_seg} -i \"{src}\" "
-        f"-t {duracion} "
-        f"-c:v libvpx-vp9 -pix_fmt yuv420p "
-        f"-threads {FFMPEG_THREADS} -b:v 3M -crf 28 -cpu-used 6 "
-        f"\"{dst}\""
-    )
+    if ENCODER == "gpu":
+        # GPU NVENC
+        cmd = (
+            f"ffmpeg -y "
+            f"-hwaccel cuda "
+            f"-hwaccel_output_format cuda "
+            f"-ss {inicio_seg} -i \"{src}\" "
+            f"-t {duracion} "
+            f"-c:v h264_nvenc "
+            f"-preset p4 "
+            f"-profile:v high "
+            f"-pix_fmt yuv420p "
+            f"-b:v 5M -maxrate 6M -bufsize 10M "
+            f"\"{dst}\""
+        )
+    else:
+        # CPU VP9
+        cmd = (
+            f"ffmpeg -y "
+            f"-ss {inicio_seg} -i \"{src}\" "
+            f"-t {duracion} "
+            f"-c:v libvpx-vp9 "
+            f"-pix_fmt yuv420p "
+            f"-threads {FFMPEG_THREADS} "
+            f"-b:v 3M -crf 28 -cpu-used 6 "
+            f"\"{dst}\""
+        )
 
     print(f"[FFMPEG TRIM] {cmd}")
 

@@ -9,6 +9,7 @@ from celery import chain
 import requests
 import socket
 import shutil
+import json
 
 
 from database import get_db, engine
@@ -528,21 +529,33 @@ def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get
 
 @app.post("/jobs/crear")
 def crear_job(data: JobCreate, db: Session = Depends(get_db)):
+
+    job_existente = (
+        db.query(models.Job)
+        .filter_by(
+            sesion_id=data.id_sesion,
+            tipo=data.tipo
+        )
+        .filter(models.Job.estado.in_(["pendiente", "procesando"]))
+        .first()
+    )
+
+    if job_existente:
+        return {"job_id": job_existente.id}
+
     investigacion = db.query(models.Investigacion).filter_by(
-        numero_expediente=data.numero_expediente).first()
+        numero_expediente=data.numero_expediente
+    ).first()
 
     if not investigacion:
-        raise HTTPException(status_code=404,
-                            detail=f"Investigación '{data.numero_expediente}' no encontrada")
+        raise HTTPException(status_code=404)
 
     nuevo = models.Job(
         investigacion_id=investigacion.id,
         sesion_id=data.id_sesion,
         tipo=data.tipo,
         archivo=data.archivo,
-        estado=data.estado or "pendiente",
-        resultado=data.resultado,
-        error=data.error
+        estado="pendiente"
     )
 
     db.add(nuevo)
@@ -1441,3 +1454,9 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
         .order_by(models.Plancha.nombre.asc())
         .all()
     )
+
+
+@app.get("/infra/whisper/estado")
+def estado_whisper():
+    with open("/mnt/wave/infra/whisper_status.json") as f:
+        return json.load(f)

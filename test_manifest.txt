@@ -5,12 +5,13 @@ curl -X POST http://127.0.0.1:8000/investigaciones/ \
     "nombre_carpeta": "INV-TEST-001",
     "observaciones": "Prueba de integración"
 }'
-
+---------- no -----
 docker compose build celery_manifest
 docker compose build celery_uniones
 docker compose build celery_video2
 docker compose build fastapi
 docker compose up -d
+---------- no -----
 
 docker logs -f celery_manifest
 docker logs celery_uniones -f
@@ -19,13 +20,13 @@ docker compose logs fastapi -f
 
 curl -X POST http://localhost:8000/whisper/enviar \
   -H "Content-Type: application/json" \
-  -d '{"sesion_id": 1, "expediente": "INV-TEST-001"}'
+  -d '{"sesion_id": 2, "expediente": "INV-TEST-001"}'
 
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 1,
+      "id_sesion": 2,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_Corta",
 
