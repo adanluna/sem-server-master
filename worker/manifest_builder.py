@@ -161,24 +161,32 @@ def generar_manifest(mac_camara, fecha_iso):
     print(
         f"[MANIFEST] Iniciando generación real del manifest para cámara {mac_camara}")
 
-    # ------------------- SIGUE TODO IGUAL ------------------------
-    fecha = datetime.datetime.fromisoformat(fecha_iso).date()
+    fecha_base = datetime.datetime.fromisoformat(fecha_iso).date()
+    fechas_a_procesar = obtener_fechas_a_procesar(fecha_base)
 
-    ruta_frag = os.path.join(
-        SMB_ROOT,
-        GRABADOR_UUID,
-        "hi_quality",
-        mac_camara,
-        fecha.strftime("%Y"),
-        fecha.strftime("%m"),
-        fecha.strftime("%d")
-    )
+    todas_las_rutas = []
 
-    if not os.path.isdir(ruta_frag):
-        print(f"[MANIFEST] No existe carpeta de fragmentos: {ruta_frag}")
+    for fecha in fechas_a_procesar:
+        ruta_frag = os.path.join(
+            SMB_ROOT,
+            GRABADOR_UUID,
+            "hi_quality",
+            mac_camara,
+            fecha.strftime("%Y"),
+            fecha.strftime("%m"),
+            fecha.strftime("%d")
+        )
+
+        pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
+        todas_las_rutas.extend(glob(pattern))
+
+    if not todas_las_rutas:
+        print("[MANIFEST] No se encontraron fragmentos en ninguno de los días evaluados")
         return False
 
-    path_manifest = ruta_manifest(mac_camara, fecha)
+    fragmentos = sorted(todas_las_rutas)
+
+    path_manifest = ruta_manifest(mac_camara, fecha_base)
     manifest = cargar_manifest(path_manifest)
 
     manifest.setdefault("uuid", GRABADOR_UUID)
@@ -190,12 +198,6 @@ def generar_manifest(mac_camara, fecha_iso):
     ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
 
     nuevos = []
-
-    pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
-    fragmentos = sorted(glob(pattern))
-
-    if not fragmentos:
-        print(f"[MANIFEST] No se encontraron fragmentos en {pattern}")
 
     for file_path in fragmentos:
         archivo = os.path.basename(file_path)
@@ -230,3 +232,14 @@ def generar_manifest(mac_camara, fecha_iso):
     print(f"[MANIFEST] Fragmentos nuevos agregados: {len(nuevos)}")
 
     return True
+
+
+def obtener_fechas_a_procesar(fecha_base):
+    """
+    Retorna lista de fechas a procesar.
+    Soporta cruce de día (23:59 → 00:01).
+    """
+    return [
+        fecha_base,
+        fecha_base + datetime.timedelta(days=1)
+    ]
