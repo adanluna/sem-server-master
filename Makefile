@@ -1,4 +1,10 @@
 # Makefile para SEMEFO
+# ========================
+# Variables DB (PostgreSQL)
+# ========================
+DB_CONTAINER=postgres_db
+DB_NAME=semefo
+DB_USER=semefo_user
 
 up:
 	docker compose up -d --build
