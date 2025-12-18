@@ -151,10 +151,15 @@ def recortar_fragmento(src, inicio_seg, fin_seg, dst):
             f"ffmpeg -y "
             f"-ss {inicio_seg} -i \"{src}\" "
             f"-t {duracion} "
-            f"-c:v libvpx-vp9 "
+            f"-map 0:v:0 -map 0:a? "
+            f"-c:v h264_nvenc "
+            f"-preset p4 "
+            f"-profile:v high "
             f"-pix_fmt yuv420p "
-            f"-threads {FFMPEG_THREADS} "
-            f"-b:v 3M -crf 28 -cpu-used 6 "
+            f"-b:v 5M "
+            f"-maxrate 6M "
+            f"-bufsize 10M "
+            f"-c:a aac -ac 1 -ar 16000 "
             f"\"{dst}\""
         )
 
