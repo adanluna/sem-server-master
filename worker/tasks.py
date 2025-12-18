@@ -129,43 +129,19 @@ def recortar_fragmento(src, inicio_seg, fin_seg, dst):
     if duracion <= 0:
         raise Exception(
             f"Duración inválida al recortar: {inicio_seg} → {fin_seg}")
-
-    if ENCODER == "gpu":
-        # =========================
-        # GPU (NVENC) — SOLO ENCODE
-        # =========================
-        cmd = (
-            f"ffmpeg -y "
-            f"-ss {inicio_seg} -i \"{src}\" "
-            f"-t {duracion} "
-            f"-map 0:v:0 -map 0:a? "
-            f"-c:v h264_nvenc "
-            f"-preset p4 "
-            f"-profile:v high "
-            f"-pix_fmt yuv420p "
-            f"-b:v 5M "
-            f"-maxrate 6M "
-            f"-bufsize 10M "
-            f"-c:a aac -ac 1 -ar 16000 "
-            f"\"{dst}\""
-        )
-    else:
-        # =========================
-        # CPU (fallback seguro)
-        # =========================
-        cmd = (
-            f"ffmpeg -y "
-            f"-ss {inicio_seg} -i \"{src}\" "
-            f"-t {duracion} "
-            f"-map 0:v:0 -map 0:a? "
-            f"-c:v libx264 "
-            f"-preset veryfast "
-            f"-profile:v high "
-            f"-pix_fmt yuv420p "
-            f"-c:a aac -ac 1 -ar 16000 "
-            f"\"{dst}\""
-        )
-
+    cmd = (
+        f"ffmpeg -y "
+        f"-ss {inicio_seg} -i \"{src}\" "
+        f"-t {duracion} "
+        f"-map 0:v:0 -map 0:a? "
+        f"-c:v libx264 "
+        f"-preset faster "
+        f"-tune zerolatency "
+        f"-pix_fmt yuv420p "
+        f"-movflags +faststart "
+        f"-c:a aac -ac 1 -ar 16000 "
+        f"\"{dst}\""
+    )
     print(f"[FFMPEG TRIM] {cmd}")
 
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)

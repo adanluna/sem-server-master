@@ -18,13 +18,13 @@ docker compose logs fastapi -f
 
 curl -X POST http://localhost:8000/whisper/enviar \
   -H "Content-Type: application/json" \
-  -d '{"sesion_id": 3, "expediente": "INV-TEST-001"}'
+  -d '{"sesion_id": 1, "expediente": "INV-TEST-001"}'
 
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion":3,
+      "id_sesion":1,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_Corta",
 
@@ -65,5 +65,45 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
 
       "version_app": "1.0.0",
       "ultima_actualizacion": "2025-12-17T17:45:00"
+    }
+  }'
+
+
+curl -X POST http://127.0.0.1:8000/procesar_sesion \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sesion_activa": {
+      "id_sesion": 1,
+      "expediente": "INV-TEST-001",
+      "nombre": "Autopsia_Prueba_Manifest_5min",
+
+      "inicio": "2025-12-17T18:10:00",
+      "fin": "2025-12-17T18:15:00",
+      "estado": "finalizada",
+      "duracion_total": "00:05:00",
+
+      "pausas": [],
+
+      "forense": {
+        "id_usuario": "adrian.morales@semefo.local",
+        "nombre": "Adrián Morales"
+      },
+
+      "forense_cerrar": {
+        "id_usuario": "adrian.morales@semefo.local",
+        "nombre": "Adrián Morales",
+        "fecha": "2025-12-17T18:15:00"
+      },
+
+      "tablet": "tablet_forense_01",
+
+      "plancha_id": 4,
+      "plancha_nombre": "Plancha 4",
+
+      "camara1_mac_address": "5cc8726bf07ad412fd2474608a901325",
+      "camara2_mac_address": "E4-30-22-A0-85-6F",
+
+      "version_app": "1.0.0",
+      "ultima_actualizacion": "2025-12-17T18:15:00"
     }
   }'
