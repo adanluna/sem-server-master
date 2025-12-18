@@ -50,13 +50,10 @@ def cargar_manifest(path):
 
 
 def ffmpeg_concat_cmd(list_txt, salida):
-    base = (
+    return (
         f"ffmpeg -y -f concat -safe 0 -i \"{list_txt}\" "
-        f"-c:v libvpx-vp9 -pix_fmt yuv420p -threads {FFMPEG_THREADS} "
+        f"-c copy \"{salida}\""
     )
-    if MODO_PRUEBA:
-        return base + "-b:v 1.5M -crf 35 -cpu-used 6 \"" + salida + "\""
-    return base + "-b:v 3M -crf 28 -cpu-used 4 \"" + salida + "\""
 
 
 def obtener_pausas_api(id_sesion):
@@ -135,7 +132,7 @@ def recortar_fragmento(src, inicio_seg, fin_seg, dst):
         f"-ss {inicio_seg} -i \"{src}\" "
         f"-t {duracion} "
         f"-c:v libvpx-vp9 -pix_fmt yuv420p "
-        f"-threads {FFMPEG_THREADS} -b:v 3M -crf 28 -cpu-used 4 "
+        f"-threads {FFMPEG_THREADS} -b:v 3M -crf 28 -cpu-used 6 "
         f"\"{dst}\""
     )
 
