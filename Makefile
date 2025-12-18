@@ -16,23 +16,24 @@ restart:
 logs:
 	docker compose logs -f
 
-psql:
-	docker exec -it db psql -U postgres -d semefo
-
-bash-db:
-	docker exec -it db bash
-
 bash-api:
 	docker exec -it fastapi_app bash
 
 bash-celery:
 	docker exec -it celery_worker bash
 
+psql:
+	docker exec -it $(DB_CONTAINER) psql -U $(DB_USER) -d $(DB_NAME)
+
+bash-db:
+	docker exec -it $(DB_CONTAINER) bash
+
 backup-db:
-	docker exec -t db pg_dump -U postgres semefo > backups/semefo_backup.sql
+	docker exec -t $(DB_CONTAINER) pg_dump -U $(DB_USER) $(DB_NAME) > backups/semefo_backup.sql
 
 restore-db:
-	cat backups/semefo_backup.sql | docker exec -i db psql -U postgres -d semefo
+	cat backups/semefo_backup.sql | docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d $(DB_NAME)
+
 
 # 🔥 Workers locales en Mac
 
