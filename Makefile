@@ -1,20 +1,20 @@
 # Makefile para SEMEFO
 
 up:
-	docker-compose up -d --build
+	docker compose up -d --build
 
 down:
-	docker-compose down
+	docker compose down
 
 stop:
-	docker-compose stop
+	docker compose stop
 
 restart:
-	docker-compose down
-	docker-compose up -d --build
+	docker compose down
+	docker compose up -d --build
 
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 psql:
 	docker exec -it postgres_db psql -U postgres -d semefo
@@ -49,5 +49,5 @@ restart-workers: stop-workers start-workers
 
 restart-celery:
 	@echo "♻️  Reiniciando workers de Celery en Docker..."
-	docker-compose up -d --build --force-recreate celery celery_video2
+	docker compose up -d --build --force-recreate celery celery_video2
 	@echo "✅ Workers de Celery reiniciados y reconstruidos."

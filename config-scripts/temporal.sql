@@ -19,5 +19,5 @@ ALTER TABLE sesiones
 DROP COLUMN plancha_id;
 
 ALTER TABLE sesiones
-ADD COLUMN plancha_id INTEGER REFERENCES planchas(id);
-ADD COLUMN IF NOT EXISTS plancha_nombre VARCHAR(255);
+ADD COLUMN plancha_id INTEGER REFERENCES planchas(id),
+ADD COLUMN plancha_nombre VARCHAR(255);
