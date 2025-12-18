@@ -3,118 +3,97 @@
 #  Respaldo automático de la base de datos SEMEFO (Producción)
 #  Autor: Adan Luna
 #
-#  - Genera respaldo PostgreSQL desde Docker (MASTER)
-#  - Guarda copia local
-#  - Replica respaldo en WAVE (/mnt/wave)
-#  - Retención de 7 días
+#  Estrategia:
+#   - Respaldo DIARIO de DATOS (data.sql)
+#   - Respaldo de ESTRUCTURA (schema.sql) si no existe
+#   - Copia en WAVE
+#   - Retención de 7 días
 # ============================================================
 
-set -e
+# ---------------- CONFIGURACIÓN ----------------
+BACKUP_DIR="/opt/semefo/backups"
+WAVE_BACKUP_DIR="/mnt/wave/_backups_db"
 
-# ============================================================
-# CONFIGURACIÓN
-# ============================================================
-
-# Docker / DB
 DB_CONTAINER="postgres_db"
 DB_USER="semefo_user"
 DB_NAME="semefo"
 
-# Rutas
-WAVE_MOUNT="/mnt/wave"
-BACKUP_DIR="/opt/semefo/backups"
-WAVE_BACKUP_DIR="$WAVE_MOUNT/_backups_db"
-
-# Archivos
 DATE=$(date +'%Y-%m-%d_%H-%M-%S')
-FILE_NAME="semefo_backup_${DATE}.sql"
-LOCAL_FILE="$BACKUP_DIR/$FILE_NAME"
-REMOTE_FILE="$WAVE_BACKUP_DIR/$FILE_NAME"
+DATA_FILE="semefo_data_$DATE.sql"
+SCHEMA_FILE="semefo_schema.sql"
+
+LOCAL_DATA="$BACKUP_DIR/$DATA_FILE"
+LOCAL_SCHEMA="$BACKUP_DIR/$SCHEMA_FILE"
+
 LOGFILE="$BACKUP_DIR/backup.log"
 
-# Retención
-RETENTION_DAYS=7
-
-# ============================================================
-# INICIO
-# ============================================================
-
+# ---------------- PRE-CHECKS ----------------
 mkdir -p "$BACKUP_DIR"
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ===== INICIO BACKUP SEMEFO =====" >> "$LOGFILE"
+echo "--------------------------------------------------------------" >> "$LOGFILE"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] ===== INICIO BACKUP SEMEFO =====" >> "$LOGFILE"
 
-# ============================================================
-# 1. Validar contenedor PostgreSQL
-# ============================================================
-
+# Validar contenedor DB
 if ! docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Contenedor $DB_CONTAINER no está corriendo." >> "$LOGFILE"
+    echo "[ERROR] Contenedor PostgreSQL no está corriendo." >> "$LOGFILE"
     exit 1
 fi
 
-# ============================================================
-# 2. Generar respaldo local
-# ============================================================
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Generando respaldo local..." >> "$LOGFILE"
-
-if docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" "$DB_NAME" > "$LOCAL_FILE"; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Respaldo local OK: $LOCAL_FILE" >> "$LOGFILE"
-else
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Falló pg_dump." >> "$LOGFILE"
-    rm -f "$LOCAL_FILE"
+# Validar WAVE montado
+if ! mountpoint -q /mnt/wave; then
+    echo "[ERROR] WAVE NO está montado. Backup abortado." >> "$LOGFILE"
     exit 1
 fi
 
-# ============================================================
-# 3. Copia a WAVE (Grabador)
-# ============================================================
+mkdir -p "$WAVE_BACKUP_DIR"
 
-if mountpoint -q "$WAVE_MOUNT"; then
-    mkdir -p "$WAVE_BACKUP_DIR"
+# ---------------- BACKUP SCHEMA (solo si no existe) ----------------
+if [ ! -f "$LOCAL_SCHEMA" ]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Generando respaldo de ESTRUCTURA..." >> "$LOGFILE"
 
-    if cp "$LOCAL_FILE" "$REMOTE_FILE"; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Copia en WAVE OK: $REMOTE_FILE" >> "$LOGFILE"
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: No se pudo copiar a WAVE." >> "$LOGFILE"
+    docker exec -t "$DB_CONTAINER" pg_dump \
+        --schema-only \
+        --no-owner \
+        --no-privileges \
+        -U "$DB_USER" "$DB_NAME" > "$LOCAL_SCHEMA"
+
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] Falló respaldo de estructura." >> "$LOGFILE"
+        rm -f "$LOCAL_SCHEMA"
+        exit 1
     fi
-else
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ADVERTENCIA: WAVE no montado, respaldo solo local." >> "$LOGFILE"
+
+    cp "$LOCAL_SCHEMA" "$WAVE_BACKUP_DIR/$SCHEMA_FILE"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Schema respaldado correctamente." >> "$LOGFILE"
 fi
 
-# ============================================================
-# 4. Rotación de respaldos locales
-# ============================================================
+# ---------------- BACKUP DATA (DIARIO) ----------------
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Generando respaldo de DATOS..." >> "$LOGFILE"
 
-find "$BACKUP_DIR" -type f -name "*.sql" -mtime +"$RETENTION_DAYS" -delete
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Rotación local (> $RETENTION_DAYS días) OK." >> "$LOGFILE"
+docker exec -t "$DB_CONTAINER" pg_dump \
+    --data-only \
+    --disable-triggers \
+    --column-inserts \
+    -U "$DB_USER" "$DB_NAME" > "$LOCAL_DATA"
 
-# ============================================================
-# 5. Rotación de respaldos en WAVE
-# ============================================================
-
-if mountpoint -q "$WAVE_MOUNT"; then
-    find "$WAVE_BACKUP_DIR" -type f -name "*.sql" -mtime +"$RETENTION_DAYS" -delete
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Rotación WAVE (> $RETENTION_DAYS días) OK." >> "$LOGFILE"
+if [ $? -ne 0 ]; then
+    echo "[ERROR] Falló respaldo de datos." >> "$LOGFILE"
+    rm -f "$LOCAL_DATA"
+    exit 1
 fi
 
-# ============================================================
-# 6. Rotación de log
-# ============================================================
+cp "$LOCAL_DATA" "$WAVE_BACKUP_DIR/$DATA_FILE"
 
-if [ -f "$LOGFILE" ]; then
-    LOG_AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$LOGFILE") ) / 86400 ))
-    if [ "$LOG_AGE_DAYS" -ge "$RETENTION_DAYS" ]; then
-        mv "$LOGFILE" "$BACKUP_DIR/backup_$(date +'%Y-%m-%d').log"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Log rotado." >> "$BACKUP_DIR/backup.log"
-    fi
-fi
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Respaldo DATA OK: $LOCAL_DATA" >> "$LOGFILE"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Copia en WAVE OK: $WAVE_BACKUP_DIR/$DATA_FILE" >> "$LOGFILE"
 
-# ============================================================
-# FIN
-# ============================================================
+# ---------------- ROTACIÓN (7 DÍAS) ----------------
+find "$BACKUP_DIR" -type f -name "*.sql" -mtime +7 -delete
+find "$WAVE_BACKUP_DIR" -type f -name "*.sql" -mtime +7 -delete
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ===== BACKUP SEMEFO FINALIZADO =====" >> "$LOGFILE"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Rotación (>7 días) OK." >> "$LOGFILE"
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] ===== BACKUP SEMEFO FINALIZADO =====" >> "$LOGFILE"
 echo "--------------------------------------------------------------" >> "$LOGFILE"
 
 exit 0
