@@ -673,7 +673,12 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         if tipo in tipos_con_job:
             continue
 
-        ruta = normalizar_ruta(a.ruta_convertida)
+        ruta = normalizar_ruta(
+            archivo_real.ruta_convertida,
+            tipo=j.tipo,
+            expediente=expediente,
+            sesion_id=sesion_id
+        )
 
         salida.append({
             "id": None,  # No hay job asociado
@@ -1522,16 +1527,52 @@ def estado_whisper():
         return json.load(f)
 
 
-def normalizar_ruta(path: str | None) -> str | None:
+def normalizar_ruta(
+    path: str | None,
+    *,
+    tipo: str | None = None,
+    expediente: str | None = None,
+    sesion_id: int | None = None
+) -> str | None:
     """
-    Garantiza rutas ABSOLUTAS hacia EXPEDIENTES_PATH
+    Normaliza rutas según tipo de archivo SEMEFO
     """
+
     if not path:
         return None
 
-    # Ya es absoluta
+    # -------------------------
+    # AUDIO / TRANSCRIPCIÓN
+    # -------------------------
+    if tipo in ("audio", "transcripcion"):
+        if expediente and sesion_id:
+            archivo = os.path.basename(path)
+            return f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}/{archivo}"
+
+    # -------------------------
+    # YA ES ABSOLUTA
+    # -------------------------
     if path.startswith("/"):
         return path
 
-    # Forzar a /mnt/wave/archivos_sistema_semefo
+    # -------------------------
+    # RELATIVA → EXPEDIENTES
+    # -------------------------
     return f"{EXPEDIENTES_PATH}/{path.lstrip('/')}"
+
+
+def size_mb(path: str | None) -> float:
+    """
+    Calcula tamaño en MB de forma segura
+    """
+    if not path:
+        return 0.0
+
+    try:
+        p = Path(path)
+        if p.exists() and p.is_file():
+            return round(p.stat().st_size / (1024 * 1024), 2)
+    except Exception:
+        pass
+
+    return 0.0
