@@ -10,8 +10,7 @@ import requests
 import socket
 import shutil
 import json
-
-
+from pathlib import Path
 from database import get_db, engine
 import models
 from schemas import (
@@ -530,25 +529,43 @@ def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get
 @app.post("/jobs/crear")
 def crear_job(data: JobCreate, db: Session = Depends(get_db)):
 
+    # 🔒 Buscar SIEMPRE el job por sesión + tipo
     job_existente = (
         db.query(models.Job)
         .filter_by(
             sesion_id=data.id_sesion,
             tipo=data.tipo
         )
-        .filter(models.Job.estado.in_(["pendiente", "procesando"]))
         .first()
     )
 
     if job_existente:
-        return {"job_id": job_existente.id}
+        # 🔁 Resetear estado para reintento
+        job_existente.estado = "pendiente"
+        job_existente.error = None
+        job_existente.resultado = None
+        job_existente.fecha_actualizacion = datetime.utcnow()
 
-    investigacion = db.query(models.Investigacion).filter_by(
-        numero_expediente=data.numero_expediente
-    ).first()
+        db.commit()
+        db.refresh(job_existente)
+
+        return {
+            "job_id": job_existente.id,
+            "reutilizado": True
+        }
+
+    # -------------------------------------------------
+    # Crear SOLO si no existe
+    # -------------------------------------------------
+    investigacion = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=data.numero_expediente)
+        .first()
+    )
 
     if not investigacion:
-        raise HTTPException(status_code=404)
+        raise HTTPException(
+            status_code=404, detail="Investigación no encontrada")
 
     nuevo = models.Job(
         investigacion_id=investigacion.id,
@@ -562,7 +579,10 @@ def crear_job(data: JobCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(nuevo)
 
-    return {"job_id": nuevo.id}
+    return {
+        "job_id": nuevo.id,
+        "creado": True
+    }
 
 
 @app.put("/jobs/{job_id}/actualizar")
@@ -590,6 +610,9 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
+    investigacion = sesion.investigacion
+    expediente = investigacion.numero_expediente
+
     jobs = (
         db.query(models.Job)
         .filter_by(sesion_id=sesion_id)
@@ -597,7 +620,44 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    return jobs
+    base_path = f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}"
+
+    def obtener_tamano_mb(ruta: str | None) -> float:
+        if not ruta:
+            return 0.0
+        try:
+            p = Path(ruta)
+            if p.exists() and p.is_file():
+                return round(p.stat().st_size / (1024 * 1024), 2)
+        except Exception:
+            pass
+        return 0.0
+
+    salida = []
+    for j in jobs:
+        # Prioridad de ruta:
+        # 1. resultado (transcripción)
+        # 2. base_path + archivo (video/audio)
+        ruta = j.resultado or f"{base_path}/{j.archivo}"
+
+        salida.append({
+            "id": j.id,
+            "tipo": j.tipo,
+            "archivo": j.archivo,
+            "estado": j.estado,
+            "error": j.error,
+            "fecha_creacion": j.fecha_creacion,
+            "fecha_actualizacion": j.fecha_actualizacion,
+            "ruta": ruta,
+            "tamano_actual_MB": obtener_tamano_mb(ruta),
+        })
+
+    return {
+        "sesion_id": sesion_id,
+        "expediente": expediente,
+        "estado_sesion": sesion.estado,
+        "jobs": salida
+    }
 
 
 # ============================================================
@@ -699,45 +759,6 @@ def procesos_activos(db: Session = Depends(get_db)):
         })
 
     return output
-
-
-# ============================================================
-#  PROGRESO REAL — (este se conserva)
-# ============================================================
-
-@app.get("/procesos/progreso/{sesion_id}")
-def progreso_sesion(sesion_id: int, db: Session = Depends(get_db)):
-
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    expediente = db.query(models.Investigacion).filter_by(
-        id=sesion.investigacion_id).first().numero_expediente
-
-    base_path = f"/mnt/wave/archivos_sistema_semefo/{expediente}/{sesion_id}"
-
-    def tamano_MB(nombre_archivo):
-        ruta = os.path.join(base_path, nombre_archivo)
-        if os.path.exists(ruta):
-            return round(os.path.getsize(ruta) / (1024 * 1024), 2)
-        return 0
-
-    return {
-        "sesion_id": sesion_id,
-        "expediente": expediente,
-        "estado_sesion": sesion.estado,
-        "progreso": {
-            "video": {
-                "estado_job": sesion.jobs[0].estado if sesion.jobs else None,
-                "tamano_actual_MB": tamano_MB("video.webm")
-            },
-            "video2": {
-                "estado_job": sesion.jobs[1].estado if len(sesion.jobs) > 1 else None,
-                "tamano_actual_MB": tamano_MB("video2.webm")
-            }
-        }
-    }
 
 
 # ============================================================

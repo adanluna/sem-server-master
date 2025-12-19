@@ -1,3 +1,8 @@
+from sqlalchemy import (
+    Column, Integer, String, Text, DateTime,
+    ForeignKey, UniqueConstraint
+)
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -16,7 +21,11 @@ class Investigacion(Base):
     id = Column(Integer, primary_key=True)
     numero_expediente = Column(String(100), unique=True, nullable=False)
     nombre_carpeta = Column(String(255))
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    fecha_creacion = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
     observaciones = Column(Text)
 
     sesiones = relationship(
@@ -99,28 +108,61 @@ class LogEvento(Base):
 # ============================================================
 #  🧵 TABLA: Jobs (cola de tareas)
 # ============================================================
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
+    __table_args__ = (
+        # 🔒 UN SOLO JOB por sesión + tipo
+        UniqueConstraint(
+            "sesion_id",
+            "tipo",
+            name="uq_jobs_sesion_tipo"
+        ),
+    )
+
     id = Column(Integer, primary_key=True)
-    investigacion_id = Column(Integer, ForeignKey(
-        "investigaciones.id"), nullable=False)
-    sesion_id = Column(Integer, ForeignKey("sesiones.id"), nullable=False)
-    tipo = Column(String(50), nullable=False)  # audio, video, transcripcion
+
+    investigacion_id = Column(
+        Integer,
+        ForeignKey("investigaciones.id"),
+        nullable=False
+    )
+
+    sesion_id = Column(
+        Integer,
+        ForeignKey("sesiones.id"),
+        nullable=False
+    )
+
+    # audio, video, video2, audio2, transcripcion
+    tipo = Column(String(50), nullable=False)
+
     archivo = Column(Text, nullable=False)
 
     # pendiente, procesando, completado, error
-    estado = Column(String(50), default="pendiente")
+    estado = Column(String(50), default="pendiente", nullable=False)
+
     resultado = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
 
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    fecha_creacion = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
     fecha_actualizacion = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
     )
 
     investigacion = relationship("Investigacion", back_populates="jobs")
     sesion = relationship("Sesion", back_populates="jobs")
+
 # ============================================================
 
 

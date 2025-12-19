@@ -48,18 +48,16 @@ def cargar_manifest(path):
 
 
 def ffmpeg_concat_cmd(list_txt, salida):
-    """
-    WEBM rápido (VP8) — optimizado para velocidad y Whisper
-    """
     return (
         f"ffmpeg -y "
         f"-fflags +genpts "
         f"-f concat -safe 0 -i \"{list_txt}\" "
         f"-map 0:v:0 -map 0:a? "
-        f"-vf \"scale=1280:720,fps=20\" "
+        f"-vf \"scale=1280:720:force_original_aspect_ratio=decrease,"
+        f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=20\" "
         f"-c:v libvpx "
         f"-b:v 1.5M "
-        f"-threads {FFMPEG_THREADS} "
+        f"-threads 4 "
         f"-pix_fmt yuv420p "
         f"-c:a libopus -ac 1 -ar 16000 -b:a 32k "
         f"-reset_timestamps 1 "
