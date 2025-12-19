@@ -613,8 +613,10 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
     expediente = sesion.investigacion.numero_expediente
-    base_path_real = f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}"
 
+    # ============================
+    # JOBS (procesos)
+    # ============================
     jobs = (
         db.query(models.Job)
         .filter_by(sesion_id=sesion_id)
@@ -622,6 +624,9 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
+    # ============================
+    # ARCHIVOS (evidencia real)
+    # ============================
     archivos = (
         db.query(models.SesionArchivo)
         .filter_by(sesion_id=sesion_id)
@@ -630,38 +635,22 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
 
     archivos_por_tipo = {a.tipo_archivo: a for a in archivos}
 
-    def size_mb_fs(path: str | None) -> float:
-        if not path:
-            return 0.0
-        try:
-            p = Path(path)
-            if p.exists() and p.is_file():
-                return round(p.stat().st_size / (1024 * 1024), 2)
-        except Exception:
-            pass
-        return 0.0
-
     salida = []
 
-    # ----------------------------
+    # ============================
     # JOBS CON ARCHIVO
-    # ----------------------------
+    # ============================
     for j in jobs:
         archivo_real = archivos_por_tipo.get(j.tipo)
 
-        # Ruta REAL (para tamaño)
-        ruta_fs = (
-            archivo_real.ruta_convertida
-            if archivo_real and archivo_real.ruta_convertida
-            else j.resultado
-        )
-
-        # Ruta LÓGICA (para frontend)
-        ruta_ui = (
-            normalizar_ruta(ruta_fs)
-            if ruta_fs
-            else f"{expediente}/{sesion_id}/{j.archivo}"
-        )
+        if archivo_real and archivo_real.ruta_convertida:
+            ruta = normalizar_ruta(archivo_real.ruta_convertida)
+        elif j.resultado:
+            ruta = normalizar_ruta(j.resultado)
+        else:
+            ruta = normalizar_ruta(
+                f"{expediente}/{sesion_id}/{j.archivo}"
+            )
 
         salida.append({
             "id": j.id,
@@ -671,27 +660,32 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "error": j.error,
             "fecha_creacion": j.fecha_creacion,
             "fecha_actualizacion": j.fecha_actualizacion,
-            "ruta": ruta_ui,
-            "tamano_actual_MB": size_mb_fs(ruta_fs)
+            "ruta": ruta,
+            "tamano_actual_MB": size_mb(ruta)
         })
 
-    # ----------------------------
-    # ARCHIVOS SIN JOB (TEMPORAL)
-    # ----------------------------
+    # ============================
+    # ARCHIVOS SIN JOB (audio, etc.)
+    # ============================
+    tipos_con_job = {j["tipo"] for j in salida}
+
     for tipo, a in archivos_por_tipo.items():
-        if tipo not in {j["tipo"] for j in salida}:
-            ruta_fs = a.ruta_convertida
-            salida.append({
-                "id": None,
-                "tipo": tipo,
-                "archivo": os.path.basename(ruta_fs or ""),
-                "estado": a.estado,
-                "error": a.mensaje,
-                "fecha_creacion": a.fecha,
-                "fecha_actualizacion": a.fecha_finalizacion,
-                "ruta": normalizar_ruta(ruta_fs) if ruta_fs else None,
-                "tamano_actual_MB": size_mb_fs(ruta_fs)
-            })
+        if tipo in tipos_con_job:
+            continue
+
+        ruta = normalizar_ruta(a.ruta_convertida)
+
+        salida.append({
+            "id": None,  # No hay job asociado
+            "tipo": tipo,
+            "archivo": os.path.basename(a.ruta_convertida or ""),
+            "estado": a.estado,
+            "error": a.mensaje,
+            "fecha_creacion": a.fecha,
+            "fecha_actualizacion": a.fecha_finalizacion,
+            "ruta": ruta,
+            "tamano_actual_MB": size_mb(ruta)
+        })
 
     return {
         "sesion_id": sesion_id,
@@ -704,10 +698,10 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         )
     }
 
-
 # ============================================================
 #  MONITOREO DE PROCESAMIENTO (DASHBOARD)
 # ============================================================
+
 
 @app.get("/jobs/en_progreso")
 def jobs_en_progreso(db: Session = Depends(get_db)):
@@ -1528,13 +1522,16 @@ def estado_whisper():
         return json.load(f)
 
 
-def normalizar_ruta(ruta: str | None) -> str | None:
-    if not ruta:
+def normalizar_ruta(path: str | None) -> str | None:
+    """
+    Garantiza rutas ABSOLUTAS hacia EXPEDIENTES_PATH
+    """
+    if not path:
         return None
 
     # Ya es absoluta
-    if ruta.startswith("/"):
-        return ruta
+    if path.startswith("/"):
+        return path
 
-    # Ruta relativa → convertir a absoluta
-    return f"{EXPEDIENTES_PATH}/{ruta}".replace("//", "/")
+    # Forzar a /mnt/wave/archivos_sistema_semefo
+    return f"{EXPEDIENTES_PATH}/{path.lstrip('/')}"
