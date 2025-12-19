@@ -656,7 +656,11 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         if archivo_real and archivo_real.ruta_convertida:
             ruta = archivo_real.ruta_convertida
         elif j.resultado:
-            ruta = j.resultado
+            ruta = normalizar_ruta(
+                archivo_real.ruta_convertida
+                if archivo_real and archivo_real.ruta_convertida
+                else (j.resultado or f"{base_path}/{j.archivo}")
+            )
         else:
             ruta = f"{base_path}/{j.archivo}"
 
@@ -1522,3 +1526,15 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
 def estado_whisper():
     with open("/mnt/wave/infra/whisper_status.json") as f:
         return json.load(f)
+
+
+def normalizar_ruta(ruta: str | None) -> str | None:
+    if not ruta:
+        return None
+
+    # Ya es absoluta
+    if ruta.startswith("/"):
+        return ruta
+
+    # Ruta relativa → convertir a absoluta
+    return f"{EXPEDIENTES_PATH}/{ruta}".replace("//", "/")
