@@ -12,6 +12,8 @@ import json
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
+import psutil
+import time
 
 from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo
 from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
@@ -254,6 +256,9 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion_iso, fin_ses
         salida = f"{EXPEDIENTES_PATH}/{expediente}/{id_sesion}/{nombre_final}"
         ensure_dir(os.path.dirname(salida))
 
+        print("⏳ Verificando carga de CPU antes de FFmpeg final...")
+        esperar_cpu_baja(limite=85)
+
         cmd = ffmpeg_concat_cmd(list_txt, salida)
         print("\n========== FFMPEG CONCAT ==========")
         print(cmd)
@@ -308,6 +313,19 @@ def _unir_video(expediente, id_sesion, manifest_path, inicio_sesion_iso, fin_ses
         limpiar_temp(temp_dir)
 
     return True
+
+
+def esperar_cpu_baja(limite=85, intervalo=5):
+    """
+    Espera activa hasta que el uso de CPU baje del límite.
+    Evita saturación del servidor.
+    """
+    while True:
+        cpu = psutil.cpu_percent(interval=1)
+        if cpu < limite:
+            return
+        print(f"⚠️ CPU alta ({cpu}%), esperando {intervalo}s...")
+        time.sleep(intervalo)
 
 
 # ============================================================
