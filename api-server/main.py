@@ -12,6 +12,7 @@ import shutil
 import json
 from pathlib import Path
 from database import get_db, engine
+from datetime import datetime, timezone
 import models
 from schemas import (
     InvestigacionCreate,
@@ -236,7 +237,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
     if data.mensaje:
         archivo.mensaje = data.mensaje
     if data.fecha_finalizacion:
-        archivo.fecha_finalizacion = datetime.utcnow()
+        archivo.fecha_finalizacion = datetime.now(timezone.utc)
     if data.ruta_convertida:
         archivo.ruta_convertida = data.ruta_convertida
     if data.conversion_completa is not None:
@@ -278,7 +279,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
         if sesion and sesion.estado != "finalizada":
             sesion.estado = "finalizada"
             sesion.duracion_real = (
-                datetime.utcnow() - sesion.fecha).total_seconds()
+                datetime.now(timezone.utc) - sesion.fecha).total_seconds()
             db.commit()
             print(f"[SESION] Sesión {sesion_id} FINALIZADA automáticamente")
 
@@ -544,7 +545,7 @@ def crear_job(data: JobCreate, db: Session = Depends(get_db)):
         job_existente.estado = "pendiente"
         job_existente.error = None
         job_existente.resultado = None
-        job_existente.fecha_actualizacion = datetime.utcnow()
+        job_existente.fecha_actualizacion = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(job_existente)
@@ -606,13 +607,17 @@ def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_d
 
 @app.get("/sesiones/{sesion_id}/jobs")
 def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
+
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    investigacion = sesion.investigacion
-    expediente = investigacion.numero_expediente
+    expediente = sesion.investigacion.numero_expediente
+    base_path = f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}"
 
+    # ----------------------------
+    # Jobs (procesos)
+    # ----------------------------
     jobs = (
         db.query(models.Job)
         .filter_by(sesion_id=sesion_id)
@@ -620,13 +625,22 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    base_path = f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}"
+    # ----------------------------
+    # Archivos reales (evidencia)
+    # ----------------------------
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .all()
+    )
 
-    def obtener_tamano_mb(ruta: str | None) -> float:
-        if not ruta:
+    archivos_por_tipo = {a.tipo_archivo: a for a in archivos}
+
+    def size_mb(path: str | None) -> float:
+        if not path:
             return 0.0
         try:
-            p = Path(ruta)
+            p = Path(path)
             if p.exists() and p.is_file():
                 return round(p.stat().st_size / (1024 * 1024), 2)
         except Exception:
@@ -634,11 +648,17 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         return 0.0
 
     salida = []
+
     for j in jobs:
-        # Prioridad de ruta:
-        # 1. resultado (transcripción)
-        # 2. base_path + archivo (video/audio)
-        ruta = j.resultado or f"{base_path}/{j.archivo}"
+        archivo_real = archivos_por_tipo.get(j.tipo)
+
+        # 🔑 Prioridad correcta de ruta
+        if archivo_real and archivo_real.ruta_convertida:
+            ruta = archivo_real.ruta_convertida
+        elif j.resultado:
+            ruta = j.resultado
+        else:
+            ruta = f"{base_path}/{j.archivo}"
 
         salida.append({
             "id": j.id,
@@ -649,14 +669,35 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_creacion": j.fecha_creacion,
             "fecha_actualizacion": j.fecha_actualizacion,
             "ruta": ruta,
-            "tamano_actual_MB": obtener_tamano_mb(ruta),
+            "tamano_actual_MB": size_mb(ruta)
         })
+
+    # ----------------------------
+    # 🔥 ARCHIVOS SIN JOB (audio)
+    # ----------------------------
+    for tipo, a in archivos_por_tipo.items():
+        if tipo not in {j["tipo"] for j in salida}:
+            salida.append({
+                "id": None,
+                "tipo": tipo,
+                "archivo": os.path.basename(a.ruta_convertida or ""),
+                "estado": a.estado,
+                "error": a.mensaje,
+                "fecha_creacion": a.fecha,
+                "fecha_actualizacion": a.fecha_finalizacion,
+                "ruta": a.ruta_convertida,
+                "tamano_actual_MB": size_mb(a.ruta_convertida)
+            })
 
     return {
         "sesion_id": sesion_id,
         "expediente": expediente,
         "estado_sesion": sesion.estado,
-        "jobs": salida
+        "jobs": sorted(
+            salida,
+            key=lambda x: x["fecha_creacion"] or datetime.min,
+            reverse=True
+        )
     }
 
 
@@ -876,7 +917,7 @@ def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
         if sesion.estado != "finalizada":
             sesion.estado = "finalizada"
             sesion.duracion_real = (
-                datetime.utcnow() - sesion.fecha).total_seconds()
+                datetime.now(timezone.utc) - sesion.fecha).total_seconds()
             db.commit()
 
             print(
@@ -1314,7 +1355,7 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
     # Workers (heurística por jobs recientes)
     # -------------------------------------------------
     try:
-        limite = datetime.utcnow() - timedelta(minutes=10)
+        limite = datetime.now(timezone.utc) - timedelta(minutes=10)
 
         jobs = (
             db.query(models.Job.tipo)
@@ -1356,7 +1397,7 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
     )
 
     if whisper:
-        retraso = datetime.utcnow() - whisper.fecha
+        retraso = datetime.now(timezone.utc) - whisper.fecha
 
         estado["disco"]["whisper"] = {
             "total_gb": whisper.disco_total_gb,
