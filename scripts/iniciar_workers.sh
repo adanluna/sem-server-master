@@ -56,10 +56,6 @@ else
 fi
 
 # --- Iniciar workers ---
-log_action "Iniciando 'uniones_audio'..."
-nohup celery -A "${CELERY_APP}" worker -Q uniones_audio --concurrency=2 --loglevel=info -n worker_uniones_audio@%h > "${LOG_DIR}/worker_uniones_audio.log" 2>&1 &
-echo "  > PID: $!"
-
 log_action "Iniciando 'uniones_video'..."
 nohup celery -A "${CELERY_APP}" worker -Q uniones_video --concurrency=2 --loglevel=info -n worker_uniones_video@%h > "${LOG_DIR}/worker_uniones_video.log" 2>&1 &
 echo "  > PID: $!"
