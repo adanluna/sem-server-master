@@ -68,10 +68,6 @@ if ! docker ps | grep -q "celery_uniones"; then
     echo "ERROR: Worker celery_uniones NO está ejecutándose." | tee -a "$LOGFILE"
 fi
 
-if ! docker ps | grep -q "celery_video2"; then
-    echo "ERROR: Worker celery_video2 NO está ejecutándose." | tee -a "$LOGFILE"
-fi
-
 if ! docker ps | grep -q "celery_manifest"; then
     echo "ADVERTENCIA: Worker celery_manifest no está activo (solo se usa en mantenimiento)." | tee -a "$LOGFILE"
 fi

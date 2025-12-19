@@ -15,6 +15,7 @@ docker logs celery_uniones -f
 docker compose logs celery_video2 -f
 docker compose logs fastapi -f
 ps aux | grep ffmpeg
+killall ffmpeg
 --- si ----
 
 curl -X POST http://localhost:8000/whisper/enviar \
@@ -74,7 +75,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 15,
+      "id_sesion": 16,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_5min",
 

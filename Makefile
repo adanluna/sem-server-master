@@ -56,5 +56,5 @@ restart-workers: stop-workers start-workers
 
 restart-celery:
 	@echo "♻️  Reiniciando workers de Celery en Docker..."
-	docker compose up -d --build --force-recreate celery celery_video2
+	docker compose up -d --build --force-recreate celery
 	@echo "✅ Workers de Celery reiniciados y reconstruidos."

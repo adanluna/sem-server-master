@@ -23,7 +23,6 @@ cd "$PROJECT_DIR" || {
 # Lista de workers a detener
 WORKERS=(
     "celery_uniones"
-    "celery_video2"
     "celery_manifest"
 )
 

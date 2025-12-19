@@ -24,7 +24,6 @@ cd "$PROJECT_DIR" || {
 echo "Levantando workers Celery..." | tee -a "$LOGFILE"
 
 docker compose up -d celery_uniones     >> "$LOGFILE" 2>&1
-docker compose up -d celery_video2      >> "$LOGFILE" 2>&1
 docker compose up -d celery_manifest    >> "$LOGFILE" 2>&1
 
 sleep 3
@@ -32,7 +31,7 @@ sleep 3
 echo "" | tee -a "$LOGFILE"
 echo "Verificando estado de workers..." | tee -a "$LOGFILE"
 
-for worker in celery_uniones celery_video2 celery_manifest; do
+for worker in celery_uniones celery_manifest; do
     if docker ps --format '{{.Names}}' | grep -q "$worker"; then
         echo "$worker iniciado correctamente." | tee -a "$LOGFILE"
     else

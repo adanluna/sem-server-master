@@ -38,7 +38,7 @@ fi
 
 echo ""
 echo "🚫 Deteniendo Celery workers para evitar escritura durante limpieza..."
-docker compose stop celery_uniones celery_video2 celery_manifest || true
+docker compose stop celery_uniones celery_manifest || true
 
 echo ""
 echo "🧹 Ejecutando TRUNCATE..."
@@ -65,7 +65,7 @@ echo "   - log_pausas"
 
 echo ""
 echo "▶ Reiniciando workers..."
-docker compose start celery_uniones celery_video2 celery_manifest
+docker compose start celery_uniones celery_manifest
 
 echo ""
 echo "✅ Limpieza completada con éxito."

@@ -64,10 +64,6 @@ log_action "Iniciando 'uniones_video'..."
 nohup celery -A "${CELERY_APP}" worker -Q uniones_video --concurrency=2 --loglevel=info -n worker_uniones_video@%h > "${LOG_DIR}/worker_uniones_video.log" 2>&1 &
 echo "  > PID: $!"
 
-log_action "Iniciando 'videos2'..."
-nohup celery -A "${CELERY_APP}" worker -Q videos2 --concurrency=2 --loglevel=info -n worker_videos2@%h > "${LOG_DIR}/worker_videos2.log" 2>&1 &
-echo "  > PID: $!"
-
 log_action "Iniciando worker de Manifest..."
 nohup celery -A "${CELERY_APP}" worker -Q manifest --loglevel=info \
   -n worker_manifest@%h >> "${LOG_DIR}/worker_manifest.log" 2>&1 &
