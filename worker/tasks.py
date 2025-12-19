@@ -54,7 +54,12 @@ def ffmpeg_concat_cmd(list_txt, salida):
         f"ffmpeg -y "
         f"-f concat -safe 0 -i \"{list_txt}\" "
         f"-map 0:v:0 -map 0:a? "
-        f"-c:v copy -c:a copy "
+        f"-vf \"scale=1920:1080,fps=30\" "
+        f"-c:v libx264 "
+        f"-preset veryfast "
+        f"-pix_fmt yuv420p "
+        f"-movflags +faststart "
+        f"-c:a aac -ac 1 -ar 16000 "
         f"\"{salida}\""
     )
 
@@ -119,40 +124,32 @@ def fragmentos_del_manifest(manifest, inicio, fin):
 
 
 def recortar_fragmento(src, inicio_seg, fin_seg, dst):
-    """
-    Recorte preciso para cámaras Wisenet/Wave.
-    -ss se mueve ANTES del -i para evitar saltos de GOP.
-    -t se usa en vez de -to.
-    """
-
     duracion = fin_seg - inicio_seg
     if duracion <= 0:
-        raise Exception(
-            f"Duración inválida al recortar: {inicio_seg} → {fin_seg}")
+        raise Exception("Duración inválida")
+
     cmd = (
         f"ffmpeg -y "
-        f"-ss {inicio_seg} -i \"{src}\" "
+        f"-ss {inicio_seg} "
+        f"-i \"{src}\" "
         f"-t {duracion} "
         f"-map 0:v:0 -map 0:a? "
-        f"-c:v libx264 "
-        f"-preset faster "
-        f"-tune zerolatency "
-        f"-pix_fmt yuv420p "
-        f"-movflags +faststart "
-        f"-c:a aac -ac 1 -ar 16000 "
+        f"-c copy "
         f"\"{dst}\""
     )
+
     print(f"[FFMPEG TRIM] {cmd}")
 
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-
     if result.returncode != 0:
         print(result.stderr)
-        raise Exception(f"Trim falló:\n{result.stderr}")
+        raise Exception(result.stderr)
 
     # Archivo válido mínimo (80KB aprox)
     if not os.path.exists(dst) or os.path.getsize(dst) < 80_000:
         raise Exception("Archivo recortado vacío o demasiado pequeño")
+
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
 # ============================================================

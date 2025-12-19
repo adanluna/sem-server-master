@@ -73,14 +73,14 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 1,
+      "id_sesion": 11,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_5min",
 
-      "inicio": "2025-12-17T18:10:00",
-      "fin": "2025-12-17T18:15:00",
+      "inicio": "2025-12-17T17:36:00",
+      "fin": "2025-12-17T17:42:00",
       "estado": "finalizada",
-      "duracion_total": "00:05:00",
+      "duracion_total": "00:06:00",
 
       "pausas": [],
 
@@ -92,7 +92,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
       "forense_cerrar": {
         "id_usuario": "adrian.morales@semefo.local",
         "nombre": "Adrián Morales",
-        "fecha": "2025-12-17T18:15:00"
+        "fecha": "2025-12-17T17:42:00"
       },
 
       "tablet": "tablet_forense_01",
