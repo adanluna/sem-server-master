@@ -54,6 +54,7 @@ def cargar_manifest(path):
 def ffmpeg_concat_cmd(list_txt, salida):
     return (
         f"ffmpeg -y "
+        f"-fflags +genpts "
         f"-f concat -safe 0 -i \"{list_txt}\" "
         f"-map 0:v:0 -map 0:a? "
         f"-vf \"scale=1920:1080,fps=30\" "
@@ -63,6 +64,7 @@ def ffmpeg_concat_cmd(list_txt, salida):
         f"-threads 4 "
         f"-pix_fmt yuv420p "
         f"-c:a libopus -ac 1 -ar 16000 "
+        f"-reset_timestamps 1 "
         f"\"{salida}\""
     )
 

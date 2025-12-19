@@ -73,7 +73,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 13,
+      "id_sesion": 14,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_5min",
 
