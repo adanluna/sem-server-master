@@ -57,13 +57,12 @@ def ffmpeg_concat_cmd(list_txt, salida):
         f"-f concat -safe 0 -i \"{list_txt}\" "
         f"-map 0:v:0 -map 0:a? "
         f"-vf \"scale=1920:1080,fps=30\" "
-        f"-c:v libx264 "
-        f"-preset veryfast "
-        f"-profile:v high -level 4.1 "
-        f"-pix_fmt yuv420p "
+        f"-c:v libvpx-vp9 "
+        f"-b:v 0 -crf 34 "
+        f"-row-mt 1 "
         f"-threads 4 "
-        f"-movflags +faststart "
-        f"-c:a aac -ac 1 -ar 16000 "
+        f"-pix_fmt yuv420p "
+        f"-c:a libopus -ac 1 -ar 16000 "
         f"\"{salida}\""
     )
 
@@ -125,6 +124,12 @@ def fragmentos_del_manifest(manifest, inicio, fin):
 
     frags.sort(key=lambda x: x["_dt_ini"])
     return frags
+
+
+def recortar_fragmento(src, inicio_seg, fin_seg, dst):
+    duracion = fin_seg - inicio_seg
+    if duracion <= 0:
+        raise Exception("Duración inválida")
 
 
 def recortar_fragmento(src, inicio_seg, fin_seg, dst):
