@@ -50,7 +50,7 @@ celery_app.conf.task_routes = {
     "worker.tasks.unir_video": {"queue": "uniones_video"},
 
     # unir video secundario
-    "worker.tasks.unir_video2": {"queue": "videos2"},
+    "worker.tasks.unir_video2": {"queue": "uniones_video"},
 }
 
 # ============================================================

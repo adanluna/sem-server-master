@@ -61,7 +61,7 @@ def ffmpeg_concat_cmd(list_txt, salida):
         f"-c:v libvpx-vp9 "
         f"-b:v 0 -crf 34 "
         f"-row-mt 1 "
-        f"-threads 4 "
+        f"-threads 2 "
         f"-pix_fmt yuv420p "
         f"-c:a libopus -ac 1 -ar 16000 "
         f"-reset_timestamps 1 "

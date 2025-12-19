@@ -88,36 +88,7 @@ services:
       dockerfile: worker/Dockerfile
     container_name: celery_uniones
     working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q uniones_video --loglevel=info --hostname=worker_uniones@%h
-    volumes:
-      - .:/app
-      - /mnt/wave:/mnt/wave:rw
-      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- usando .env
-    env_file:
-      - .env
-    environment:
-      TZ: America/Monterrey
-      PYTHONPATH: /app
-      SMB_MOUNT: /mnt/wave
-      TEMP_ROOT: ${TEMP_ROOT}
-    restart: always
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      db:
-        condition: service_started
-    user: "1000:1000"
-
-  # ============================================================
-  # WORKER: VIDEO SECUNDARIO (video2.webm)
-  # ============================================================
-  celery_video2:
-    build:
-      context: .
-      dockerfile: worker/Dockerfile
-    container_name: celery_video2
-    working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q videos2 --loglevel=info --hostname=worker_videos2@%h
+    command: celery -A worker.celery_app worker -Q uniones_video -c 1 --loglevel=info --hostname=worker_uniones@%h
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw
