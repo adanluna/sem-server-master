@@ -661,7 +661,8 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_creacion": j.fecha_creacion,
             "fecha_actualizacion": j.fecha_actualizacion,
             "ruta": ruta,
-            "tamano_actual_MB": size_mb(ruta)
+            "ruta_red": ruta_red(ruta),
+            "tamano_actual_KB": size_kb(ruta)
         })
 
     # ============================
@@ -689,7 +690,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_creacion": a.fecha,
             "fecha_actualizacion": a.fecha_finalizacion,
             "ruta": ruta,
-            "tamano_actual_MB": size_mb(ruta)
+            "tamano_actual_KB": size_kb(ruta)
         })
 
     return {
@@ -1106,15 +1107,15 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
     for s in inv.sesiones:
         archivos = []
         for a in s.archivos:
-            size_mb = 0
+            size_kb = 0
             if a.ruta_convertida and os.path.exists(a.ruta_convertida):
-                size_mb = round(os.path.getsize(
-                    a.ruta_convertida) / (1024 * 1024), 2)
+                size_kb = round(os.path.getsize(
+                    a.ruta_convertida) / 1024, 2)
 
             archivos.append({
                 "tipo": a.tipo_archivo,
                 "estado": a.estado,
-                "tamano_mb": size_mb,
+                "tamano_kb": size_kb,
                 "mensaje": a.mensaje
             })
 
@@ -1561,9 +1562,9 @@ def normalizar_ruta(
     return f"{EXPEDIENTES_PATH}/{path.lstrip('/')}"
 
 
-def size_mb(path: str | None) -> float:
+def size_kb(path: str | None) -> float:
     """
-    Calcula tamaño en MB de forma segura
+    Calcula tamaño en KB de forma segura
     """
     if not path:
         return 0.0
@@ -1571,8 +1572,21 @@ def size_mb(path: str | None) -> float:
     try:
         p = Path(path)
         if p.exists() and p.is_file():
-            return round(p.stat().st_size / (1024 * 1024), 2)
+            return round(p.stat().st_size / 1024, 2)
     except Exception:
         pass
 
     return 0.0
+
+
+def ruta_red(path_abs: str | None) -> str | None:
+    """
+    Convierte ruta /mnt/wave/... → Wisenet_WAVE_Media/...
+    """
+    if not path_abs:
+        return None
+
+    if path_abs.startswith("/mnt/wave/"):
+        return path_abs.replace("/mnt/wave/", "Wisenet_WAVE_Media/")
+
+    return path_abs
