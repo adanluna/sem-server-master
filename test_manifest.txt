@@ -25,7 +25,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion":1,
+      "id_sesion":23,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_Corta",
 
@@ -69,12 +69,13 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
     }
   }'
 
+----------------
 
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 19,
+      "id_sesion": 22,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_5min",
 

@@ -54,14 +54,14 @@ services:
       context: .
       dockerfile: api-server/Dockerfile
     container_name: fastapi_app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
-    working_dir: /code/api-server
+    command: uvicorn api_server.main:app --host 0.0.0.0 --port 8000
+    working_dir: /code
     volumes:
-      - ./api-server:/code/api-server
+      - ./api-server:/code/api_server
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
-      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- Agregado para usar ruta del .env
+      - ${TEMP_ROOT}:${TEMP_ROOT}
     env_file:
       - .env
     environment:
@@ -78,6 +78,7 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    restart: always
 
   # ============================================================
   # WORKER: VIDEO PRINCIPAL (video.webm)
