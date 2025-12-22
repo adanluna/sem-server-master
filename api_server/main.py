@@ -1493,6 +1493,19 @@ def actualizar_plancha(
     return plancha
 
 
+@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
+def listar_planchas_disponibles(db: Session = Depends(get_db)):
+    return (
+        db.query(models.Plancha)
+        .filter(
+            models.Plancha.activo == True,
+            models.Plancha.asignada == False
+        )
+        .order_by(models.Plancha.nombre.asc())
+        .all()
+    )
+
+
 @app.delete("/planchas/{plancha_id}", status_code=204)
 def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
     plancha = (
@@ -1507,19 +1520,6 @@ def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
     # 🔒 Borrado lógico (CRÍTICO PARA GOBIERNO)
     plancha.activo = False
     db.commit()
-
-
-@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
-def listar_planchas_disponibles(db: Session = Depends(get_db)):
-    return (
-        db.query(models.Plancha)
-        .filter(
-            models.Plancha.activo == True,
-            models.Plancha.asignada == False
-        )
-        .order_by(models.Plancha.nombre.asc())
-        .all()
-    )
 
 
 @app.get("/infra/whisper/estado")
