@@ -115,7 +115,7 @@ class SesionResponse(BaseModel):
     investigacion_id: int
     nombre_sesion: str
     usuario_ldap: str
-    plancha_id: str
+    plancha_id: int
     tablet_id: str
     estado: str
     user_nombre: Optional[str]
