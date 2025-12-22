@@ -57,7 +57,6 @@ services:
     command: uvicorn api_server.main:app --host 0.0.0.0 --port 8000
     working_dir: /code
     volumes:
-      - ./api_server:/code/api_server
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
@@ -67,15 +66,13 @@ services:
     environment:
       TZ: America/Monterrey
       PYTHONPATH: /code
-      WINDOWS_WAVE_SHARE_MOUNT: /mnt/wave
-      WINDOWS_WAVE_UUID: ${WINDOWS_WAVE_UUID}
       DB_HOST: postgres_db
       DB_PORT: 5432
     depends_on:
-      db:
-        condition: service_started
       rabbitmq:
         condition: service_healthy
+      db:
+        condition: service_started
     ports:
       - "8000:8000"
     restart: always
