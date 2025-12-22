@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from api_server.database import engine
-from api_server from api_server import models
+from api_server import models
 
 from api_server.routers import (
     health,
