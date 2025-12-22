@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from database import engine
-import models
 
-from routers import (
+from api_server.database import engine
+from api_server import models
+
+from api_server.routers import (
     health,
     investigaciones,
     sesiones,

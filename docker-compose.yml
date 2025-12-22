@@ -52,12 +52,12 @@ services:
   fastapi:
     build:
       context: .
-      dockerfile: api-server/Dockerfile
+      dockerfile: api_server/Dockerfile
     container_name: fastapi_app
     command: uvicorn api_server.main:app --host 0.0.0.0 --port 8000
     working_dir: /code
     volumes:
-      - ./api-server:/code/api_server
+      - ./api_server:/code/api_server
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro

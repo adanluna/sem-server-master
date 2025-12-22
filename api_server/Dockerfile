@@ -5,13 +5,13 @@ WORKDIR /code
 # ------------------------------
 # Instalar dependencias
 # ------------------------------
-COPY api-server/requirements.txt /code/requirements.txt
+COPY api_server/requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir -r /code/requirements.txt
 
 # ------------------------------
 # Copiar código
 # ------------------------------
-COPY api-server /code/api_server
+COPY api_server /code/api_server
 COPY worker /code/worker
 
 # ------------------------------

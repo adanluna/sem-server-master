@@ -4,7 +4,7 @@ CONFIGURACIÓN DEL PROYECTO SEMEFO (SERVER MASTER)
 1. ESTRUCTURA DE DIRECTORIOS
 -------------------------------------------------
 /opt/semefo
-├── api-server/
+├── api_server/
 │   ├── database.py
 │   ├── Dockerfile
 │   ├── main.py
