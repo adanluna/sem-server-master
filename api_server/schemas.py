@@ -70,15 +70,6 @@ class JobUpdate(BaseModel):
     error: Optional[str] = None
 
 
-class SesionArchivoCreate(BaseModel):
-    sesion_id: int
-    tipo_archivo: str = Field(...,
-                              pattern="^(audio|audio2|video|video2|transcripcion)$")
-    ruta_original: Optional[str] = None
-    ruta_convertida: Optional[str] = None
-    conversion_completa: Optional[bool] = False
-
-
 class SesionArchivoEstadoUpdate(BaseModel):
     estado: str
     mensaje: Optional[str] = None
@@ -199,3 +190,8 @@ class PlanchaResponse(PlanchaBase):
 
     class Config:
         from_attributes = True
+
+
+class LDAPLoginRequest(BaseModel):
+    username: str
+    password: str

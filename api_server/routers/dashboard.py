@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from api_server.database import get_db
-from services.dashboard_service import (
+from api_server.services.dashboard_service import (
     dashboard_expedientes,
     dashboard_sesiones,
     dashboard_jobs

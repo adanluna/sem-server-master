@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from api_server.schemas import LDAPLoginRequest
-from services.ldap_service import ldap_authenticate, ldap_user_info
+from api_server.services.ldap_service import ldap_authenticate, ldap_user_info
 
 router = APIRouter()
 
