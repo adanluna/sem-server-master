@@ -32,7 +32,7 @@ from api_server.schemas import (
     PlanchaCreate
 )
 
-from models import LDAPLoginRequest
+from api_server.models import LDAPLoginRequest
 
 from worker.celery_app import celery_app
 
