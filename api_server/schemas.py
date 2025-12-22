@@ -93,8 +93,9 @@ class PausaResponse(PausaBase):
     id: int
     sesion_id: int
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class InvestigacionResponse(BaseModel):
@@ -123,8 +124,9 @@ class SesionResponse(BaseModel):
     app_version: Optional[str]
     fecha: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class InfraEstadoCreate(BaseModel):
@@ -188,8 +190,9 @@ class PlanchaResponse(PlanchaBase):
     id: int
     fecha_registro: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class LDAPLoginRequest(BaseModel):
