@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
+from api_server.database import Base
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.sql import func
