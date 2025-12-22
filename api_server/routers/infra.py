@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from api_server.database import get_db
-from schemas import InfraEstadoCreate
+from api_server.schemas import InfraEstadoCreate
 from services.infra_service import (
     registrar_estado,
     obtener_estado_actual,

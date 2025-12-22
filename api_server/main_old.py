@@ -13,8 +13,8 @@ import json
 from pathlib import Path
 from api_server.database import get_db, engine
 from datetime import datetime, timezone
-import models
-from schemas import (
+from api_server import models
+from api_server.schemas import (
     InvestigacionCreate,
     InvestigacionUpdate,
     SesionCreate,

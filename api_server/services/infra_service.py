@@ -3,7 +3,7 @@ import socket
 import shutil
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import text
-import models
+from api_server import models
 
 
 def registrar_estado(data, db):

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct
-import models
+from api_server import models
 
 
 def dashboard_expedientes(desde, hasta, page, per_page, db: Session):

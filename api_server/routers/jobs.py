@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from api_server.database import get_db
-import models
-from schemas import JobCreate, JobUpdate
+from api_server import models
+from api_server.schemas import JobCreate, JobUpdate
 
 router = APIRouter()
 
