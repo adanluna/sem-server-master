@@ -1420,7 +1420,6 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
 @app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
 def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
     plancha = models.Plancha(**data.dict())
-
     db.add(plancha)
     try:
         db.commit()
@@ -1430,7 +1429,6 @@ def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
             status_code=400,
             detail="Ya existe una plancha con ese nombre o datos inválidos"
         )
-
     db.refresh(plancha)
     return plancha
 
@@ -1448,6 +1446,21 @@ def listar_planchas(
     return q.order_by(models.Plancha.nombre.asc()).all()
 
 
+# 🔥 ESTÁTICO PRIMERO
+@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
+def listar_planchas_disponibles(db: Session = Depends(get_db)):
+    return (
+        db.query(models.Plancha)
+        .filter(
+            models.Plancha.activo == True,
+            models.Plancha.asignada == False
+        )
+        .order_by(models.Plancha.nombre.asc())
+        .all()
+    )
+
+
+# 🔥 DINÁMICO DESPUÉS
 @app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
 def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
     plancha = (
@@ -1493,20 +1506,7 @@ def actualizar_plancha(
     return plancha
 
 
-@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
-def listar_planchas_disponibles(db: Session = Depends(get_db)):
-    return (
-        db.query(models.Plancha)
-        .filter(
-            models.Plancha.activo == True,
-            models.Plancha.asignada == False
-        )
-        .order_by(models.Plancha.nombre.asc())
-        .all()
-    )
-
-
-@app.delete("/plancha/{plancha_id}", status_code=204)
+@app.delete("/planchas/{plancha_id}", status_code=204)
 def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
     plancha = (
         db.query(models.Plancha)
@@ -1517,7 +1517,7 @@ def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
     if not plancha:
         raise HTTPException(status_code=404, detail="Plancha no encontrada")
 
-    # 🔒 Borrado lógico (CRÍTICO PARA GOBIERNO)
+    # 🔒 Borrado lógico
     plancha.activo = False
     db.commit()
 
