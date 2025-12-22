@@ -1506,7 +1506,7 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
     )
 
 
-@app.delete("/planchas/{plancha_id}", status_code=204)
+@app.delete("/plancha/{plancha_id}", status_code=204)
 def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
     plancha = (
         db.query(models.Plancha)
