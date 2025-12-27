@@ -7,7 +7,8 @@ import os
 import time
 import requests
 from datetime import datetime, timezone
-from api_server.utils.jwt import _jwt_exp_ts
+import base64
+import json
 
 
 # ============================================================
@@ -30,6 +31,18 @@ _TOKEN_CACHE = {
     "access_token": None,
     "expires_at_ts": 0,  # epoch seconds
 }
+
+
+def _jwt_exp_ts(token: str) -> int | None:
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(
+            payload_b64).decode("utf-8"))
+        exp = payload.get("exp")
+        return int(exp) if exp else None
+    except Exception:
+        return None
 
 
 # ============================================================

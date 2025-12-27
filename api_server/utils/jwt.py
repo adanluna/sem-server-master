@@ -5,8 +5,6 @@ import secrets
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import timedelta, datetime, timezone
-import base64
-import json
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -96,15 +94,3 @@ def require_roles(*allowed: str):
             raise HTTPException(status_code=403, detail="Sin permisos")
         return principal
     return dep
-
-
-def _jwt_exp_ts(token: str) -> int | None:
-    try:
-        payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(
-            payload_b64).decode("utf-8"))
-        exp = payload.get("exp")
-        return int(exp) if exp else None
-    except Exception:
-        return None

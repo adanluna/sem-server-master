@@ -1,0 +1,23 @@
+services:
+  fastapi:
+    volumes:
+      - ./worker:/code/worker
+      - ./logs:/code/logs
+
+      # 🔁 EMULACIÓN DE /mnt/wave EN MAC
+      - /Users/adanluna/semefo_dev/wave:/mnt/wave:ro
+
+      # TEMP_ROOT emulado
+      - /Users/adanluna/semefo_dev/temp:${TEMP_ROOT}
+
+  celery_uniones:
+    volumes:
+      - .:/app
+      - /Users/adanluna/semefo_dev/wave:/mnt/wave:rw
+      - /Users/adanluna/semefo_dev/temp:${TEMP_ROOT}
+
+  celery_manifest:
+    volumes:
+      - .:/app
+      - /Users/adanluna/semefo_dev/wave:/mnt/wave:rw
+      - /Users/adanluna/semefo_dev/temp:${TEMP_ROOT}
