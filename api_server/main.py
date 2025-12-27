@@ -1,8 +1,9 @@
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from ldap3 import Server, Connection, NTLM, ALL
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct, text
+from sqlalchemy.exc import IntegrityError
 import logging
 import os
 from celery import chain
@@ -10,9 +11,9 @@ import requests
 import socket
 import shutil
 import json
-from pathlib import Path
-from api_server.database import get_db, engine
-from datetime import datetime, timezone
+
+# Imports internos
+from api_server.database import get_db
 from api_server import models
 from api_server.schemas import (
     InvestigacionCreate,
@@ -31,19 +32,20 @@ from api_server.schemas import (
     PlanchaUpdate,
     PlanchaCreate
 )
-
-from api_server.models import LDAPLoginRequest
-
+from api_server.models import LDAPLoginRequest, AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
+from api_server.utils.ping import ping_ip
+from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhmmss_to_seconds
+from api_server.utils.jobs import crear_job_interno, detectar_pipeline_bloqueado, verificar_estado_sesion
+from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
 
+# Declaración del logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-models.Base.metadata.create_all(bind=engine)
-
-rabbit_user = os.getenv("RABBITMQ_USER")
-rabbit_pass = os.getenv("RABBITMQ_PASS")
-rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+# ============================================================
+#  VARIABLES GLOBALES
+# ============================================================
 
 EXPEDIENTES_PATH = os.getenv(
     "EXPEDIENTES_PATH",
@@ -56,26 +58,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ============================================================
-#  VARIABLES GLOBALES
-# ============================================================
+rabbit_user = os.getenv("RABBITMQ_USER")
+rabbit_pass = os.getenv("RABBITMQ_PASS")
+rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
 
 SMB_ROOT = os.getenv("WINDOWS_WAVE_SHARE_MOUNT", "/mnt/wave").rstrip("/")
 GRABADOR_UUID = os.getenv("WINDOWS_WAVE_UUID", "").strip()
-API_SERVER_URL = os.getenv("API_SERVER_URL", "localhost:8000")
+API_SERVER_URL = os.getenv("API_SERVER_URL", "http://localhost:8000").strip()
 
-if not GRABADOR_UUID:
-    print("⚠ ADVERTENCIA: GRABADOR_UUID no definido en .env")
-
+if not API_SERVER_URL.startswith("http"):
+    API_SERVER_URL = f"http://{API_SERVER_URL}"
 
 # ============================================================
 #  RUTAS BÁSICAS
 # ============================================================
-
-def parse_hhmmss_to_seconds(hhmmss: str) -> float:
-    partes = hhmmss.split(":")
-    h, m, s = partes
-    return int(h)*3600 + int(m)*60 + float(s)
 
 
 @app.get("/")
@@ -87,6 +83,567 @@ async def root():
 async def health():
     return {"status": "ok"}
 
+
+# ============================================================
+#  🔥 ENDPOINTS CRÍTICOS DE PROCESO (NO MOVER)
+#  (Se mantiene exactamente igual el contenido, solo se reubica)
+# ============================================================
+
+# ============================================================
+#  PROCESAR SESIÓN — MANIFEST + AUDIO + VIDEO
+# ============================================================
+
+@app.post("/procesar_sesion")
+def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depends(require_roles("operador", "supervisor"))):
+
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Payload inválido")
+
+    ses = payload.get("sesion_activa")
+    if not ses:
+        raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
+
+    # ---------------------------------------------------------
+    # CAMPOS DEL JSON
+    # ---------------------------------------------------------
+    expediente = ses.get("expediente")
+    id_sesion = ses.get("id_sesion")
+    cam1 = ses.get("camara1_mac_address")
+    cam2 = ses.get("camara2_mac_address")
+    duracion_total_str = ses.get("duracion_total")
+    plancha_id = ses.get("plancha_id")
+    plancha_nombre = ses.get("plancha_nombre")
+
+    if not plancha_id or not plancha_nombre:
+        raise HTTPException(
+            status_code=400,
+            detail="Falta plancha_id o plancha_nombre en sesion_activa"
+        )
+
+    if not expediente or not id_sesion:
+        raise HTTPException(
+            status_code=400, detail="Faltan expediente o id_sesion")
+
+    if not cam1 or not cam2:
+        raise HTTPException(status_code=400, detail="Faltan MAC addresses")
+
+    # ---------------------------------------------------------
+    # INICIO / FIN
+    # ---------------------------------------------------------
+    try:
+        inicio_iso = ses["inicio"]
+        fin_iso = ses["fin"]
+        inicio_dt = datetime.fromisoformat(inicio_iso)
+        fin_dt = datetime.fromisoformat(fin_iso)
+    except:
+        raise HTTPException(
+            status_code=400, detail="Formato inválido de inicio/fin")
+
+    # DURACIÓN REAL enviada por la app (HH:MM:SS → seg)
+    duracion_real_seg = None
+    if duracion_total_str:
+        try:
+            duracion_real_seg = parse_hhmmss_to_seconds(duracion_total_str)
+        except:
+            print("[ERROR] No se pudo parsear duracion_total")
+            duracion_real_seg = 0
+
+    # ---------------------------------------------------------
+    # OBTENER O CREAR SESIÓN
+    # ---------------------------------------------------------
+    sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
+
+    if sesion_obj:
+        investigacion = sesion_obj.investigacion
+    else:
+        investigacion = (
+            db.query(models.Investigacion)
+            .filter_by(numero_expediente=expediente)
+            .first()
+        )
+        if not investigacion:
+            raise HTTPException(404, "Investigación no encontrada")
+
+    if not sesion_obj:
+        # Crear nueva sesión
+        sesion_obj = models.Sesion(
+            id=id_sesion,
+            investigacion_id=investigacion.id,
+            nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
+            usuario_ldap=ses["forense"]["id_usuario"],
+            user_nombre=ses["forense"]["nombre"],
+            plancha_id=plancha_id,
+            plancha_nombre=plancha_nombre,
+            tablet_id=ses.get("tablet", "desconocida"),
+            camara1_mac_address=cam1,
+            camara2_mac_address=cam2,
+            app_version=ses.get("version_app", "1.0.0"),
+
+            # ESTADO FINALIZADA (tablet ya terminó)
+            estado="procesando",
+
+            # Guardamos inicio y fin exactos
+            inicio=inicio_dt,
+            fin=fin_dt,
+
+            # Duración real (no duración bruta)
+            duracion_sesion_seg=duracion_real_seg
+        )
+
+        db.add(sesion_obj)
+        db.commit()
+        db.refresh(sesion_obj)
+        print(f"[SESION] Creada sesión {id_sesion}")
+
+    else:
+        # Si ya existe, actualizamos datos
+        print(f"[SESION] Sesión {id_sesion} existente → actualizando")
+
+        sesion_obj.plancha_id = plancha_id
+        sesion_obj.plancha_nombre = plancha_nombre
+        sesion_obj.camara1_mac_address = cam1
+        sesion_obj.camara2_mac_address = cam2
+        sesion_obj.app_version = ses.get("version_app", "1.0.0")
+        sesion_obj.estado = "procesando"
+
+        # Guardamos inicio/fin reales SIEMPRE
+        sesion_obj.inicio = inicio_dt
+        sesion_obj.fin = fin_dt
+
+        # Duración corregida
+        sesion_obj.duracion_sesion_seg = duracion_real_seg
+
+        db.commit()
+
+    # ---------------------------------------------------------
+    # GUARDAR PAUSAS DE LA APP
+    # ---------------------------------------------------------
+    pausas = ses.get("pausas", [])
+    for p in pausas:
+        try:
+            inicio_p = datetime.fromisoformat(p["inicio"])
+            fin_p = datetime.fromisoformat(p["fin"])
+            dur = (fin_p - inicio_p).total_seconds()
+
+            nueva = models.LogPausa(
+                sesion_id=sesion_obj.id,
+                inicio=inicio_p,
+                fin=fin_p,
+                duracion=dur,
+                fuente="app"
+            )
+            db.add(nueva)
+        except Exception as e:
+            print(f"[PAUSAS] Error registrando pausa: {e}")
+
+    db.commit()
+
+    # ---------------------------------------------------------
+    # PREPARAR MANIFESTS
+    # ---------------------------------------------------------
+    fecha_solo = inicio_iso.split("T")[0]
+    yyyy, mm, dd = fecha_solo.split("-")
+
+    path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
+    path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
+
+    # ---------------------------------------------------------
+    # LANZAR WORKERS
+    # ---------------------------------------------------------
+    job_manifest1 = crear_job_interno(
+        db=db,
+        numero_expediente=expediente,
+        sesion_id=id_sesion,
+        tipo="manifest",
+        archivo=f"manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
+    )
+    if not job_manifest1:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo registrar job de manifest para cámara 1"
+        )
+    job_manifest2 = crear_job_interno(
+        db=db,
+        numero_expediente=expediente,
+        sesion_id=id_sesion,
+        tipo="manifest",
+        archivo=f"manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
+    )
+    if not job_manifest2:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo registrar job de manifest para cámara 2"
+        )
+
+    chain(
+        celery_app.signature("tasks.generar_manifest", args=[
+                             cam1, fecha_solo, job_manifest1], immutable=True),
+        celery_app.signature("worker.tasks.unir_video", args=[
+                             expediente, id_sesion, path_manifest1, inicio_iso, fin_iso], immutable=True)
+    ).apply_async()
+
+    chain(
+        celery_app.signature("tasks.generar_manifest", args=[
+                             cam2, fecha_solo, job_manifest2], immutable=True),
+        celery_app.signature("worker.tasks.unir_video2", args=[
+                             expediente, id_sesion, path_manifest2, inicio_iso, fin_iso], immutable=True)
+    ).apply_async()
+
+    # ---------------------------------------------------------
+    # RESPUESTA
+    # ---------------------------------------------------------
+    return {
+        "status": "procesando",
+        "expediente": expediente,
+        "id_sesion": id_sesion,
+        "inicio_sesion": inicio_iso,
+        "fin_sesion": fin_iso,
+        "duracion_total_seg": duracion_real_seg,
+        "pausas_app_registradas": len(pausas),
+        "manifest1": path_manifest1,
+        "manifest2": path_manifest2
+    }
+
+
+# ============================================================
+#  ⚙️ APIS PARA WORKERS / PROCESAMIENTOS
+# ============================================================
+
+# ============================================================
+#  ARCHIVOS (registro y cambios de estado)
+# ============================================================
+
+@app.post("/archivos/", response_model=SesionArchivoResponse)
+def registrar_archivo(data: SesionArchivoCreate, db: Session = Depends(get_db)):
+
+    existente = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=data.sesion_id, tipo_archivo=data.tipo_archivo)
+        .first()
+    )
+
+    # ✅ Si ya existe: actualizar (idempotente)
+    if existente:
+        if data.ruta_original is not None:
+            existente.ruta_original = data.ruta_original
+        if data.ruta_convertida is not None:
+            existente.ruta_convertida = data.ruta_convertida
+        if data.estado is not None:
+            existente.estado = data.estado
+        if data.mensaje is not None:
+            existente.mensaje = data.mensaje
+        if data.fecha_finalizacion is not None:
+            existente.fecha_finalizacion = data.fecha_finalizacion
+        if data.conversion_completa is not None:
+            existente.conversion_completa = data.conversion_completa
+
+        db.commit()
+        db.refresh(existente)
+        return existente
+
+    archivo = models.SesionArchivo(**data.dict())
+    db.add(archivo)
+    db.commit()
+    db.refresh(archivo)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # otro request lo creó primero → lo regresamos
+        existente = (
+            db.query(models.SesionArchivo)
+            .filter_by(sesion_id=data.sesion_id, tipo_archivo=data.tipo_archivo)
+            .first()
+        )
+        return existente
+
+    db.refresh(archivo)
+    return archivo
+
+
+@app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
+def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate, db: Session = Depends(get_db)):
+
+    archivo = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id, tipo_archivo=tipo
+    ).first()
+
+    # ✅ En vez de 404, creamos si no existe (idempotente)
+    if not archivo:
+        archivo = models.SesionArchivo(
+            sesion_id=sesion_id,
+            tipo_archivo=tipo,
+            ruta_original=data.ruta_convertida or data.ruta_convertida or None,
+            ruta_convertida=data.ruta_convertida,
+            estado=data.estado,
+            mensaje=data.mensaje,
+            fecha_finalizacion=data.fecha_finalizacion,
+            conversion_completa=data.conversion_completa if data.conversion_completa is not None else False
+        )
+        db.add(archivo)
+    else:
+        # Actualizar datos del archivo
+        archivo.estado = data.estado
+        if data.mensaje is not None:
+            archivo.mensaje = data.mensaje
+        if data.fecha_finalizacion is not None:
+            archivo.fecha_finalizacion = data.fecha_finalizacion
+        if data.ruta_convertida is not None:
+            archivo.ruta_convertida = data.ruta_convertida
+        if data.conversion_completa is not None:
+            archivo.conversion_completa = data.conversion_completa
+
+    db.commit()
+
+    # Disparar whisper cuando video principal termina
+    if tipo == "video" and data.estado == "completado":
+        try:
+            sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+            expediente = sesion.investigacion.numero_expediente
+
+            payload = {
+                "sesion_id": sesion_id,
+                "expediente": expediente
+            }
+
+            r = requests.post(
+                f"{API_SERVER_URL}/whisper/enviar",
+                json=payload,
+                timeout=5
+            )
+            if r.status_code != 200:
+                logger.warning("Whisper no aceptó la tarea")
+        except Exception as e:
+            logger.error(f"[WHISPER] Error: {e}")
+
+    # -------------------------------------------------
+    # 1. Obtener archivos completados
+    # -------------------------------------------------
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .all()
+    )
+
+    archivos_completados = {
+        a.tipo_archivo for a in archivos if a.estado == "completado"
+    }
+
+    ARCHIVOS_REQUERIDOS = {"video", "audio", "transcripcion"}
+
+    if not ARCHIVOS_REQUERIDOS.issubset(archivos_completados):
+        return {"message": f"Archivo {tipo} actualizado (sesión aún incompleta)"}
+
+    # -------------------------------------------------
+    # 2. Verificar jobs críticos
+    # -------------------------------------------------
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .all()
+    )
+
+    jobs_criticos = [
+        j for j in jobs if j.tipo in {"manifest", "video", "audio", "transcripcion"}
+    ]
+
+    jobs_pendientes = [
+        j for j in jobs_criticos if j.estado in ("pendiente", "procesando")
+    ]
+
+    jobs_error = [
+        j for j in jobs_criticos if j.estado == "error"
+    ]
+
+    # ❌ No cerrar si hay error
+    if jobs_error:
+        return {
+            "message": "Archivos completos, pero existen jobs con error",
+            "estado": "error"
+        }
+
+    # ⏳ No cerrar si aún hay jobs activos
+    if jobs_pendientes:
+        return {
+            "message": "Archivos completos, esperando jobs críticos",
+            "estado": "procesando"
+        }
+
+    # -------------------------------------------------
+    # 3. Cierre FINAL de sesión (ÚNICO lugar)
+    # -------------------------------------------------
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+
+    if not sesion or sesion.estado == "finalizada":
+        return {"message": "Sesión ya finalizada", "sesion_estado": "finalizada"}
+
+    if sesion and sesion.estado != "finalizada":
+        sesion.estado = "finalizada"
+        sesion.duracion_real = (
+            sesion.duracion_sesion_seg
+            if sesion.duracion_sesion_seg is not None
+            else (
+                (sesion.fin - sesion.inicio).total_seconds()
+                if sesion.fin and sesion.inicio
+                else None
+            )
+        )
+        db.commit()
+
+        logger.info(f"[SESION] Sesión {sesion_id} FINALIZADA correctamente")
+
+    return {
+        "message": f"Archivo {tipo} actualizado",
+        "sesion_estado": "finalizada"
+    }
+
+
+# ============================================================
+#  PROGRESO POR ARCHIVO (usado por workers)
+# ============================================================
+
+@app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
+def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db)):
+
+    progreso = data.get("progreso")
+    if progreso is None:
+        raise HTTPException(status_code=400, detail="Falta 'progreso'")
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    # Guardar progreso general de la sesión
+    sesion.progreso_porcentaje = progreso
+    db.commit()
+
+    print(f"[PROGRESO] Sesión {sesion_id} – {tipo_archivo}: {progreso}%")
+
+    return {"message": "Progreso actualizado"}
+
+
+# ============================================================
+#  REGISTRAR PAUSAS DETECTADAS (Workers)
+# ============================================================
+
+@app.post("/sesiones/{sesion_id}/pausas_detectadas")
+def registrar_pausas_detectadas(sesion_id: int, data: dict, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    pausas = data.get("pausas", [])
+    count = 0
+
+    for p in pausas:
+        try:
+            inicio = datetime.fromisoformat(p["inicio"])
+            fin = datetime.fromisoformat(p["fin"])
+            dur = float(p["duracion"])
+
+            nueva = models.LogPausa(
+                sesion_id=sesion_id,
+                inicio=inicio,
+                fin=fin,
+                duracion=dur,
+                fuente="auto"
+            )
+            db.add(nueva)
+            count += 1
+        except Exception as e:
+            print(f"[PAUSA AUTO] Error: {e}")
+
+    db.commit()
+
+    return {"registradas": count}
+
+
+# ============================================================
+#  JOBS (Usado por Workers)
+# ============================================================
+
+@app.post("/jobs/crear")
+def crear_job(data: JobCreate, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
+
+    # 🔒 Buscar SIEMPRE el job por sesión + tipo
+    job_existente = (
+        db.query(models.Job)
+        .filter_by(
+            sesion_id=data.id_sesion,
+            tipo=data.tipo
+        )
+        .first()
+    )
+
+    if job_existente:
+        # 🔁 Resetear estado para reintento
+        job_existente.estado = "pendiente"
+        job_existente.error = None
+        job_existente.resultado = None
+        job_existente.fecha_actualizacion = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(job_existente)
+
+        return {
+            "job_id": job_existente.id,
+            "reutilizado": True
+        }
+
+    # -------------------------------------------------
+    # Crear SOLO si no existe
+    # -------------------------------------------------
+    investigacion = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=data.numero_expediente)
+        .first()
+    )
+
+    if not investigacion:
+        raise HTTPException(
+            status_code=404, detail="Investigación no encontrada")
+
+    nuevo = models.Job(
+        investigacion_id=investigacion.id,
+        sesion_id=data.id_sesion,
+        tipo=data.tipo,
+        archivo=data.archivo,
+        estado="pendiente"
+    )
+
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    return {
+        "job_id": nuevo.id,
+        "creado": True
+    }
+
+
+@app.put("/jobs/{job_id}/actualizar")
+def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_db)):
+    job = db.query(models.Job).filter_by(id=job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    if data.estado is not None:
+        job.estado = data.estado
+    if data.resultado is not None:
+        job.resultado = data.resultado
+    if data.error is not None:
+        job.error = data.error
+
+    db.commit()
+    db.refresh(job)
+
+    return {"message": "Job actualizado", "job_id": job.id}
+
+
+# ============================================================
+#  🗂️ SEMEFO CORE (Investigaciones / Sesiones)
+# ============================================================
 
 # ============================================================
 #  INVESTIGACIONES
@@ -180,324 +737,9 @@ def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
     return nueva
 
 
-@app.put("/sesiones/finalizar/{sesion_id}")
-def finalizar_sesion(sesion_id: int, db: Session = Depends(get_db)):
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    if sesion.estado != "en_progreso":
-        return {"message": "Sesión ya está finalizada o cerrada"}
-
-    sesion.estado = "finalizada"
-    db.commit()
-
-    log = models.LogEvento(
-        tipo_evento="finalizar_sesion",
-        descripcion=f"Sesión {sesion_id} finalizada",
-        usuario_ldap=sesion.usuario_ldap
-    )
-    db.add(log)
-    db.commit()
-
-    return {"message": "Sesión finalizada exitosamente"}
-
-
 # ============================================================
-#  ARCHIVOS
+#  ⏸️ PAUSAS (manuales y lectura)
 # ============================================================
-
-@app.post("/archivos/", response_model=SesionArchivoResponse)
-def registrar_archivo(data: SesionArchivoCreate, db: Session = Depends(get_db)):
-    archivo = models.SesionArchivo(**data.dict())
-    db.add(archivo)
-    db.commit()
-    db.refresh(archivo)
-    return archivo
-
-
-@app.get("/sesiones/{sesion_id}/archivos", response_model=list[SesionArchivoResponse])
-def listar_archivos(sesion_id: int, db: Session = Depends(get_db)):
-    return db.query(models.SesionArchivo).filter_by(sesion_id=sesion_id).all() or []
-
-
-@app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
-def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate, db: Session = Depends(get_db)):
-
-    archivo = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id, tipo_archivo=tipo).first()
-
-    if not archivo:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-
-    # Actualizar datos del archivo
-    archivo.estado = data.estado
-
-    if data.mensaje:
-        archivo.mensaje = data.mensaje
-    if data.fecha_finalizacion:
-        archivo.fecha_finalizacion = datetime.now(timezone.utc)
-    if data.ruta_convertida:
-        archivo.ruta_convertida = data.ruta_convertida
-    if data.conversion_completa is not None:
-        archivo.conversion_completa = data.conversion_completa
-
-    db.commit()
-
-    # Disparar whisper cuando video principal termina
-    if tipo == "video" and data.estado == "completado":
-        try:
-            sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-            expediente = sesion.investigacion.numero_expediente
-
-            payload = {
-                "sesion_id": sesion_id,
-                "expediente": expediente
-            }
-
-            requests.post(
-                f"{API_SERVER_URL}/whisper/enviar",
-                json=payload,
-                timeout=5
-            )
-        except:
-            pass
-
-    # Verificar si ya se completaron todos los archivos
-    archivos = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id).all()
-
-    completados = {
-        a.tipo_archivo for a in archivos if a.estado == "completado"}
-
-    requeridos = {"video", "video2", "audio", "transcripcion"}
-
-    if requeridos.issubset(completados):
-        sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-
-        if sesion and sesion.estado != "finalizada":
-            sesion.estado = "finalizada"
-            sesion.duracion_real = (
-                datetime.now(timezone.utc) - sesion.fecha).total_seconds()
-            db.commit()
-            print(f"[SESION] Sesión {sesion_id} FINALIZADA automáticamente")
-
-    return {"message": f"Archivo {tipo} actualizado"}
-
-
-# ============================================================
-#  PROCESAR SESIÓN — MANIFEST + AUDIO + VIDEO
-# ============================================================
-
-@app.post("/procesar_sesion")
-def procesar_sesion(payload: dict, db: Session = Depends(get_db)):
-
-    ses = payload.get("sesion_activa")
-    if not ses:
-        raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
-
-    # ---------------------------------------------------------
-    # CAMPOS DEL JSON
-    # ---------------------------------------------------------
-    expediente = ses.get("expediente")
-    id_sesion = ses.get("id_sesion")
-    cam1 = ses.get("camara1_mac_address")
-    cam2 = ses.get("camara2_mac_address")
-    duracion_total_str = ses.get("duracion_total")
-    plancha_id = ses.get("plancha_id")
-    plancha_nombre = ses.get("plancha_nombre")
-
-    if not plancha_id or not plancha_nombre:
-        raise HTTPException(
-            status_code=400,
-            detail="Falta plancha_id o plancha_nombre en sesion_activa"
-        )
-
-    if not expediente or not id_sesion:
-        raise HTTPException(
-            status_code=400, detail="Faltan expediente o id_sesion")
-
-    if not cam1 or not cam2:
-        raise HTTPException(status_code=400, detail="Faltan MAC addresses")
-
-    # ---------------------------------------------------------
-    # INICIO / FIN
-    # ---------------------------------------------------------
-    try:
-        inicio_iso = ses["inicio"]
-        fin_iso = ses["fin"]
-        inicio_dt = datetime.fromisoformat(inicio_iso)
-        fin_dt = datetime.fromisoformat(fin_iso)
-    except:
-        raise HTTPException(
-            status_code=400, detail="Formato inválido de inicio/fin")
-
-    # DURACIÓN REAL enviada por la app (HH:MM:SS → seg)
-    duracion_real_seg = None
-    if duracion_total_str:
-        try:
-            duracion_real_seg = parse_hhmmss_to_seconds(duracion_total_str)
-        except:
-            print("[ERROR] No se pudo parsear duracion_total")
-            duracion_real_seg = 0
-
-    # ---------------------------------------------------------
-    # OBTENER O CREAR SESIÓN
-    # ---------------------------------------------------------
-    sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
-
-    if not sesion_obj:
-        # Crear nueva sesión
-        sesion_obj = models.Sesion(
-            id=id_sesion,
-            investigacion_id=1,
-            nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
-            usuario_ldap=ses["forense"]["id_usuario"],
-            user_nombre=ses["forense"]["nombre"],
-            plancha_id=plancha_id,
-            plancha_nombre=plancha_nombre,
-            tablet_id=ses.get("tablet", "desconocida"),
-            camara1_mac_address=cam1,
-            camara2_mac_address=cam2,
-            app_version=ses.get("version_app", "1.0.0"),
-
-            # ESTADO FINALIZADA (tablet ya terminó)
-            estado="finalizada",
-
-            # Guardamos inicio y fin exactos
-            inicio=inicio_dt,
-            fin=fin_dt,
-
-            # Duración real (no duración bruta)
-            duracion_sesion_seg=duracion_real_seg
-        )
-
-        db.add(sesion_obj)
-        db.commit()
-        db.refresh(sesion_obj)
-        print(f"[SESION] Creada sesión {id_sesion}")
-
-    else:
-        # Si ya existe, actualizamos datos
-        print(f"[SESION] Sesión {id_sesion} existente → actualizando")
-
-        sesion_obj.plancha_id = plancha_id
-        sesion_obj.plancha_nombre = plancha_nombre
-        sesion_obj.camara1_mac_address = cam1
-        sesion_obj.camara2_mac_address = cam2
-        sesion_obj.app_version = ses.get("version_app", "1.0.0")
-        sesion_obj.estado = "finalizada"
-
-        # Guardamos inicio/fin reales SIEMPRE
-        sesion_obj.inicio = inicio_dt
-        sesion_obj.fin = fin_dt
-
-        # Duración corregida
-        sesion_obj.duracion_sesion_seg = duracion_real_seg
-
-        db.commit()
-
-    # ---------------------------------------------------------
-    # GUARDAR PAUSAS DE LA APP
-    # ---------------------------------------------------------
-    pausas = ses.get("pausas", [])
-    for p in pausas:
-        try:
-            inicio_p = datetime.fromisoformat(p["inicio"])
-            fin_p = datetime.fromisoformat(p["fin"])
-            dur = (fin_p - inicio_p).total_seconds()
-
-            nueva = models.LogPausa(
-                sesion_id=sesion_obj.id,
-                inicio=inicio_p,
-                fin=fin_p,
-                duracion=dur,
-                fuente="app"
-            )
-            db.add(nueva)
-        except Exception as e:
-            print(f"[PAUSAS] Error registrando pausa: {e}")
-
-    db.commit()
-
-    # ---------------------------------------------------------
-    # PREPARAR MANIFESTS
-    # ---------------------------------------------------------
-    fecha_solo = inicio_iso.split("T")[0]
-    yyyy, mm, dd = fecha_solo.split("-")
-
-    path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
-    path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
-
-    # ---------------------------------------------------------
-    # LANZAR WORKERS
-    # ---------------------------------------------------------
-    chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam1, fecha_solo], immutable=True),
-        celery_app.signature("worker.tasks.unir_video", args=[
-                             expediente, id_sesion, path_manifest1, inicio_iso, fin_iso], immutable=True)
-    ).apply_async()
-
-    chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam2, fecha_solo], immutable=True),
-        celery_app.signature("worker.tasks.unir_video2", args=[
-                             expediente, id_sesion, path_manifest2, inicio_iso, fin_iso], immutable=True)
-    ).apply_async()
-
-    # ---------------------------------------------------------
-    # RESPUESTA
-    # ---------------------------------------------------------
-    return {
-        "status": "procesando",
-        "expediente": expediente,
-        "id_sesion": id_sesion,
-        "inicio_sesion": inicio_iso,
-        "fin_sesion": fin_iso,
-        "duracion_total_seg": duracion_real_seg,
-        "pausas_app_registradas": len(pausas),
-        "manifest1": path_manifest1,
-        "manifest2": path_manifest2
-    }
-
-
-# ============================================================
-#  REGISTRAR PAUSAS DETECTADAS (Workers)
-# ============================================================
-
-@app.post("/sesiones/{sesion_id}/pausas_detectadas")
-def registrar_pausas_detectadas(sesion_id: int, data: dict, db: Session = Depends(get_db)):
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    pausas = data.get("pausas", [])
-    count = 0
-
-    for p in pausas:
-        try:
-            inicio = datetime.fromisoformat(p["inicio"])
-            fin = datetime.fromisoformat(p["fin"])
-            dur = float(p["duracion"])
-
-            nueva = models.LogPausa(
-                sesion_id=sesion_id,
-                inicio=inicio,
-                fin=fin,
-                duracion=dur,
-                fuente="auto"
-            )
-            db.add(nueva)
-            count += 1
-        except Exception as e:
-            print(f"[PAUSA AUTO] Error: {e}")
-
-    db.commit()
-
-    return {"registradas": count}
-
 
 # ============================================================
 #  PAUSAS MANUALES
@@ -524,86 +766,198 @@ def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get
 
 
 # ============================================================
-#  JOBS (Usado por Workers)
+#  LISTAR TODAS LAS PAUSAS (APP + AUTO) PARA PROCESAMIENTO
 # ============================================================
 
-@app.post("/jobs/crear")
-def crear_job(data: JobCreate, db: Session = Depends(get_db)):
+@app.get("/sesiones/{sesion_id}/pausas_todas")
+def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    # 🔒 Buscar SIEMPRE el job por sesión + tipo
-    job_existente = (
-        db.query(models.Job)
-        .filter_by(
-            sesion_id=data.id_sesion,
-            tipo=data.tipo
-        )
-        .first()
+    # ===========================
+    # 🔥 AGREGAMOS INICIO Y FIN 🔥
+    # ===========================
+    inicio_sesion = None
+    fin_sesion = None
+
+    if sesion.inicio:
+        inicio_sesion = sesion.inicio.isoformat()
+
+    if sesion.fin:
+        fin_sesion = sesion.fin.isoformat()
+
+    # ===========================
+    # PAUSAS
+    # ===========================
+    pausas_db = (
+        db.query(models.LogPausa)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.LogPausa.inicio.asc())
+        .all()
     )
 
-    if job_existente:
-        # 🔁 Resetear estado para reintento
-        job_existente.estado = "pendiente"
-        job_existente.error = None
-        job_existente.resultado = None
-        job_existente.fecha_actualizacion = datetime.now(timezone.utc)
-
-        db.commit()
-        db.refresh(job_existente)
-
-        return {
-            "job_id": job_existente.id,
-            "reutilizado": True
-        }
-
-    # -------------------------------------------------
-    # Crear SOLO si no existe
-    # -------------------------------------------------
-    investigacion = (
-        db.query(models.Investigacion)
-        .filter_by(numero_expediente=data.numero_expediente)
-        .first()
-    )
-
-    if not investigacion:
-        raise HTTPException(
-            status_code=404, detail="Investigación no encontrada")
-
-    nuevo = models.Job(
-        investigacion_id=investigacion.id,
-        sesion_id=data.id_sesion,
-        tipo=data.tipo,
-        archivo=data.archivo,
-        estado="pendiente"
-    )
-
-    db.add(nuevo)
-    db.commit()
-    db.refresh(nuevo)
+    pausas = []
+    for p in pausas_db:
+        pausas.append({
+            "inicio": p.inicio.isoformat(),
+            "fin": p.fin.isoformat(),
+            "duracion": p.duracion,
+            "fuente": p.fuente
+        })
 
     return {
-        "job_id": nuevo.id,
-        "creado": True
+        "sesion_id": sesion_id,
+        "inicio_sesion": inicio_sesion,
+        "fin_sesion": fin_sesion,
+        "total": len(pausas),
+        "pausas": pausas
     }
 
 
-@app.put("/jobs/{job_id}/actualizar")
-def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_db)):
-    job = db.query(models.Job).filter_by(id=job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job no encontrado")
+# ============================================================
+#  🔍 APIS PARA CONSULTA SEMEFO (lectura operacional)
+# ============================================================
 
-    if data.estado is not None:
-        job.estado = data.estado
-    if data.resultado is not None:
-        job.resultado = data.resultado
-    if data.error is not None:
-        job.error = data.error
+@app.get("/jobs/en_progreso")
+def jobs_en_progreso(db: Session = Depends(get_db)):
+    jobs = (
+        db.query(models.Job)
+        .filter(models.Job.estado.in_(["pendiente"]))
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+    return jobs
 
-    db.commit()
-    db.refresh(job)
 
-    return {"message": "Job actualizado", "job_id": job.id}
+@app.get("/sesiones/{sesion_id}/estatus_completo")
+def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
+    archivos = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id).all()
+    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
+
+    return {
+        "sesion": sesion,
+        "archivos": archivos,
+        "jobs": jobs
+    }
+
+
+@app.get("/procesos/activos")
+def procesos_activos(db: Session = Depends(get_db)):
+    sesiones = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.estado.in_(["procesando"]))
+        .all()
+    )
+
+    output = []
+    for ses in sesiones:
+        jobs = (
+            db.query(models.Job)
+            .filter_by(sesion_id=ses.id)
+            .order_by(models.Job.fecha_creacion.desc())
+            .all()
+        )
+        archivos = (
+            db.query(models.SesionArchivo)
+            .filter_by(sesion_id=ses.id)
+            .all()
+        )
+
+        output.append({
+            "sesion_id": ses.id,
+            "expediente": ses.investigacion.numero_expediente,
+            "estado_sesion": ses.estado,
+            "jobs": jobs,
+            "archivos": archivos
+        })
+
+    return output
+
+
+# ============================================================
+#  LOGS FFMPEG
+# ============================================================
+
+@app.get("/procesos/ffmpeg_log/{sesion_id}")
+def obtener_ffmpeg_log(sesion_id: int):
+
+    logs_path = "/opt/semefo/logs"
+    posibles = [
+        f"{logs_path}/ffmpeg_video_{sesion_id}.log",
+        f"{logs_path}/ffmpeg_video2_{sesion_id}.log"
+    ]
+
+    contenido = {}
+
+    for path in posibles:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                contenido[os.path.basename(path)] = f.read()
+
+    if not contenido:
+        raise HTTPException(
+            status_code=404, detail="No hay logs para esta sesión")
+
+    return contenido
+
+
+# ============================================================
+#  WHISPER — CORREGIDO: ruta_video ya no es obligatoria
+# ============================================================
+
+@app.post("/whisper/enviar")
+def enviar_a_whisper(data: dict):
+
+    sesion_id = data.get("sesion_id")
+    expediente = data.get("expediente")
+
+    if not sesion_id or not expediente:
+        raise HTTPException(status_code=400, detail="Datos incompletos")
+
+    if not rabbit_user or not rabbit_pass:
+        raise HTTPException(500, "RabbitMQ credentials no configuradas")
+
+    print(f"[WHISPER] Tarea recibida para sesión {sesion_id}")
+
+    import pika
+    import json
+    credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
+
+    if not rabbit_user or not rabbit_pass:
+        raise HTTPException(500, "RabbitMQ credentials no configuradas")
+
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(
+            host=rabbit_host,
+            port=5672,
+            virtual_host="/",
+            credentials=credentials
+        )
+    )
+    channel = connection.channel()
+    channel.queue_declare(queue="transcripciones", durable=True)
+
+    channel.basic_publish(
+        exchange="",
+        routing_key="transcripciones",
+        body=json.dumps(data),
+        properties=pika.BasicProperties(delivery_mode=2)
+    )
+
+    connection.close()
+
+    return {"status": "whisper_job_enviado"}
+
+
+# ============================================================
+#  LISTAR JOBS DE UNA SESIÓN (vista unificada para UI)
+# ============================================================
 
 @app.get("/sesiones/{sesion_id}/jobs")
 def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
@@ -675,14 +1029,14 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             continue
 
         ruta = normalizar_ruta(
-            archivo_real.ruta_convertida,
-            tipo=j.tipo,
+            a.ruta_convertida,
+            tipo=tipo,
             expediente=expediente,
             sesion_id=sesion_id
         )
 
         salida.append({
-            "id": None,  # No hay job asociado
+            "id": None,
             "tipo": tipo,
             "archivo": os.path.basename(a.ruta_convertida or ""),
             "estado": a.estado,
@@ -704,243 +1058,22 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         )
     }
 
-# ============================================================
-#  MONITOREO DE PROCESAMIENTO (DASHBOARD)
-# ============================================================
-
-
-@app.get("/jobs/en_progreso")
-def jobs_en_progreso(db: Session = Depends(get_db)):
-    jobs = (
-        db.query(models.Job)
-        .filter(models.Job.estado.in_(["pendiente", "procesando"]))
-        .order_by(models.Job.fecha_creacion.desc())
-        .all()
-    )
-    return jobs
-
-
-@app.get("/jobs/errores")
-def jobs_con_error(db: Session = Depends(get_db)):
-    jobs = (
-        db.query(models.Job)
-        .filter(models.Job.estado == "error")
-        .order_by(models.Job.fecha_creacion.desc())
-        .all()
-    )
-    return jobs
-
-
-@app.get("/jobs/ultimos/{limite}")
-def ultimos_jobs(limite: int, db: Session = Depends(get_db)):
-    jobs = (
-        db.query(models.Job)
-        .order_by(models.Job.fecha_creacion.desc())
-        .limit(limite)
-        .all()
-    )
-    return jobs
-
-
-@app.get("/jobs/tipo/{tipo}")
-def jobs_por_tipo(tipo: str, db: Session = Depends(get_db)):
-    if tipo not in ["video", "video2", "audio", "audio2", "transcripcion"]:
-        raise HTTPException(status_code=400, detail="Tipo inválido")
-
-    jobs = (
-        db.query(models.Job)
-        .filter_by(tipo=tipo)
-        .order_by(models.Job.fecha_creacion.desc())
-        .all()
-    )
-    return jobs
-
-
-@app.get("/sesiones/{sesion_id}/estatus_completo")
-def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    archivos = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id).all()
-    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
-
-    return {
-        "sesion": sesion,
-        "archivos": archivos,
-        "jobs": jobs
-    }
-
-
-@app.get("/procesos/activos")
-def procesos_activos(db: Session = Depends(get_db)):
-    sesiones = (
-        db.query(models.Sesion)
-        .filter(models.Sesion.estado.in_(["en_progreso", "grabando"]))
-        .all()
-    )
-
-    output = []
-    for ses in sesiones:
-        jobs = (
-            db.query(models.Job)
-            .filter_by(sesion_id=ses.id)
-            .order_by(models.Job.fecha_creacion.desc())
-            .all()
-        )
-        archivos = (
-            db.query(models.SesionArchivo)
-            .filter_by(sesion_id=ses.id)
-            .all()
-        )
-
-        output.append({
-            "sesion_id": ses.id,
-            "expediente": ses.investigacion.numero_expediente,
-            "estado_sesion": ses.estado,
-            "jobs": jobs,
-            "archivos": archivos
-        })
-
-    return output
-
 
 # ============================================================
-#  LOGS FFMPEG
+#  📱 APIS PARA APP (Planchas / Auth)
 # ============================================================
 
-@app.get("/procesos/ffmpeg_log/{sesion_id}")
-def obtener_ffmpeg_log(sesion_id: int):
-
-    logs_path = "/opt/semefo/logs"
-    posibles = [
-        f"{logs_path}/ffmpeg_video_{sesion_id}.log",
-        f"{logs_path}/ffmpeg_video2_{sesion_id}.log"
-    ]
-
-    contenido = {}
-
-    for path in posibles:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                contenido[os.path.basename(path)] = f.read()
-
-    if not contenido:
-        raise HTTPException(
-            status_code=404, detail="No hay logs para esta sesión")
-
-    return contenido
-
-
 # ============================================================
-#  WHISPER — CORREGIDO: ruta_video ya no es obligatoria
+#  AUTH / LDAP
 # ============================================================
-
-@app.post("/whisper/enviar")
-def enviar_a_whisper(data: dict):
-
-    sesion_id = data.get("sesion_id")
-    expediente = data.get("expediente")
-
-    if not sesion_id or not expediente:
-        raise HTTPException(status_code=400, detail="Datos incompletos")
-
-    print(f"[WHISPER] Tarea recibida para sesión {sesion_id}")
-
-    import pika
-    import json
-    credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
-
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(
-            host=rabbit_host,
-            port=5672,
-            virtual_host="/",
-            credentials=credentials
-        )
-    )
-    channel = connection.channel()
-    channel.queue_declare(queue="transcripciones", durable=True)
-
-    channel.basic_publish(
-        exchange="",
-        routing_key="transcripciones",
-        body=json.dumps(data)
-    )
-
-    connection.close()
-
-    return {"status": "whisper_job_enviado"}
-
-# ============================================================
-#  PROGRESO POR ARCHIVO (usado por workers)
-# ============================================================
-
-
-@app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
-def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db)):
-
-    progreso = data.get("progreso")
-    if progreso is None:
-        raise HTTPException(status_code=400, detail="Falta 'progreso'")
-
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    # Guardar progreso general de la sesión
-    sesion.progreso_porcentaje = progreso
-    db.commit()
-
-    print(f"[PROGRESO] Sesión {sesion_id} – {tipo_archivo}: {progreso}%")
-
-    return {"message": "Progreso actualizado"}
-
-# ============================================================
-#  VERIFICAR SI LA SESIÓN YA PUEDE FINALIZARSE
-# ============================================================
-
-
-@app.get("/sesiones/{sesion_id}/verificar_finalizacion")
-def verificar_finalizacion(sesion_id: int, db: Session = Depends(get_db)):
-
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    archivos = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id).all()
-    completados = {
-        a.tipo_archivo for a in archivos if a.estado == "completado"}
-
-    requeridos = {"video", "video2", "audio", "transcripcion"}
-
-    if requeridos.issubset(completados):
-
-        if sesion.estado != "finalizada":
-            sesion.estado = "finalizada"
-            sesion.duracion_real = (
-                datetime.now(timezone.utc) - sesion.fecha).total_seconds()
-            db.commit()
-
-            print(
-                f"[SESION] Sesión {sesion_id} FINALIZADA automáticamente por verificación externa")
-
-        return {"status": "finalizada"}
-
-    return {
-        "status": "incompleta",
-        "faltan": list(requeridos - completados)
-    }
-
 
 def ldap_authenticate(username: str, password: str):
-    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
+    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "")
     LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
+    LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "")
 
     # ESTE ES EL UPN REAL DEL DOMINIO
-    user_principal = f"{username}@fiscalianl.gob"
+    user_principal = f"{username}@{LDAP_DOMAIN}"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
@@ -994,101 +1127,209 @@ def ldap_authenticate(username: str, password: str):
         return {"success": False, "message": f"Error LDAP: {str(e)}"}
 
 
-@app.post("/auth/ldap")
-def auth_ldap(data: LDAPLoginRequest):
+@app.post("/auth/login")
+def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
     result = ldap_authenticate(data.username, data.password)
-
     if not result["success"]:
         raise HTTPException(status_code=401, detail=result["message"])
 
-    return result
+    sub = f"ldap:{data.username}"
+    roles = ["operador"]  # luego podemos mapear por grupos LDAP si quieres
+
+    access = create_access_token(
+        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES)
+    refresh, jti, token_hash, expires_at = create_refresh_token(
+        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
+
+    # Guardar refresh en DB (modelo RefreshToken)
+    rt = models.RefreshToken(
+        subject=sub,
+        jti=jti,
+        token_hash=token_hash,
+        expires_at=expires_at
+    )
+    db.add(rt)
+    db.commit()
+
+    return {
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "bearer",
+        "user": result.get("user", {})
+    }
 
 
-@app.get("/auth/ldap/userinfo/{username}")
-def ldap_user_info(username: str):
-    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
-    LDAP_PORT = 389
+@app.post("/auth/refresh")
+def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
+    token = data.refresh_token.strip()
+    token_hash = _sha256(token)
 
-    try:
-        server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
-        conn = Connection(server, auto_bind=True)
+    row = (
+        db.query(models.RefreshToken)
+        .filter_by(token_hash=token_hash)
+        .first()
+    )
+    if not row or row.revoked_at is not None:
+        raise HTTPException(401, "Refresh inválido")
 
-        search_base = "DC=fiscalianl,DC=gob"
-        conn.search(
-            search_base,
-            f"(sAMAccountName={username})",
-            attributes=["userPrincipalName", "sAMAccountName", "displayName"]
-        )
+    if row.expires_at < _now_utc():
+        raise HTTPException(401, "Refresh expirado")
 
-        if not conn.entries:
-            return {"error": "Usuario no encontrado en LDAP"}
+    # Rotación: revocar el actual y emitir uno nuevo
+    sub = row.subject
+    # roles: puedes derivarlas del subject o guardarlas también en RefreshToken.
+    roles = ["operador"] if sub.startswith("ldap:") else ["dashboard_read"]
 
-        entry = conn.entries[0]
+    new_access = create_access_token(
+        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES)
+    new_refresh, jti, th, exp = create_refresh_token(
+        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
 
-        return {
-            "username": username,
-            "userPrincipalName": str(entry.userPrincipalName) if "userPrincipalName" in entry else None,
-            "displayName": str(entry.displayName) if "displayName" in entry else None,
-            "samAccountName": str(entry.sAMAccountName) if "sAMAccountName" in entry else None
-        }
+    row.revoked_at = _now_utc()
+    new_row = models.RefreshToken(
+        subject=sub, jti=jti, token_hash=th, expires_at=exp)
+    db.add(new_row)
+    db.commit()
 
-    except Exception as e:
-        return {"error": str(e)}
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "token_type": "bearer"
+    }
 
-    # ============================================================
-#  LISTAR TODAS LAS PAUSAS (APP + AUTO) PARA PROCESAMIENTO
+
+@app.post("/auth/service-token")
+def auth_service_token(data: ServiceTokenRequest, db: Session = Depends(get_db)):
+    client = db.query(models.ServiceClient).filter_by(
+        client_id=data.client_id, activo=True).first()
+    if not client:
+        raise HTTPException(401, "Cliente inválido")
+
+    if not pwd_context.verify(data.client_secret, client.client_secret_hash):
+        raise HTTPException(401, "Cliente inválido")
+
+    sub = f"svc:{client.client_id}"
+    roles = client.roles.split(",") if client.roles else ["worker"]
+
+    access = create_access_token(
+        sub=sub, roles=roles, ttl_minutes=SERVICE_TOKEN_HOURS * 60)
+
+    client.last_used_at = _now_utc()
+    db.commit()
+
+    return {"access_token": access, "token_type": "bearer"}
+
+# ============================================================
+#  APP / Planchas
 # ============================================================
 
 
-@app.get("/sesiones/{sesion_id}/pausas_todas")
-def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+@app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
+def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
+    plancha = models.Plancha(**data.dict())
+    db.add(plancha)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe una plancha con ese nombre o datos inválidos"
+        )
+    db.refresh(plancha)
+    return plancha
 
-    # ===========================
-    # 🔥 AGREGAMOS INICIO Y FIN 🔥
-    # ===========================
-    inicio_sesion = None
-    fin_sesion = None
 
-    if sesion.inicio:
-        inicio_sesion = sesion.inicio.isoformat()
+@app.get("/planchas/", response_model=list[PlanchaResponse])
+def listar_planchas(
+    incluir_inactivas: bool = True,
+    db: Session = Depends(get_db)
+):
+    q = db.query(models.Plancha)
 
-    if sesion.fin:
-        fin_sesion = sesion.fin.isoformat()
+    if not incluir_inactivas:
+        q = q.filter(models.Plancha.activo == True)
 
-    # ===========================
-    # PAUSAS
-    # ===========================
-    pausas_db = (
-        db.query(models.LogPausa)
-        .filter_by(sesion_id=sesion_id)
-        .order_by(models.LogPausa.inicio.asc())
+    return q.order_by(models.Plancha.nombre.asc()).all()
+
+
+@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
+def listar_planchas_disponibles(db: Session = Depends(get_db)):
+    return (
+        db.query(models.Plancha)
+        .filter(
+            models.Plancha.activo == True,
+            models.Plancha.asignada == False
+        )
+        .order_by(models.Plancha.nombre.asc())
         .all()
     )
 
-    pausas = []
-    for p in pausas_db:
-        pausas.append({
-            "inicio": p.inicio.isoformat(),
-            "fin": p.fin.isoformat(),
-            "duracion": p.duracion,
-            "fuente": p.fuente
-        })
 
-    return {
-        "sesion_id": sesion_id,
-        "inicio_sesion": inicio_sesion,
-        "fin_sesion": fin_sesion,
-        "total": len(pausas),
-        "pausas": pausas
-    }
+@app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    return plancha
+
+
+@app.put("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def actualizar_plancha(
+    plancha_id: int,
+    data: PlanchaUpdate,
+    db: Session = Depends(get_db)
+):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    for field, value in data.dict(exclude_unset=True).items():
+        setattr(plancha, field, value)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Error al actualizar la plancha"
+        )
+
+    db.refresh(plancha)
+    return plancha
+
+
+@app.delete("/planchas/{plancha_id}", status_code=204)
+def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    # 🔒 Borrado lógico
+    plancha.activo = False
+    db.commit()
+
 
 # ============================================================
-# Consultas para semefo
+#  🔍 CONSULTAS PARA SEMEFO (expedientes)
 # ============================================================
-
 
 @app.get("/consultas/expedientes/{numero_expediente}")
 def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
@@ -1134,10 +1375,10 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
         "sesiones": sesiones_out
     }
 
-# ==========================================================
-# Dashboard Endpoints
-# ============================================================
 
+# ============================================================
+#  📊 DASHBOARD (lectura)
+# ============================================================
 
 @app.get("/dashboard/expedientes")
 def dashboard_expedientes(
@@ -1188,7 +1429,8 @@ def dashboard_sesiones(
     hasta: datetime,
     page: int = 1,
     per_page: int = 25,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_read", "dashboard_admin"))
 ):
     q = (
         db.query(models.Sesion)
@@ -1275,9 +1517,12 @@ def dashboard_jobs(
         ]
     }
 
+
+# ============================================================
+#  🏗️ INFRAESTRUCTURA (reportes, estado, salud)
+# ============================================================
+
 # Obtener estado de la infraestructura
-
-
 @app.post("/infra/estado")
 def registrar_infra_estado(
     data: InfraEstadoCreate,
@@ -1315,14 +1560,143 @@ def infra_estado_actual(db: Session = Depends(get_db)):
     return resultado
 
 
+# ============================================================
+#  APP / Status Camaras
+# ============================================================
+
+@app.get("/infra/whisper/estado")
+def estado_whisper():
+    if not os.path.exists("/mnt/wave/infra/whisper_status.json"):
+        return {"status": "desconocido"}
+
+    with open("/mnt/wave/infra/whisper_status.json") as f:
+        return json.load(f)
+
+
+@app.get("/infra/camaras/ping")
+def ping_camara(ip: str):
+    """
+    Verifica si una cámara (o cualquier dispositivo) responde en red.
+    """
+    try:
+        online = ping_ip(ip)
+
+        return {
+            "ip": ip,
+            "online": online,
+            "timestamp": datetime.now(timezone.utc)
+        }
+
+    except Exception as e:
+        logger.error(f"[PING_CAMARA] Error con IP {ip}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error al verificar conectividad de la cámara"
+        )
+
+
+@app.post("/infra/estado_general")
+def estado_general_infraestructura(payload: dict):
+    """
+    Devuelve el estado general de la infraestructura:
+    - API FastAPI (online)
+    - Estado de cámaras por ping ICMP
+
+    Payload esperado:
+        {
+            "timestamp": "2025-12-26T18:12:44Z",
+            "api": {
+                "status": "ok"
+            },
+            "camaras": {
+                "total": 2,
+                "online": 1,
+                "offline": 1,
+                "detalle": [
+                {
+                    "id": "camara_principal",
+                    "ip": "192.168.1.125",
+                    "online": true
+                },
+                {
+                    "id": "camara_secundaria",
+                    "ip": "192.168.1.200",
+                    "online": false
+                }
+                ]
+            }
+        }
+    """
+
+    # -----------------------------
+    # API STATUS (si este endpoint responde, API está OK)
+    # -----------------------------
+    api_status = "ok"
+
+    # -----------------------------
+    # CAMARAS
+    # -----------------------------
+    camaras = payload.get("camaras", [])
+
+    if not camaras:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe enviar una lista de cámaras"
+        )
+
+    estado_camaras = []
+
+    for cam in camaras:
+        cam_id = cam.get("id")
+        ip = cam.get("ip")
+
+        if not cam_id or not ip:
+            continue
+
+        try:
+            online = ping_ip(ip)
+        except Exception as e:
+            logger.error(f"[INFRA] Error ping cámara {cam_id} ({ip}): {e}")
+            online = False
+
+        estado_camaras.append({
+            "id": cam_id,
+            "ip": ip,
+            "online": online
+        })
+
+    # -----------------------------
+    # RESPUESTA FINAL
+    # -----------------------------
+    return {
+        "timestamp": datetime.now(timezone.utc),
+        "api": {
+            "status": api_status
+        },
+        "camaras": {
+            "total": len(estado_camaras),
+            "online": sum(1 for c in estado_camaras if c["online"]),
+            "offline": sum(1 for c in estado_camaras if not c["online"]),
+            "detalle": estado_camaras
+        }
+    }
+
+
+# ============================================================
+#  📊 DASHBOARD / CONSULTAS (LECTURA) — Estado Infra
+# ============================================================
+
 @app.get("/dashboard/infra/estado")
 def infra_estado_dashboard(db: Session = Depends(get_db)):
     estado = {
+        "infra_status": "ok",  # ok | warning | error
         "api": "ok",
         "db": "error",
         "rabbitmq": "error",
         "workers": {
+            "manifest": "desconocido",
             "video": "desconocido",
+            "video2": "desconocido",
             "audio": "desconocido",
             "transcripcion": "desconocido"
         },
@@ -1331,7 +1705,11 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
             "whisper": {
                 "status": "sin_reporte"
             }
-        }
+        },
+        "pipeline_bloqueado": {
+            "total": 0,
+            "sesiones": []
+        },
     }
 
     # -------------------------------------------------
@@ -1369,13 +1747,59 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
 
         tipos_activos = {j.tipo for j in jobs}
 
-        estado["workers"]["video"] = "activo" if "video" in tipos_activos else "inactivo"
-        estado["workers"]["audio"] = "activo" if "audio" in tipos_activos else "inactivo"
+        estado["workers"]["manifest"] = (
+            "activo"
+            if any(t.startswith("manifest") for t in tipos_activos)
+            else "inactivo"
+        )
+
+        estado["workers"]["video"] = (
+            "activo" if "video" in tipos_activos else "inactivo"
+        )
+
+        estado["workers"]["video2"] = (
+            "activo" if "video2" in tipos_activos else "inactivo"
+        )
+
+        estado["workers"]["audio"] = (
+            "activo" if "audio" in tipos_activos else "inactivo"
+        )
+
         estado["workers"]["transcripcion"] = (
             "activo" if "transcripcion" in tipos_activos else "inactivo"
         )
+
     except Exception:
         pass
+
+    bloqueadas = detectar_pipeline_bloqueado(db)
+
+    if len(bloqueadas) >= 3:
+        estado["infra_status"] = "error"
+
+    if bloqueadas:
+        estado["infra_status"] = "warning"
+        estado["pipeline_bloqueado"] = {
+            "total": len(bloqueadas),
+            "sesiones": bloqueadas
+        }
+
+    # -------------------------------------------------
+    # WARNING: errores recientes en manifest
+    # -------------------------------------------------
+    limite = datetime.now(timezone.utc) - timedelta(minutes=30)
+    errores_manifest = (
+        db.query(models.Job)
+        .filter(
+            models.Job.tipo == "manifest",
+            models.Job.estado == "error",
+            models.Job.fecha_actualizacion >= limite
+        )
+        .count()
+    )
+
+    if errores_manifest > 0:
+        estado["infra_status"] = "warning"
 
     # -------------------------------------------------
     # Disco MASTER (en vivo)
@@ -1412,181 +1836,3 @@ def infra_estado_dashboard(db: Session = Depends(get_db)):
         }
 
     return estado
-# ============================================================
-#  PLANCHAS
-# ============================================================
-
-
-@app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
-def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
-    plancha = models.Plancha(**data.dict())
-    db.add(plancha)
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Ya existe una plancha con ese nombre o datos inválidos"
-        )
-    db.refresh(plancha)
-    return plancha
-
-
-@app.get("/planchas/", response_model=list[PlanchaResponse])
-def listar_planchas(
-    incluir_inactivas: bool = True,
-    db: Session = Depends(get_db)
-):
-    q = db.query(models.Plancha)
-
-    if not incluir_inactivas:
-        q = q.filter(models.Plancha.activo == True)
-
-    return q.order_by(models.Plancha.nombre.asc()).all()
-
-
-# 🔥 ESTÁTICO PRIMERO
-@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
-def listar_planchas_disponibles(db: Session = Depends(get_db)):
-    return (
-        db.query(models.Plancha)
-        .filter(
-            models.Plancha.activo == True,
-            models.Plancha.asignada == False
-        )
-        .order_by(models.Plancha.nombre.asc())
-        .all()
-    )
-
-
-# 🔥 DINÁMICO DESPUÉS
-@app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    return plancha
-
-
-@app.put("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def actualizar_plancha(
-    plancha_id: int,
-    data: PlanchaUpdate,
-    db: Session = Depends(get_db)
-):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    for field, value in data.dict(exclude_unset=True).items():
-        setattr(plancha, field, value)
-
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Error al actualizar la plancha"
-        )
-
-    db.refresh(plancha)
-    return plancha
-
-
-@app.delete("/planchas/{plancha_id}", status_code=204)
-def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    # 🔒 Borrado lógico
-    plancha.activo = False
-    db.commit()
-
-
-@app.get("/infra/whisper/estado")
-def estado_whisper():
-    with open("/mnt/wave/infra/whisper_status.json") as f:
-        return json.load(f)
-
-
-def normalizar_ruta(
-    path: str | None,
-    *,
-    tipo: str | None = None,
-    expediente: str | None = None,
-    sesion_id: int | None = None
-) -> str | None:
-    """
-    Normaliza rutas según tipo de archivo SEMEFO
-    """
-
-    if not path:
-        return None
-
-    # -------------------------
-    # AUDIO / TRANSCRIPCIÓN
-    # -------------------------
-    if tipo in ("audio", "transcripcion"):
-        if expediente and sesion_id:
-            archivo = os.path.basename(path)
-            return f"{EXPEDIENTES_PATH}/{expediente}/{sesion_id}/{archivo}"
-
-    # -------------------------
-    # YA ES ABSOLUTA
-    # -------------------------
-    if path.startswith("/"):
-        return path
-
-    # -------------------------
-    # RELATIVA → EXPEDIENTES
-    # -------------------------
-    return f"{EXPEDIENTES_PATH}/{path.lstrip('/')}"
-
-
-def size_kb(path: str | None) -> float:
-    """
-    Calcula tamaño en KB de forma segura
-    """
-    if not path:
-        return 0.0
-
-    try:
-        p = Path(path)
-        if p.exists() and p.is_file():
-            return round(p.stat().st_size / 1024, 2)
-    except Exception:
-        pass
-
-    return 0.0
-
-
-def ruta_red(path_abs: str | None) -> str | None:
-    """
-    Convierte ruta /mnt/wave/... → Wisenet_WAVE_Media/...
-    """
-    if not path_abs:
-        return None
-
-    if path_abs.startswith("/mnt/wave/"):
-        return path_abs.replace("/mnt/wave/", "Wisenet_WAVE_Media/")
-
-    return path_abs

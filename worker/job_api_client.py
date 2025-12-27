@@ -1,33 +1,124 @@
 # ============================================================
-#   worker/job_api_client.py (REVISION 2025 - COMPLETO Y ROBUSTO)
-#   Comunicación Worker → API Master
+#   worker/job_api_client.py (2025 - AUTH + ROBUSTO)
+#   Comunicación Worker → API Master (service-token)
 # ============================================================
 
-import requests
 import os
+import time
+import requests
+from datetime import datetime, timezone
+from api_server.utils.jwt import _jwt_exp_ts
 
 
 # ============================================================
 # NORMALIZAR API_URL
 # ============================================================
-
 def _normalizar_api_url():
     raw = os.getenv("API_SERVER_URL", "http://fastapi_app:8000").rstrip("/")
-
-    # Agregar http:// si falta
     if not raw.startswith("http://") and not raw.startswith("https://"):
         raw = "http://" + raw
-
     return raw.rstrip("/")
 
 
 API_URL = _normalizar_api_url()
 
+WORKER_CLIENT_ID = os.getenv("WORKER_CLIENT_ID", "").strip()
+WORKER_CLIENT_SECRET = os.getenv("WORKER_CLIENT_SECRET", "").strip()
+
+# Cache simple en memoria
+_TOKEN_CACHE = {
+    "access_token": None,
+    "expires_at_ts": 0,  # epoch seconds
+}
+
+
+# ============================================================
+# AUTH
+# ============================================================
+def _utcnow_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _get_service_token(force_refresh: bool = False) -> str | None:
+    """
+    Obtiene token de servicio (JWT access) y lo cachea.
+    """
+    now = time.time()
+
+    if not force_refresh:
+        token = _TOKEN_CACHE.get("access_token")
+        exp = _TOKEN_CACHE.get("expires_at_ts", 0)
+        # margen 30s
+        if token and now < (exp - 30):
+            return token
+
+    if not WORKER_CLIENT_ID or not WORKER_CLIENT_SECRET:
+        print("❌ WORKER_CLIENT_ID/WORKER_CLIENT_SECRET no configurados en .env")
+        return None
+
+    try:
+        r = requests.post(
+            f"{API_URL}/auth/service-token",
+            json={
+                "client_id": WORKER_CLIENT_ID,
+                "client_secret": WORKER_CLIENT_SECRET
+            },
+            timeout=10
+        )
+        r.raise_for_status()
+        data = r.json()
+        token = data.get("access_token")
+        if not token:
+            print("❌ API no devolvió access_token para service-token")
+            return None
+
+        # Si no tenemos exp decodificado, hacemos un TTL conservador (23h)
+        # (Si luego quieres, decodificamos JWT sin verificar firma solo para exp)
+        _TOKEN_CACHE["access_token"] = token
+        exp_ts = _jwt_exp_ts(token)
+        _TOKEN_CACHE["expires_at_ts"] = exp_ts if exp_ts else (
+            now + 3600)  # fallback 1h
+
+        return token
+
+    except Exception as e:
+        print(f"❌ Error obteniendo service-token: {e}")
+        return None
+
+
+def _auth_headers() -> dict:
+    token = _get_service_token()
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _request(method: str, url: str, *, json=None, timeout=10):
+    """
+    Wrapper con:
+    - headers auth
+    - retry único si 401
+    """
+    headers = {"Content-Type": "application/json", **_auth_headers()}
+    r = requests.request(method, url, json=json,
+                         timeout=timeout, headers=headers)
+
+    if r.status_code == 401:
+        # refresh token y retry 1 vez
+        token = _get_service_token(force_refresh=True)
+        if token:
+            headers = {"Content-Type": "application/json",
+                       "Authorization": f"Bearer {token}"}
+            r = requests.request(method, url, json=json,
+                                 timeout=timeout, headers=headers)
+
+    r.raise_for_status()
+    return r
+
 
 # ============================================================
 #   JOBS
 # ============================================================
-
 def registrar_job(numero_expediente, id_sesion, tipo, archivo):
     """
     Crear un nuevo job en el master.
@@ -43,13 +134,8 @@ def registrar_job(numero_expediente, id_sesion, tipo, archivo):
             "error": None
         }
 
-        response = requests.post(
-            f"{API_URL}/jobs/crear",
-            json=payload,
-            timeout=10
-        )
-        response.raise_for_status()
-        return response.json().get("job_id")
+        r = _request("POST", f"{API_URL}/jobs/crear", json=payload, timeout=10)
+        return r.json().get("job_id")
 
     except Exception as e:
         print(f"❌ Error registrando job en API: {e}")
@@ -62,7 +148,6 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
     """
     try:
         payload = {}
-
         if estado is not None:
             payload["estado"] = estado
         if resultado is not None:
@@ -70,12 +155,8 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
         if error is not None:
             payload["error"] = error
 
-        response = requests.put(
-            f"{API_URL}/jobs/{job_id}/actualizar",
-            json=payload,
-            timeout=10
-        )
-        response.raise_for_status()
+        _request("PUT", f"{API_URL}/jobs/{job_id}/actualizar",
+                 json=payload, timeout=10)
         return True
 
     except Exception as e:
@@ -86,24 +167,23 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 # ============================================================
 #   ARCHIVOS
 # ============================================================
-
 def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="procesando"):
     """
     Registrar archivo en `sesion_archivos`.
-    Evita duplicados.
+    Intenta evitar duplicados consultando la lista.
     """
     try:
-        # Obtener lista existente
-        r = requests.get(
-            f"{API_URL}/sesiones/{id_sesion}/archivos",
-            timeout=10
-        )
-        r.raise_for_status()
-        existentes = r.json()
+        existentes = []
+        try:
+            rr = _request(
+                "GET", f"{API_URL}/sesiones/{id_sesion}/archivos", timeout=10)
+            existentes = rr.json() or []
+        except Exception:
+            # Si no existe endpoint o falla, seguimos e intentamos POST
+            existentes = []
 
-        # Ver si YA existe
-        if any(a["tipo_archivo"] == tipo_archivo for a in existentes):
-            return
+        if any(a.get("tipo_archivo") == tipo_archivo for a in existentes):
+            return None
 
         payload = {
             "sesion_id": id_sesion,
@@ -114,12 +194,7 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=No
             "conversion_completa": False
         }
 
-        r = requests.post(
-            f"{API_URL}/archivos/",
-            json=payload,
-            timeout=10
-        )
-        r.raise_for_status()
+        r = _request("POST", f"{API_URL}/archivos/", json=payload, timeout=10)
         return r.json().get("id")
 
     except Exception as e:
@@ -135,17 +210,14 @@ def finalizar_archivo(sesion_id, tipo_archivo, ruta):
         payload = {
             "estado": "completado",
             "mensaje": f"Archivo finalizado correctamente: {ruta}",
-            "fecha_finalizacion": True,
+            # ✅ datetime ISO (no bool)
+            "fecha_finalizacion": _utcnow_iso(),
             "ruta_convertida": ruta,
             "conversion_completa": True
         }
 
-        r = requests.put(
-            f"{API_URL}/archivos/{sesion_id}/{tipo_archivo}/actualizar_estado",
-            json=payload,
-            timeout=10
-        )
-        r.raise_for_status()
+        _request(
+            "PUT", f"{API_URL}/archivos/{sesion_id}/{tipo_archivo}/actualizar_estado", json=payload, timeout=10)
         return True
 
     except Exception as e:
@@ -153,17 +225,22 @@ def finalizar_archivo(sesion_id, tipo_archivo, ruta):
         return False
 
 
+# ============================================================
+#   PAUSAS AUTO
+# ============================================================
 def registrar_pausas_auto(sesion_id, pausas):
     """
     Registra pausas detectadas automáticamente.
+    Endpoint correcto: /sesiones/{sesion_id}/pausas_detectadas
     """
     try:
-        r = requests.post(
-            f"{API_URL}/sesiones/{sesion_id}/pausas_auto",
+        _request(
+            "POST",
+            f"{API_URL}/sesiones/{sesion_id}/pausas_detectadas",
             json={"pausas": pausas},
             timeout=10
         )
-        return r.status_code == 200
+        return True
 
     except Exception as e:
         print(f"❌ Error registrando pausas auto: {e}")

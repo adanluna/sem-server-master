@@ -12,6 +12,7 @@ import subprocess
 from glob import glob
 from dotenv import load_dotenv
 from .celery_app import celery_app
+from worker.job_api_client import actualizar_job
 
 load_dotenv()
 
@@ -136,102 +137,117 @@ def ruta_manifest(mac, fecha):
 #   CELERY TASK — GENERAR MANIFEST INCREMENTAL SEGURo
 # ============================================================
 
-# ============================================================
-#   CELERY TASK — GENERAR MANIFEST INCREMENTAL SEGURO
-# ============================================================
-
 @celery_app.task(name="tasks.generar_manifest", queue="manifest")
-def generar_manifest(mac_camara, fecha_iso):
+def generar_manifest(mac_camara, fecha_iso, job_id):
     """
     Genera o actualiza el manifest de una cámara en un día.
     Solo agrega fragmentos nuevos, con validación extendida.
     Ahora espera 5 minutos ANTES de generar el manifest.
     """
     import time
+    try:
+        # ============================================================
+        #   ESPERA REQUERIDA PARA ASEGURAR EL ÚLTIMO FRAGMENTO
+        # ============================================================
+        # por defecto 5 minutos
+        WAIT_SECONDS = int(os.getenv("MANIFEST_WAIT_SECONDS", "300"))
 
-    # ============================================================
-    #   ESPERA REQUERIDA PARA ASEGURAR EL ÚLTIMO FRAGMENTO
-    # ============================================================
-    # por defecto 5 minutos
-    WAIT_SECONDS = int(os.getenv("MANIFEST_WAIT_SECONDS", "300"))
+        print(
+            f"[MANIFEST] Esperando {WAIT_SECONDS} segundos antes de generar manifest para cámara {mac_camara}...")
+        time.sleep(WAIT_SECONDS)
+        print(
+            f"[MANIFEST] Iniciando generación real del manifest para cámara {mac_camara}")
 
-    print(
-        f"[MANIFEST] Esperando {WAIT_SECONDS} segundos antes de generar manifest para cámara {mac_camara}...")
-    time.sleep(WAIT_SECONDS)
-    print(
-        f"[MANIFEST] Iniciando generación real del manifest para cámara {mac_camara}")
+        fecha_base = datetime.datetime.fromisoformat(fecha_iso).date()
+        fechas_a_procesar = obtener_fechas_a_procesar(fecha_base)
 
-    fecha_base = datetime.datetime.fromisoformat(fecha_iso).date()
-    fechas_a_procesar = obtener_fechas_a_procesar(fecha_base)
+        todas_las_rutas = []
 
-    todas_las_rutas = []
+        for fecha in fechas_a_procesar:
+            ruta_frag = os.path.join(
+                SMB_ROOT,
+                GRABADOR_UUID,
+                "hi_quality",
+                mac_camara,
+                fecha.strftime("%Y"),
+                fecha.strftime("%m"),
+                fecha.strftime("%d")
+            )
 
-    for fecha in fechas_a_procesar:
-        ruta_frag = os.path.join(
-            SMB_ROOT,
-            GRABADOR_UUID,
-            "hi_quality",
-            mac_camara,
-            fecha.strftime("%Y"),
-            fecha.strftime("%m"),
-            fecha.strftime("%d")
+            pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
+            todas_las_rutas.extend(glob(pattern))
+
+            if not todas_las_rutas:
+                msg = "No se encontraron fragmentos para generar manifest"
+                actualizar_job(
+                    job_id,
+                    estado="error",
+                    error=msg
+                )
+                raise RuntimeError(msg)
+
+        fragmentos = sorted(todas_las_rutas)
+
+        path_manifest = ruta_manifest(mac_camara, fecha_base)
+        manifest = cargar_manifest(path_manifest)
+
+        manifest.setdefault("uuid", GRABADOR_UUID)
+        manifest.setdefault("fecha", fecha_iso)
+        manifest.setdefault("camara_mac", mac_camara)
+        manifest.setdefault("archivos", [])
+
+        ya_archivos = {a["archivo"] for a in manifest["archivos"]}
+        ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
+
+        nuevos = []
+
+        for file_path in fragmentos:
+            archivo = os.path.basename(file_path)
+
+            if archivo in ya_archivos:
+                continue
+
+            inicio, fin, dur = extraer_timestamps(archivo, file_path)
+            if inicio is None:
+                continue
+
+            if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
+                print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
+                continue
+
+            entry = {
+                "archivo": archivo,
+                "inicio": inicio.isoformat(),
+                "fin": fin.isoformat(),
+                "duracion_segundos": dur,
+                "ruta": file_path
+            }
+
+            manifest["archivos"].append(entry)
+            nuevos.append(entry)
+
+        manifest["archivos"].sort(key=lambda x: x["inicio"])
+
+        guardar_manifest(path_manifest, manifest)
+
+        print(f"[MANIFEST] Guardado → {path_manifest}")
+        print(f"[MANIFEST] Fragmentos nuevos agregados: {len(nuevos)}")
+
+        actualizar_job(
+            job_id,
+            estado="completado",
+            resultado="Manifest generado correctamente"
         )
 
-        pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
-        todas_las_rutas.extend(glob(pattern))
+        return True
 
-    if not todas_las_rutas:
-        print("[MANIFEST] No se encontraron fragmentos en ninguno de los días evaluados")
-        return False
-
-    fragmentos = sorted(todas_las_rutas)
-
-    path_manifest = ruta_manifest(mac_camara, fecha_base)
-    manifest = cargar_manifest(path_manifest)
-
-    manifest.setdefault("uuid", GRABADOR_UUID)
-    manifest.setdefault("fecha", fecha_iso)
-    manifest.setdefault("camara_mac", mac_camara)
-    manifest.setdefault("archivos", [])
-
-    ya_archivos = {a["archivo"] for a in manifest["archivos"]}
-    ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
-
-    nuevos = []
-
-    for file_path in fragmentos:
-        archivo = os.path.basename(file_path)
-
-        if archivo in ya_archivos:
-            continue
-
-        inicio, fin, dur = extraer_timestamps(archivo, file_path)
-        if inicio is None:
-            continue
-
-        if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
-            print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
-            continue
-
-        entry = {
-            "archivo": archivo,
-            "inicio": inicio.isoformat(),
-            "fin": fin.isoformat(),
-            "duracion_segundos": dur,
-            "ruta": file_path
-        }
-
-        manifest["archivos"].append(entry)
-        nuevos.append(entry)
-
-    manifest["archivos"].sort(key=lambda x: x["inicio"])
-
-    guardar_manifest(path_manifest, manifest)
-
-    print(f"[MANIFEST] Guardado → {path_manifest}")
-    print(f"[MANIFEST] Fragmentos nuevos agregados: {len(nuevos)}")
-
-    return True
+    except Exception as e:
+        actualizar_job(
+            job_id,
+            estado="error",
+            error=str(e)
+        )
+        raise
 
 
 def obtener_fechas_a_procesar(fecha_base):

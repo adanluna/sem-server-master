@@ -245,6 +245,65 @@ BEFORE UPDATE ON jobs
 FOR EACH ROW
 EXECUTE FUNCTION actualizar_fecha_actualizacion();
 
+-- ============================================================
+-- AUTH: Dashboard Users (local)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dashboard_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(80) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    roles VARCHAR(255) NOT NULL DEFAULT 'dashboard_read',
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TIMESTAMPTZ NULL,
+
+    last_login_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_dashboard_users_username ON dashboard_users (username);
+
+
+-- ============================================================
+-- AUTH: Service Clients (workers / integraciones)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS service_clients (
+    id SERIAL PRIMARY KEY,
+    client_id VARCHAR(120) UNIQUE NOT NULL,
+    client_secret_hash VARCHAR(255) NOT NULL,
+    roles VARCHAR(255) NOT NULL DEFAULT 'worker',
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+    allowed_ips TEXT NULL,
+
+    last_used_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_service_clients_client_id ON service_clients (client_id);
+
+
+-- ============================================================
+-- AUTH: Refresh Tokens (hash)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    subject VARCHAR(200) NOT NULL,
+    jti VARCHAR(120) UNIQUE NOT NULL,
+    token_hash VARCHAR(64) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NULL,
+
+    rotated_to_id INTEGER NULL REFERENCES refresh_tokens(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_refresh_tokens_subject ON refresh_tokens (subject);
+CREATE INDEX IF NOT EXISTS ix_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+
+
 -- =====================================================
 -- FIN
 -- =====================================================
+
