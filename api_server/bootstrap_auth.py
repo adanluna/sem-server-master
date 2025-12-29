@@ -3,17 +3,19 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from api_server.database import SessionLocal
 from api_server import models
+from dotenv import load_dotenv
+load_dotenv(".env")
 
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DASH_USER = os.getenv("BOOTSTRAP_DASH_USER", "admin")
-DASH_PASS = os.getenv("BOOTSTRAP_DASH_PASS", "Admin123!Cambiar")
+DASH_PASS = os.getenv("BOOTSTRAP_DASH_PASS", "")
 WORKER_CLIENT_ID = os.getenv("BOOTSTRAP_WORKER_CLIENT_ID", "worker_master")
 WORKER_CLIENT_SECRET = os.getenv(
-    "BOOTSTRAP_WORKER_CLIENT_SECRET", "WorkerSecretCambiar")
+    "BOOTSTRAP_WORKER_CLIENT_SECRET", "")
 WHISPER_CLIENT_ID = os.getenv("BOOTSTRAP_WHISPER_CLIENT_ID", "worker_whisper")
 WHISPER_CLIENT_SECRET = os.getenv(
-    "BOOTSTRAP_WHISPER_CLIENT_SECRET", "WhisperSecretCambiar")
+    "BOOTSTRAP_WHISPER_CLIENT_SECRET", "")
 
 
 def main():

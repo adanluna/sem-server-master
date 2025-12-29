@@ -13,6 +13,7 @@ from glob import glob
 from dotenv import load_dotenv
 from .celery_app import celery_app
 from worker.job_api_client import actualizar_job
+from worker.heartbeat import send_heartbeat
 
 load_dotenv()
 
@@ -158,6 +159,15 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
         print(
             f"[MANIFEST] Iniciando generación real del manifest para cámara {mac_camara}")
 
+        pid = os.getpid()
+
+        # send_heartbeat(
+        #    worker="manifest",
+        #    status="processing",
+        #    pid=pid,
+        #    queue="manifest"
+        # )
+
         fecha_base = datetime.datetime.fromisoformat(fecha_iso).date()
         fechas_a_procesar = obtener_fechas_a_procesar(fecha_base)
 
@@ -248,6 +258,13 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
             error=str(e)
         )
         raise
+    # finally:
+    #    send_heartbeat(
+    #        worker="manifest",
+    #        status="listening",
+    #        pid=pid,
+    #        queue="manifest"
+    #    )
 
 
 def obtener_fechas_a_procesar(fecha_base):

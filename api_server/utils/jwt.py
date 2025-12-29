@@ -12,12 +12,16 @@ JWT_SECRET = os.getenv("JWT_SECRET", "dev_inseguro")
 JWT_ALG = os.getenv("JWT_ALG", "HS256")
 JWT_ISSUER = os.getenv("JWT_ISSUER", "semefo-api")
 JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "semefo")
-
 AUTH_ENFORCE = os.getenv("AUTH_ENFORCE", "0") == "1"
+ALGORITHM = "HS256"
 
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "30"))
 REFRESH_TOKEN_HOURS = int(os.getenv("REFRESH_TOKEN_HOURS", "12"))
 SERVICE_TOKEN_HOURS = int(os.getenv("SERVICE_TOKEN_HOURS", "24"))
+DASHBOARD_ACCESS_TOKEN_MINUTES = int(
+    os.getenv("DASHBOARD_ACCESS_TOKEN_MINUTES", "30"))
+DASHBOARD_REFRESH_TOKEN_DAYS = int(
+    os.getenv("DASHBOARD_REFRESH_TOKEN_DAYS", "14"))
 
 
 def _now_utc():
@@ -28,14 +32,14 @@ def _sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def create_access_token(sub: str, roles: list[str], ttl_minutes: int):
+def create_access_token(sub: str, roles: list[str], ttl_minutes: int, token_type: str = "access"):
     jti = secrets.token_urlsafe(16)
     payload = {
         "iss": JWT_ISSUER,
         "aud": JWT_AUDIENCE,
         "sub": sub,
         "roles": roles,
-        "type": "access",
+        "type": token_type,
         "jti": jti,
         "iat": int(_now_utc().timestamp()),
         "exp": int((_now_utc() + timedelta(minutes=ttl_minutes)).timestamp()),
@@ -79,10 +83,18 @@ def get_current_principal(authorization: str = Header(default=None)):
 
     try:
         payload = decode_token(token)
-        if payload.get("type") != "access":
+        token_type = payload.get("type")
+
+        if token_type not in ("access", "dashboard", "service"):
             raise HTTPException(
-                status_code=401, detail="Token inválido (type)")
-        return {"sub": payload.get("sub"), "roles": payload.get("roles", [])}
+                status_code=401,
+                detail="Token inválido (type)"
+            )
+        return {
+            "sub": payload.get("sub"),
+            "roles": payload.get("roles", []),
+            "type": token_type
+        }
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido/expirado")
 
@@ -94,3 +106,26 @@ def require_roles(*allowed: str):
             raise HTTPException(status_code=403, detail="Sin permisos")
         return principal
     return dep
+
+
+def require_dashboard_admin(principal=Depends(get_current_principal)):
+    """
+    Permite acceso SOLO a usuarios del dashboard con rol dashboard_admin
+    """
+    roles = principal.get("roles", [])
+    token_type = principal.get("type")
+
+    # Opcional: forzar que sea token dashboard
+    if token_type != "dashboard":
+        raise HTTPException(
+            status_code=401,
+            detail="Token inválido para dashboard"
+        )
+
+    if "dashboard_admin" not in roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Permisos insuficientes"
+        )
+
+    return principal

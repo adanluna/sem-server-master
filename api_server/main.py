@@ -1,16 +1,16 @@
 from datetime import timedelta, datetime, timezone
 from ldap3 import Server, Connection, NTLM, ALL
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, distinct, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 import logging
 import os
 from celery import chain
 import requests
-import socket
-import shutil
 import json
+import socket
 
 # Imports internos
 from api_server.database import get_db
@@ -30,14 +30,16 @@ from api_server.schemas import (
     InfraEstadoCreate,
     PlanchaResponse,
     PlanchaUpdate,
-    PlanchaCreate
+    PlanchaCreate,
+    WorkerHeartbeat
 )
 from api_server.models import LDAPLoginRequest, AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
 from api_server.utils.ping import ping_ip
 from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhmmss_to_seconds
-from api_server.utils.jobs import crear_job_interno, detectar_pipeline_bloqueado, verificar_estado_sesion
+from api_server.utils.jobs import crear_job_interno, verificar_estado_sesion
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
+from api_server.routers.dashboard import router as dashboard_router
 
 # Declaración del logger
 logging.basicConfig(level=logging.INFO)
@@ -58,6 +60,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # dashboard
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(dashboard_router)
+
 rabbit_user = os.getenv("RABBITMQ_USER")
 rabbit_pass = os.getenv("RABBITMQ_PASS")
 rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
@@ -68,6 +83,11 @@ API_SERVER_URL = os.getenv("API_SERVER_URL", "http://localhost:8000").strip()
 
 if not API_SERVER_URL.startswith("http"):
     API_SERVER_URL = f"http://{API_SERVER_URL}"
+
+DASHBOARD_ACCESS_TOKEN_MINUTES = int(
+    os.getenv("DASHBOARD_ACCESS_TOKEN_MINUTES", "30"))
+DASHBOARD_REFRESH_TOKEN_DAYS = int(
+    os.getenv("DASHBOARD_REFRESH_TOKEN_DAYS", "14"))
 
 # ============================================================
 #  RUTAS BÁSICAS
@@ -1175,6 +1195,9 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
     if row.expires_at < _now_utc():
         raise HTTPException(401, "Refresh expirado")
 
+    if not row.subject.startswith("dash:"):
+        raise HTTPException(403, "Refresh no permitido para dashboard")
+
     # Rotación: revocar el actual y emitir uno nuevo
     sub = row.subject
     # roles: puedes derivarlas del subject o guardarlas también en RefreshToken.
@@ -1225,7 +1248,7 @@ def auth_service_token(data: ServiceTokenRequest, db: Session = Depends(get_db))
 
 
 @app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
-def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
+def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
     plancha = models.Plancha(**data.dict())
     db.add(plancha)
     try:
@@ -1243,7 +1266,8 @@ def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db)):
 @app.get("/planchas/", response_model=list[PlanchaResponse])
 def listar_planchas(
     incluir_inactivas: bool = True,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
 ):
     q = db.query(models.Plancha)
 
@@ -1253,7 +1277,7 @@ def listar_planchas(
     return q.order_by(models.Plancha.nombre.asc()).all()
 
 
-@app.get("/planchas/disponibles", response_model=list[PlanchaResponse])
+@app.get("/planchas/disponibles", response_model=list[PlanchaResponse],)
 def listar_planchas_disponibles(db: Session = Depends(get_db)):
     return (
         db.query(models.Plancha)
@@ -1267,7 +1291,7 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
 
 
 @app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
     plancha = (
         db.query(models.Plancha)
         .filter(models.Plancha.id == plancha_id)
@@ -1284,7 +1308,8 @@ def obtener_plancha(plancha_id: int, db: Session = Depends(get_db)):
 def actualizar_plancha(
     plancha_id: int,
     data: PlanchaUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
 ):
     plancha = (
         db.query(models.Plancha)
@@ -1312,7 +1337,7 @@ def actualizar_plancha(
 
 
 @app.delete("/planchas/{plancha_id}", status_code=204)
-def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db)):
+def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
     plancha = (
         db.query(models.Plancha)
         .filter(models.Plancha.id == plancha_id)
@@ -1375,158 +1400,18 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
         "sesiones": sesiones_out
     }
 
-
-# ============================================================
-#  📊 DASHBOARD (lectura)
-# ============================================================
-
-@app.get("/dashboard/expedientes")
-def dashboard_expedientes(
-    desde: datetime,
-    hasta: datetime,
-    page: int = 1,
-    per_page: int = 20,
-    db: Session = Depends(get_db)
-):
-    q = (
-        db.query(
-            models.Investigacion.numero_expediente,
-            models.Investigacion.fecha_creacion,
-            func.count(distinct(models.Sesion.id)).label("total_sesiones"),
-            func.count(models.SesionArchivo.id).label("total_archivos"),
-        )
-        .outerjoin(models.Sesion, models.Sesion.investigacion_id == models.Investigacion.id)
-        .outerjoin(models.SesionArchivo, models.SesionArchivo.sesion_id == models.Sesion.id)
-        .filter(models.Investigacion.fecha_creacion.between(desde, hasta))
-        .group_by(models.Investigacion.id)
-        .order_by(models.Investigacion.fecha_creacion.desc())
-    )
-
-    total = q.count()
-    data = q.offset((page - 1) * per_page).limit(per_page).all()
-
-    return {
-        "meta": {
-            "page": page,
-            "per_page": per_page,
-            "total": total
-        },
-        "data": [
-            {
-                "numero_expediente": r.numero_expediente,
-                "fecha_creacion": r.fecha_creacion,
-                "total_sesiones": r.total_sesiones,
-                "total_archivos": r.total_archivos
-            }
-            for r in data
-        ]
-    }
-
-
-@app.get("/dashboard/sesiones")
-def dashboard_sesiones(
-    desde: datetime,
-    hasta: datetime,
-    page: int = 1,
-    per_page: int = 25,
-    db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_read", "dashboard_admin"))
-):
-    q = (
-        db.query(models.Sesion)
-        .filter(models.Sesion.fecha.between(desde, hasta))
-        .order_by(models.Sesion.fecha.desc())
-    )
-
-    total = q.count()
-    sesiones = q.offset((page - 1) * per_page).limit(per_page).all()
-
-    data = []
-    for s in sesiones:
-        jobs = (
-            db.query(
-                models.Job.estado,
-                func.count(models.Job.id).label("total")
-            )
-            .filter(models.Job.sesion_id == s.id)
-            .group_by(models.Job.estado)
-            .all()
-        )
-
-        resumen_jobs = {j.estado: j.total for j in jobs}
-
-        data.append({
-            "sesion_id": s.id,
-            "numero_expediente": s.investigacion.numero_expediente,
-            "usuario_ldap": s.usuario_ldap,
-            "fecha": s.fecha,
-            "estado": s.estado,
-            "duracion_sesion_seg": s.duracion_sesion_seg,
-            "jobs": {
-                "pendiente": resumen_jobs.get("pendiente", 0),
-                "procesando": resumen_jobs.get("procesando", 0),
-                "completado": resumen_jobs.get("completado", 0),
-                "error": resumen_jobs.get("error", 0),
-            }
-        })
-
-    return {
-        "meta": {
-            "page": page,
-            "per_page": per_page,
-            "total": total
-        },
-        "data": data
-    }
-
-
-@app.get("/dashboard/jobs")
-def dashboard_jobs(
-    estado: str,
-    page: int = 1,
-    per_page: int = 50,
-    db: Session = Depends(get_db)
-):
-    q = (
-        db.query(models.Job)
-        .filter(models.Job.estado == estado)
-        .order_by(models.Job.fecha_creacion.desc())
-    )
-
-    total = q.count()
-    jobs = q.offset((page - 1) * per_page).limit(per_page).all()
-
-    return {
-        "meta": {
-            "page": page,
-            "per_page": per_page,
-            "total": total
-        },
-        "data": [
-            {
-                "job_id": j.id,
-                "numero_expediente": j.investigacion.numero_expediente,
-                "sesion_id": j.sesion_id,
-                "tipo": j.tipo,
-                "archivo": j.archivo,
-                "estado": j.estado,
-                "fecha_creacion": j.fecha_creacion,
-                "error": j.error
-            }
-            for j in jobs
-        ]
-    }
-
-
 # ============================================================
 #  🏗️ INFRAESTRUCTURA (reportes, estado, salud)
 # ============================================================
 
 # Obtener estado de la infraestructura
+
+
 @app.post("/infra/estado")
 def registrar_infra_estado(
     data: InfraEstadoCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
 ):
     nuevo = models.InfraEstado(**data.dict())
     db.add(nuevo)
@@ -1682,157 +1567,41 @@ def estado_general_infraestructura(payload: dict):
     }
 
 
-# ============================================================
-#  📊 DASHBOARD / CONSULTAS (LECTURA) — Estado Infra
-# ============================================================
-
-@app.get("/dashboard/infra/estado")
-def infra_estado_dashboard(db: Session = Depends(get_db)):
-    estado = {
-        "infra_status": "ok",  # ok | warning | error
-        "api": "ok",
-        "db": "error",
-        "rabbitmq": "error",
-        "workers": {
-            "manifest": "desconocido",
-            "video": "desconocido",
-            "video2": "desconocido",
-            "audio": "desconocido",
-            "transcripcion": "desconocido"
-        },
-        "disco": {
-            "master": None,
-            "whisper": {
-                "status": "sin_reporte"
-            }
-        },
-        "pipeline_bloqueado": {
-            "total": 0,
-            "sesiones": []
-        },
+@app.post("/infra/heartbeat")
+def worker_heartbeat(data: dict, db: Session = Depends(get_db)):
+    """
+    data = {
+        worker: video | video2 | audio | transcripcion | manifest
+        status: listening | processing
+        pid: int
+        queue: str | None
     }
+    """
 
-    # -------------------------------------------------
-    # DB
-    # -------------------------------------------------
-    try:
-        db.execute(text("SELECT 1"))
-        estado["db"] = "ok"
-    except Exception:
-        estado["db"] = "error"
+    host = socket.gethostname()
 
-    # -------------------------------------------------
-    # RabbitMQ (socket check)
-    # -------------------------------------------------
-    try:
-        rabbit_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
-        rabbit_port = 5672
-        sock = socket.create_connection((rabbit_host, rabbit_port), timeout=2)
-        sock.close()
-        estado["rabbitmq"] = "ok"
-    except Exception:
-        estado["rabbitmq"] = "error"
-
-    # -------------------------------------------------
-    # Workers (heurística por jobs recientes)
-    # -------------------------------------------------
-    try:
-        limite = datetime.now(timezone.utc) - timedelta(minutes=10)
-
-        jobs = (
-            db.query(models.Job.tipo)
-            .filter(models.Job.fecha_actualizacion >= limite)
-            .all()
-        )
-
-        tipos_activos = {j.tipo for j in jobs}
-
-        estado["workers"]["manifest"] = (
-            "activo"
-            if any(t.startswith("manifest") for t in tipos_activos)
-            else "inactivo"
-        )
-
-        estado["workers"]["video"] = (
-            "activo" if "video" in tipos_activos else "inactivo"
-        )
-
-        estado["workers"]["video2"] = (
-            "activo" if "video2" in tipos_activos else "inactivo"
-        )
-
-        estado["workers"]["audio"] = (
-            "activo" if "audio" in tipos_activos else "inactivo"
-        )
-
-        estado["workers"]["transcripcion"] = (
-            "activo" if "transcripcion" in tipos_activos else "inactivo"
-        )
-
-    except Exception:
-        pass
-
-    bloqueadas = detectar_pipeline_bloqueado(db)
-
-    if len(bloqueadas) >= 3:
-        estado["infra_status"] = "error"
-
-    if bloqueadas:
-        estado["infra_status"] = "warning"
-        estado["pipeline_bloqueado"] = {
-            "total": len(bloqueadas),
-            "sesiones": bloqueadas
-        }
-
-    # -------------------------------------------------
-    # WARNING: errores recientes en manifest
-    # -------------------------------------------------
-    limite = datetime.now(timezone.utc) - timedelta(minutes=30)
-    errores_manifest = (
-        db.query(models.Job)
-        .filter(
-            models.Job.tipo == "manifest",
-            models.Job.estado == "error",
-            models.Job.fecha_actualizacion >= limite
-        )
-        .count()
-    )
-
-    if errores_manifest > 0:
-        estado["infra_status"] = "warning"
-
-    # -------------------------------------------------
-    # Disco MASTER (en vivo)
-    # -------------------------------------------------
-    try:
-        total, used, free = shutil.disk_usage("/")
-        estado["disco"]["master"] = {
-            "total_gb": round(total / (1024 ** 3), 2),
-            "usado_gb": round(used / (1024 ** 3), 2),
-            "libre_gb": round(free / (1024 ** 3), 2)
-        }
-    except Exception:
-        estado["disco"]["master"] = None
-
-    # -------------------------------------------------
-    # Disco WHISPER (desde BD)
-    # -------------------------------------------------
-    whisper = (
-        db.query(models.InfraEstado)
-        .filter(models.InfraEstado.servidor == "whisper")
-        .order_by(models.InfraEstado.fecha.desc())
+    hb = (
+        db.query(models.WorkerHeartbeatModel)
+        .filter_by(worker=data["worker"], host=host)
         .first()
     )
 
-    if whisper:
-        retraso = datetime.now(timezone.utc) - whisper.fecha
+    if hb:
+        hb.status = data["status"]
+        hb.pid = data.get("pid")
+        hb.queue = data.get("queue")
+        hb.last_seen = datetime.now(timezone.utc)
+    else:
+        hb = models.WorkerHeartbeatModel(
+            worker=data["worker"],
+            host=host,
+            queue=data.get("queue"),
+            pid=data.get("pid"),
+            status=data["status"],
+            last_seen=datetime.now(timezone.utc),
+        )
+        db.add(hb)
 
-        estado["disco"]["whisper"] = {
-            "total_gb": whisper.disco_total_gb,
-            "usado_gb": whisper.disco_usado_gb,
-            "libre_gb": whisper.disco_libre_gb,
-            "fecha": whisper.fecha,
-            "status": "stale" if retraso > timedelta(minutes=10) else "ok"
-        }
+    db.commit()
 
-    return estado
+    return {"ok": True}

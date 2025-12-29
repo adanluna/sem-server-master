@@ -2,8 +2,6 @@
 --  SEMEFO - ESTRUCTURA OFICIAL UNIFICADA (POSTGRESQL 15)
 -- =====================================================================
 
-\connect semefo;
-
 -- =====================================================
 -- ENUMS
 -- =====================================================
@@ -13,7 +11,8 @@ CREATE TYPE tipo_archivo_enum AS ENUM (
     'audio2',
     'video',
     'video2',
-    'transcripcion'
+    'transcripcion',
+    'maninfest',
 );
 
 CREATE TYPE estado_archivo_enum AS ENUM (
@@ -100,7 +99,8 @@ CREATE TABLE IF NOT EXISTS sesiones (
 
     observaciones TEXT,
     fecha TIMESTAMP DEFAULT NOW(),
-    ultima_actualizacion TIMESTAMP DEFAULT NOW()
+    duracion_real FLOAT,
+    ultima_actualizacion TIMESTAMP DEFAULT NOW(),
 );
 
 -- =====================================================
@@ -301,6 +301,53 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 
 CREATE INDEX IF NOT EXISTS ix_refresh_tokens_subject ON refresh_tokens (subject);
 CREATE INDEX IF NOT EXISTS ix_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+
+CREATE TABLE infra_estado (
+    id SERIAL PRIMARY KEY,
+    servidor VARCHAR(50) NOT NULL, -- master | whisper
+    disco_total_gb DOUBLE PRECISION NOT NULL,
+    disco_usado_gb DOUBLE PRECISION NOT NULL,
+    disco_libre_gb DOUBLE PRECISION NOT NULL,
+    fecha TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_infra_estado_servidor_fecha
+ON infra_estado (servidor, fecha DESC);
+
+CREATE TABLE workers_heartbeat (
+    id SERIAL PRIMARY KEY,
+    worker VARCHAR(50) NOT NULL,
+    host VARCHAR(100),
+    queue VARCHAR(100),
+    status VARCHAR(20),
+    last_seen TIMESTAMPTZ NOT NULL,
+    pid INTEGER
+);
+
+CREATE UNIQUE INDEX uq_worker_host
+ON workers_heartbeat (worker, host);
+
+INSERT INTO dashboard_users (
+    username,
+    password_hash,
+    roles,
+    activo,
+    failed_attempts,
+    locked_until,
+    last_login_at,
+    created_at
+)
+VALUES (
+    'admin',
+    '$2b$12$YasYtckBgxd17iPrDvVHie9g5FUOKuQyagGcqFCmmZDwcfTI2jyyi',
+    'dashboard_admin',
+    true,
+    0,
+    NULL,
+    NULL,
+    NOW()
+);
+
 
 
 -- =====================================================

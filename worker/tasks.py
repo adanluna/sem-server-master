@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import psutil
 import time
 
+from worker.heartbeat import send_heartbeat
 from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo
 from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
 
@@ -30,6 +31,8 @@ TEMP_ROOT = os.getenv("TEMP_ROOT", "/opt/semefo/storage/tmp")
 FFMPEG_THREADS = int(os.getenv("FFMPEG_THREADS", 4))
 
 os.makedirs(TEMP_ROOT, exist_ok=True)
+QUEUE_VIDEO = "uniones_video"
+
 
 # ============================================================
 #   UTILIDADES
@@ -155,6 +158,16 @@ def esperar_cpu_baja(limite=85):
 
 def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
+    pid = os.getpid()
+
+    # 🔴 Worker está PROCESANDO
+    # send_heartbeat(
+    #    worker=tipo,
+    #    status="processing",
+    #    pid=pid,
+    #    queue=QUEUE_VIDEO
+    # )
+
     info = requests.get(
         f"{API_URL}/sesiones/{id_sesion}/pausas_todas", timeout=5).json()
 
@@ -247,7 +260,12 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
     finally:
         limpiar_temp(temp_dir)
-
+        # send_heartbeat(
+        #    worker=tipo,
+        #    status="listening",
+        #    queue=QUEUE_VIDEO
+        #    pid=pid,
+        # )
     return True
 
 # ============================================================

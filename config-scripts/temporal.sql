@@ -88,3 +88,67 @@ ON CONFLICT (id) DO UPDATE SET
   camara2_activa = EXCLUDED.camara2_activa,
   activo = EXCLUDED.activo,
   asignada = EXCLUDED.asignada;
+
+/***************************************/
+ALTER TABLE sesiones
+ADD COLUMN duracion_real FLOAT;
+CREATE TABLE infra_estado (
+    id SERIAL PRIMARY KEY,
+    servidor VARCHAR(50) NOT NULL, -- master | whisper
+    disco_total_gb DOUBLE PRECISION NOT NULL,
+    disco_usado_gb DOUBLE PRECISION NOT NULL,
+    disco_libre_gb DOUBLE PRECISION NOT NULL,
+    fecha TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_infra_estado_servidor_fecha
+ON infra_estado (servidor, fecha DESC);
+
+CREATE TABLE workers_heartbeat (
+    id SERIAL PRIMARY KEY,
+    worker VARCHAR(50) NOT NULL,
+    host VARCHAR(100),
+    queue VARCHAR(100),
+    status VARCHAR(20),
+    last_seen TIMESTAMPTZ NOT NULL,
+    pid INTEGER
+);
+
+CREATE UNIQUE INDEX uq_worker_host
+ON workers_heartbeat (worker, host);
+
+/**/
+docker exec -it fastapi_app python api_server/bootstrap_auth.py
+
+/* instalar vue */
+npm create vite@latest semefo-dashboard
+# Framework: Vue
+# Variant: TypeScript
+cd semefo-dashboard
+npm install
+npm install axios vue-router
+npm install vue-router@4
+npm run dev
+
+docker compose exec db psql -U semefo_user -d semefo
+// pass: Admin123!
+INSERT INTO dashboard_users (
+    username,
+    password_hash,
+    roles,
+    activo,
+    failed_attempts,
+    locked_until,
+    last_login_at,
+    created_at
+)
+VALUES (
+    'admin',
+    '$2b$12$YasYtckBgxd17iPrDvVHie9g5FUOKuQyagGcqFCmmZDwcfTI2jyyi',
+    'dashboard_admin,dashboard_read',
+    true,
+    0,
+    NULL,
+    NULL,
+    NOW()
+);

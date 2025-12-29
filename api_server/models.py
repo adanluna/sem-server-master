@@ -60,7 +60,6 @@ class Sesion(Base):
 
     estado = Column(String(50), nullable=False, default="en_progreso")
 
-    # Ojo: aquí tú usas datetime.utcnow (naive). Mejor UTC aware.
     fecha = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     camara1_mac_address = Column(String(100), nullable=True)
@@ -69,16 +68,9 @@ class Sesion(Base):
     app_version = Column(String(50), nullable=True)
     progreso_porcentaje = Column(Float, default=0)
 
-    sha256 = Column(String, nullable=True)
-
-    duracion_archivo_seg = Column(Float, nullable=True)
-    duracion_sesion_seg = Column(Float, nullable=True)
-
     inicio = Column(DateTime(timezone=True), nullable=True)
     fin = Column(DateTime(timezone=True), nullable=True)
-
-    # (En tu main.py usas sesion.duracion_real, pero en modelo no existe.
-    #  Eso hoy puede tronar. Ver sección de "fallas" abajo.)
+    duracion_real = Column(Float, nullable=True)
 
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
@@ -306,11 +298,46 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True),
                         default=utcnow, nullable=False)
 
+# ============================================================
+#  ❤️ TABLA: Workers Heartbeat (salud real de workers)
+# ============================================================
+
+
+class WorkerHeartbeatModel(Base):
+    __tablename__ = "workers_heartbeat"
+
+    id = Column(Integer, primary_key=True)
+
+    # Identidad del worker
+    # audio | video | video2 | transcripcion | manifest
+    worker = Column(String(50), nullable=False)
+    # server-master | server-whisper
+    host = Column(String(100), nullable=False)
+    # nombre de cola RabbitMQ
+    queue = Column(String(100), nullable=True)
+    pid = Column(Integer, nullable=True)               # PID del proceso
+
+    # Estado operativo
+    status = Column(String(20), nullable=False)        # listening | processing
+
+    # Última señal
+    last_seen = Column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+        index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("worker", "host", name="uq_worker_host"),
+    )
 
 # ============================================================
 #  (Compat) Pydantic requests que hoy ya usas desde models.py
 #  Recomendación: moverlos a schemas.py, pero los dejo para no romper imports
 # ============================================================
+
+
 class LDAPLoginRequest(BaseModel):
     username: str
     password: str

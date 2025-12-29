@@ -10,6 +10,7 @@ make restart
 ---------- no -----
 
 --- si ----
+docker compose exec db psql -U semefo_user -d semefo
 docker logs -f celery_manifest
 docker logs celery_uniones -f
 docker compose logs fastapi -f

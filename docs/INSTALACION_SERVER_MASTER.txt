@@ -228,9 +228,14 @@ AGREGAR:
 
 
 ------------------------------------------------------------
-17. Montaje automático de evidencia SEMEFO
+17. Montaje automático de evidencia SEMEFO (cambiar credenciales si es necesario)
 ------------------------------------------------------------
 ./config-scripts/montaje-smb.sh
+
+------------------------------------------------------------
+CORRER PARA CREAR USUARIOS A LOS DASHBOARD Y WORKERS (solo una vez)
+------------------------------------------------------------
+docker exec -it fastapi_app python api_server/bootstrap_auth.py
 
 ------------------------------------------------------------
 NOTAS IMPORTANTES

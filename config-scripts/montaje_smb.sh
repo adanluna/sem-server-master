@@ -5,7 +5,8 @@
 # ============================================================
 
 echo "=============================================="
-echo "   Montaje SMB - Recurso Wisenet (FUNCIONAL)"
+echo "   Montaje SMB - Recurso Wisenet (FUNCIONAL). "
+echo "   Cambiar credenciales en caso necesario.    "
 echo "=============================================="
 
 SMB_IP="172.21.82.4"

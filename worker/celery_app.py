@@ -1,12 +1,5 @@
 # ============================================================
-#   celery_app.py (FINAL SEMEFO)
-#   Configuración oficial del sistema
-#   Master server (172.31.82.2)
-#
-#   - Sin tarea unir_audio (ya no existe en el sistema)
-#   - Rutas de colas para manifest, video1, video2
-#   - Backend en PostgreSQL
-#   - Broker desde RABBITMQ_URL
+#   celery_app.py (FINAL – LIMPIO Y CORRECTO)
 # ============================================================
 
 from celery import Celery
@@ -16,7 +9,6 @@ import os
 #   BROKER / BACKEND
 # ============================================================
 
-# Debe provenir SIEMPRE del .env
 BROKER_URL = os.getenv("RABBITMQ_URL")
 
 RESULT_BACKEND = (
@@ -34,27 +26,27 @@ celery_app = Celery(
     backend=RESULT_BACKEND,
     include=[
         "worker.tasks",
-        "worker.manifest_builder"
+        "worker.manifest_builder",
     ]
 )
 
 # ============================================================
-#   DEFINICIÓN DE COLAS OFICIALES
+#   RUTEO DE TAREAS → COLAS
 # ============================================================
 
 celery_app.conf.task_routes = {
-    # manifest builder
+    # manifest
     "tasks.generar_manifest": {"queue": "manifest"},
 
-    # unir video principal
+    # video principal
     "worker.tasks.unir_video": {"queue": "uniones_video"},
 
-    # unir video secundario
+    # video secundario
     "worker.tasks.unir_video2": {"queue": "uniones_video"},
 }
 
 # ============================================================
-#   CONFIGURACIÓN GENERAL
+#   CONFIG GENERAL
 # ============================================================
 
 celery_app.conf.update(
@@ -63,11 +55,6 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
 
-    # Zona horaria del proyecto SEMEFO
     timezone="America/Monterrey",
     enable_utc=False,
 )
-
-# ============================================================
-#   FIN DEL ARCHIVO
-# ============================================================

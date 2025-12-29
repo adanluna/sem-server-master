@@ -94,6 +94,7 @@ class SesionResponse(BaseModel):
     camara2_mac_address: Optional[str] = None
     app_version: Optional[str] = None
     fecha: datetime
+    duracion_real: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -238,3 +239,11 @@ class DashboardUserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class WorkerHeartbeat(BaseModel):
+    worker: str            # transcripcion, audio, video, etc.
+    host: str              # server-master | server-whisper
+    queue: Optional[str] = None
+    pid: Optional[int] = None
+    status: str            # listening | processing
