@@ -54,7 +54,7 @@ async function login() {
                 </div>
 
                 <!-- ERROR -->
-                <div v-if="error" class="alert alert-danger py-2">
+                <div v-if="error" class="alert alert-danger" role="alert">
                     {{ error }}
                 </div>
 

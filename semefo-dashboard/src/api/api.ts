@@ -24,15 +24,21 @@ api.interceptors.request.use(
 api.interceptors.response.use(
     (res) => res,
     (error: AxiosError) => {
-        console.log(error.response?.status);
-        if (error.response?.status === 401) {
+        const status = error.response?.status;
+        const path = window.location.pathname;
+
+        // 🔥 NO interceptar el login
+        if (status === 401 && path !== "/login") {
             localStorage.removeItem("token");
             localStorage.removeItem("user_nombre");
             window.location.href = "/login";
         }
+
+        // ⚠️ Siempre propagar el error
         return Promise.reject(error);
     }
 );
+
 
 
 export default api;
