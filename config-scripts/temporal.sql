@@ -1,27 +1,3 @@
-CREATE TABLE IF NOT EXISTS planchas (
-    id SERIAL PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL UNIQUE,
-
-    camara1_ip INET,
-    camara1_id VARCHAR(100),
-    camara1_activa BOOLEAN DEFAULT TRUE,
-
-    camara2_ip INET,
-    camara2_id VARCHAR(100),
-    camara2_activa BOOLEAN DEFAULT TRUE,
-
-    fecha_registro TIMESTAMP DEFAULT NOW(),
-    activo BOOLEAN DEFAULT TRUE,
-    asignada BOOLEAN DEFAULT FALSE
-);
-
-ALTER TABLE sesiones
-DROP COLUMN plancha_id;
-
-ALTER TABLE sesiones
-ADD COLUMN plancha_id INTEGER REFERENCES planchas(id),
-ADD COLUMN plancha_nombre VARCHAR(255);
-
 
 INSERT INTO planchas (
   id,
@@ -90,8 +66,12 @@ ON CONFLICT (id) DO UPDATE SET
   asignada = EXCLUDED.asignada;
 
 /***************************************/
+docker compose exec db psql -U semefo_user -d semefo
+
 ALTER TABLE sesiones
 ADD COLUMN duracion_real FLOAT;
+ALTER TYPE tipo_archivo_enum
+ADD VALUE IF NOT EXISTS 'manifest';
 CREATE TABLE infra_estado (
     id SERIAL PRIMARY KEY,
     servidor VARCHAR(50) NOT NULL, -- master | whisper
@@ -129,9 +109,10 @@ npm install
 npm install axios vue-router
 npm install vue-router@4
 npm run dev
-
+/* */
 docker compose exec db psql -U semefo_user -d semefo
-// pass: Admin123!
+/* */
+/*  pass: Admin123!*/
 INSERT INTO dashboard_users (
     username,
     password_hash,

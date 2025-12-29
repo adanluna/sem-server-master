@@ -173,7 +173,7 @@ def dashboard_resumen(
             i.numero_expediente,
             p.nombre AS plancha_nombre,
             s.estado,
-            COALESCE(j.tipo, sa.tipo_archivo) AS origen,
+            COALESCE(j.tipo, sa.tipo_archivo::text) AS origen,
             COALESCE(j.error, sa.mensaje) AS mensaje,
             GREATEST(
                 COALESCE(j.fecha_creacion, '1970-01-01'::timestamp),

@@ -3,14 +3,8 @@ import { createRouter, createWebHistory } from "vue-router";
 const router = createRouter({
     history: createWebHistory(),
     routes: [
-        // -------------------------
-        // Redirect inicial
-        // -------------------------
         { path: "/", redirect: "/login" },
 
-        // -------------------------
-        // Login
-        // -------------------------
         {
             path: "/login",
             name: "login",
@@ -18,23 +12,20 @@ const router = createRouter({
             meta: { title: "Login | SEMEFO" }
         },
 
-        // =================================================
-        // LAYOUT DASHBOARD (sin prefijo en URL)
-        // =================================================
+        // =========================
+        // DASHBOARD (PROTEGIDO)
+        // =========================
         {
             path: "/",
             component: () => import("../views/DashboardLayout.vue"),
             meta: { requiresAuth: true },
             children: [
-                // -------- Dashboard home --------
                 {
                     path: "dashboard",
                     name: "dashboard",
                     component: () => import("../views/DashboardHomeView.vue"),
                     meta: { title: "Dashboard | SEMEFO" }
                 },
-
-                // -------- Planchas --------
                 {
                     path: "planchas",
                     name: "planchas",
@@ -53,24 +44,18 @@ const router = createRouter({
                     component: () => import("../views/PlanchaEditView.vue"),
                     meta: { title: "Editar Plancha | SEMEFO" }
                 },
-
-                // -------- Sesiones --------
                 {
                     path: "sesiones",
                     name: "sesiones",
                     component: () => import("../views/SesionesView.vue"),
                     meta: { title: "Sesiones | SEMEFO" }
                 },
-
-                // -------- Jobs --------
                 {
                     path: "jobs/:estado",
                     name: "jobs",
                     component: () => import("../views/JobsView.vue"),
                     meta: { title: "Jobs | SEMEFO" }
                 },
-
-                // -------- Infraestructura --------
                 {
                     path: "infraestructura",
                     name: "infraestructura",
@@ -80,14 +65,24 @@ const router = createRouter({
             ]
         },
 
-        // -------------------------
-        // Fallback (404)
-        // -------------------------
-        {
-            path: "/:pathMatch(.*)*",
-            redirect: "/dashboard"
-        }
+        { path: "/:pathMatch(.*)*", redirect: "/dashboard" }
     ]
+});
+
+
+// =======================================================
+// 🔒 GUARD GLOBAL DE AUTENTICACIÓN
+// =======================================================
+router.beforeEach((to, _from, next) => {
+    const requiresAuth = to.matched.some(r => r.meta.requiresAuth);
+    const token = localStorage.getItem("token");
+
+    if (requiresAuth && !token) {
+        next("/login");
+        return;
+    }
+
+    next();
 });
 
 export default router;
