@@ -8,14 +8,14 @@ load_dotenv(".env")
 
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-DASH_USER = os.getenv("BOOTSTRAP_DASH_USER", "admin")
-DASH_PASS = os.getenv("BOOTSTRAP_DASH_PASS", "")
-WORKER_CLIENT_ID = os.getenv("BOOTSTRAP_WORKER_CLIENT_ID", "worker_master")
+DASH_USER = os.getenv("DASH_USER", "admin")
+DASH_PASS = os.getenv("DASH_PASS", "")
+WORKER_CLIENT_ID = os.getenv("WORKER_CLIENT_ID", "worker_master")
 WORKER_CLIENT_SECRET = os.getenv(
-    "BOOTSTRAP_WORKER_CLIENT_SECRET", "")
-WHISPER_CLIENT_ID = os.getenv("BOOTSTRAP_WHISPER_CLIENT_ID", "worker_whisper")
+    "WORKER_CLIENT_SECRET", "")
+WHISPER_CLIENT_ID = os.getenv("WHISPER_CLIENT_ID", "worker_whisper")
 WHISPER_CLIENT_SECRET = os.getenv(
-    "BOOTSTRAP_WHISPER_CLIENT_SECRET", "")
+    "WHISPER_CLIENT_SECRET", "")
 
 
 def main():

@@ -334,7 +334,11 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
 # ============================================================
 
 @app.post("/archivos/", response_model=SesionArchivoResponse)
-def registrar_archivo(data: SesionArchivoCreate, db: Session = Depends(get_db)):
+def registrar_archivo(
+    data: SesionArchivoCreate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("worker"))
+):
 
     existente = (
         db.query(models.SesionArchivo)
@@ -383,7 +387,13 @@ def registrar_archivo(data: SesionArchivoCreate, db: Session = Depends(get_db)):
 
 
 @app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
-def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate, db: Session = Depends(get_db)):
+def actualizar_estado(
+    sesion_id: int,
+    tipo: str,
+    data: SesionArchivoEstadoUpdate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("worker"))
+):
 
     archivo = db.query(models.SesionArchivo).filter_by(
         sesion_id=sesion_id, tipo_archivo=tipo
@@ -394,7 +404,8 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
         archivo = models.SesionArchivo(
             sesion_id=sesion_id,
             tipo_archivo=tipo,
-            ruta_original=data.ruta_convertida or data.ruta_convertida or None,
+            ruta_original=getattr(data, "ruta_original",
+                                  None) or data.ruta_convertida,
             ruta_convertida=data.ruta_convertida,
             estado=data.estado,
             mensaje=data.mensaje,
@@ -407,35 +418,14 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
         archivo.estado = data.estado
         if data.mensaje is not None:
             archivo.mensaje = data.mensaje
-        if data.fecha_finalizacion is not None:
-            archivo.fecha_finalizacion = data.fecha_finalizacion
+        if data.estado == "completado":
+            archivo.fecha_finalizacion = datetime.now(timezone.utc)
         if data.ruta_convertida is not None:
             archivo.ruta_convertida = data.ruta_convertida
         if data.conversion_completa is not None:
             archivo.conversion_completa = data.conversion_completa
 
     db.commit()
-
-    # Disparar whisper cuando video principal termina
-    if tipo == "video" and data.estado == "completado":
-        try:
-            sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-            expediente = sesion.investigacion.numero_expediente
-
-            payload = {
-                "sesion_id": sesion_id,
-                "expediente": expediente
-            }
-
-            r = requests.post(
-                f"{API_SERVER_URL}/whisper/enviar",
-                json=payload,
-                timeout=5
-            )
-            if r.status_code != 200:
-                logger.warning("Whisper no aceptó la tarea")
-        except Exception as e:
-            logger.error(f"[WHISPER] Error: {e}")
 
     # -------------------------------------------------
     # 1. Obtener archivos completados
@@ -450,7 +440,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
         a.tipo_archivo for a in archivos if a.estado == "completado"
     }
 
-    ARCHIVOS_REQUERIDOS = {"video", "audio", "transcripcion"}
+    ARCHIVOS_REQUERIDOS = {"video", "video2", "audio", "transcripcion"}
 
     if not ARCHIVOS_REQUERIDOS.issubset(archivos_completados):
         return {"message": f"Archivo {tipo} actualizado (sesión aún incompleta)"}
@@ -465,7 +455,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
     )
 
     jobs_criticos = [
-        j for j in jobs if j.tipo in {"manifest", "video", "audio", "transcripcion"}
+        j for j in jobs if j.tipo in {"manifest", "video", "video2", "audio", "transcripcion"}
     ]
 
     jobs_pendientes = [
@@ -524,7 +514,7 @@ def actualizar_estado(sesion_id: int, tipo: str, data: SesionArchivoEstadoUpdate
 # ============================================================
 
 @app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
-def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db)):
+def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
 
     progreso = data.get("progreso")
     if progreso is None:
@@ -643,7 +633,12 @@ def crear_job(data: JobCreate, db: Session = Depends(get_db), principal=Depends(
 
 
 @app.put("/jobs/{job_id}/actualizar")
-def actualizar_job_api(job_id: int, data: JobUpdate, db: Session = Depends(get_db)):
+def actualizar_job_api(
+    job_id: int,
+    data: JobUpdate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("worker"))
+):
     job = db.query(models.Job).filter_by(id=job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
@@ -790,7 +785,7 @@ def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get
 # ============================================================
 
 @app.get("/sesiones/{sesion_id}/pausas_todas")
-def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db)):
+def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
@@ -932,7 +927,7 @@ def obtener_ffmpeg_log(sesion_id: int):
 # ============================================================
 
 @app.post("/whisper/enviar")
-def enviar_a_whisper(data: dict):
+def enviar_a_whisper(data: dict, principal=Depends(require_roles("worker"))):
 
     sesion_id = data.get("sesion_id")
     expediente = data.get("expediente")
@@ -1195,22 +1190,35 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
     if row.expires_at < _now_utc():
         raise HTTPException(401, "Refresh expirado")
 
-    if not row.subject.startswith("dash:"):
-        raise HTTPException(403, "Refresh no permitido para dashboard")
+    # ✅ permitir refresh para ldap y dash
+    if not (row.subject.startswith("ldap:") or row.subject.startswith("dash:")):
+        raise HTTPException(
+            403, "Refresh no permitido para este tipo de usuario")
 
     # Rotación: revocar el actual y emitir uno nuevo
     sub = row.subject
-    # roles: puedes derivarlas del subject o guardarlas también en RefreshToken.
-    roles = ["operador"] if sub.startswith("ldap:") else ["dashboard_read"]
+
+    if sub.startswith("ldap:"):
+        roles = ["operador"]
+    else:
+        roles = ["dashboard_read"]
 
     new_access = create_access_token(
-        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES)
+        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES
+    )
+
     new_refresh, jti, th, exp = create_refresh_token(
-        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
+        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS
+    )
 
     row.revoked_at = _now_utc()
     new_row = models.RefreshToken(
-        subject=sub, jti=jti, token_hash=th, expires_at=exp)
+        subject=sub,
+        jti=jti,
+        token_hash=th,
+        expires_at=exp
+    )
+
     db.add(new_row)
     db.commit()
 

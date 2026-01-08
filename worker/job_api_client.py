@@ -180,57 +180,41 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 # ============================================================
 #   ARCHIVOS
 # ============================================================
-def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="procesando"):
-    """
-    Registrar archivo en `sesion_archivos`.
-    Intenta evitar duplicados consultando la lista.
-    """
+def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="procesando", mensaje=None):
     try:
-        existentes = []
-        try:
-            rr = _request(
-                "GET", f"{API_URL}/sesiones/{id_sesion}/archivos", timeout=10)
-            existentes = rr.json() or []
-        except Exception:
-            # Si no existe endpoint o falla, seguimos e intentamos POST
-            existentes = []
-
-        if any(a.get("tipo_archivo") == tipo_archivo for a in existentes):
-            return None
-
         payload = {
-            "sesion_id": id_sesion,
+            "sesion_id": int(id_sesion),
             "tipo_archivo": tipo_archivo,
             "ruta_original": ruta_original,
             "ruta_convertida": ruta_convertida or ruta_original,
             "estado": estado,
+            "mensaje": mensaje,
             "conversion_completa": False
         }
-
-        r = _request("POST", f"{API_URL}/archivos/", json=payload, timeout=10)
-        return r.json().get("id")
 
     except Exception as e:
         print(f"❌ Error registrando archivo {tipo_archivo}: {e}")
         return None
 
 
-def finalizar_archivo(sesion_id, tipo_archivo, ruta):
+def finalizar_archivo(sesion_id, tipo_archivo, ruta, estado="completado", mensaje=None, conversion_completa=True):
     """
     Marca un archivo como completado.
     """
     try:
         payload = {
-            "estado": "completado",
-            "mensaje": f"Archivo finalizado correctamente: {ruta}",
-            # ✅ datetime ISO (no bool)
+            "estado": estado,
+            "mensaje": mensaje or (f"Archivo finalizado correctamente: {ruta}" if estado == "completado" else f"Error procesando archivo: {ruta}"),
             "fecha_finalizacion": _utcnow_iso(),
             "ruta_convertida": ruta,
-            "conversion_completa": True
+            "conversion_completa": conversion_completa if estado == "completado" else False
         }
-
         _request(
-            "PUT", f"{API_URL}/archivos/{sesion_id}/{tipo_archivo}/actualizar_estado", json=payload, timeout=10)
+            "PUT",
+            f"{API_URL}/archivos/{sesion_id}/{tipo_archivo}/actualizar_estado",
+            json=payload,
+            timeout=10
+        )
         return True
 
     except Exception as e:
@@ -258,3 +242,17 @@ def registrar_pausas_auto(sesion_id, pausas):
     except Exception as e:
         print(f"❌ Error registrando pausas auto: {e}")
         return False
+
+
+def obtener_pausas_todas(sesion_id: int) -> dict:
+    r = _request(
+        "GET", f"{API_URL}/sesiones/{sesion_id}/pausas_todas", timeout=10)
+    return r.json()
+
+
+def enviar_a_whisper(expediente: str, sesion_id: int):
+    _request("POST", f"{API_URL}/whisper/enviar", json={
+        "expediente": expediente,
+        "sesion_id": sesion_id
+    }, timeout=10)
+    return True

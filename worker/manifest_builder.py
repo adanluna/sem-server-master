@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .celery_app import celery_app
 from worker.job_api_client import actualizar_job
 from worker.heartbeat import send_heartbeat
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -74,7 +75,7 @@ def extraer_timestamps(filename, fullpath):
         ts_ms = int(base)
 
         # Conversión segura a datetime
-        inicio = datetime.datetime.fromtimestamp(ts_ms / 1000)
+        inicio = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
 
         dur = obtener_duracion(fullpath)
         if dur is None:
@@ -161,6 +162,8 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
 
         pid = os.getpid()
 
+        actualizar_job(job_id, estado="procesando", error=None)
+
         # send_heartbeat(
         #    worker="manifest",
         #    status="processing",
@@ -187,14 +190,10 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
             pattern = os.path.join(ruta_frag, "*", EXT_FRAGMENTO)
             todas_las_rutas.extend(glob(pattern))
 
-            if not todas_las_rutas:
-                msg = "No se encontraron fragmentos para generar manifest"
-                actualizar_job(
-                    job_id,
-                    estado="error",
-                    error=msg
-                )
-                raise RuntimeError(msg)
+        if not todas_las_rutas:
+            msg = "No se encontraron fragmentos para generar manifest"
+            actualizar_job(job_id, estado="error", error=msg)
+            raise RuntimeError(msg)
 
         fragmentos = sorted(todas_las_rutas)
 

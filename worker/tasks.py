@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 import psutil
 import time
 
-from worker.heartbeat import send_heartbeat
-from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo
+from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo, obtener_pausas_todas, enviar_a_whisper, finalizar_archivo
 from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
 
 load_dotenv()
@@ -24,7 +23,7 @@ load_dotenv()
 #   CONFIG GLOBAL
 # ============================================================
 
-API_URL = os.getenv("API_SERVER_URL").rstrip("/")
+API_URL = (os.getenv("API_SERVER_URL", "http://localhost:8000")).rstrip("/")
 EXPEDIENTES_PATH = os.getenv(
     "EXPEDIENTES_PATH", "/mnt/wave/archivos_sistema_semefo").rstrip("/")
 TEMP_ROOT = os.getenv("TEMP_ROOT", "/opt/semefo/storage/tmp")
@@ -60,7 +59,7 @@ def ffmpeg_concat_cmd(list_txt, salida):
         f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=20\" "
         f"-c:v libvpx "
         f"-b:v 1.5M "
-        f"-threads 4 "
+        f"-threads {FFMPEG_THREADS} "
         f"-pix_fmt yuv420p "
         f"-c:a libopus -ac 1 -ar 16000 -b:a 32k "
         f"-reset_timestamps 1 "
@@ -168,8 +167,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
     #    queue=QUEUE_VIDEO
     # )
 
-    info = requests.get(
-        f"{API_URL}/sesiones/{id_sesion}/pausas_todas", timeout=5).json()
+    info = obtener_pausas_todas(id_sesion)
 
     inicio = datetime.fromisoformat(info["inicio_sesion"])
     fin = datetime.fromisoformat(info["fin_sesion"])
@@ -223,6 +221,20 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
         salida = f"{EXPEDIENTES_PATH}/{expediente}/{id_sesion}/{nombre_final}"
         ensure_dir(os.path.dirname(salida))
 
+        # ✅ Registrar archivo al INICIO del proceso (estado procesando)
+        # (aunque el archivo aún no exista, sirve como "placeholder" del flujo)
+        registrar_archivo(
+            id_sesion=id_sesion,
+            tipo_archivo=tipo,
+            ruta_original=normalizar_ruta(salida),
+            ruta_convertida=normalizar_ruta(salida),
+            estado="procesando"
+        )
+
+        # (Recomendado) Marcar el job como procesando también
+        if job_id:
+            actualizar_job(job_id, estado="procesando")
+
         esperar_cpu_baja()
 
         cmd = ffmpeg_concat_cmd(list_txt, salida)
@@ -237,25 +249,33 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
         if not os.path.exists(salida) or os.path.getsize(salida) < 200_000:
             raise Exception("Archivo final inválido")
 
-        registrar_archivo(
-            id_sesion=str(id_sesion),
+        # Registrar/actualizar job -> completado primero
+        if job_id:
+            actualizar_job(job_id, estado="completado")
+
+        # Luego marcar archivo completado (esto puede cerrar sesión)
+        finalizar_archivo(
+            sesion_id=id_sesion,
             tipo_archivo=tipo,
-            ruta_convertida=normalizar_ruta(salida),
-            ruta_original=normalizar_ruta(salida),
-            estado="completado"
+            ruta=normalizar_ruta(salida),
         )
 
-        actualizar_job(job_id, estado="completado")
-
+        # ✅ Whisper SOLO para video1
         if tipo == "video":
-            requests.post(
-                f"{API_URL}/whisper/enviar",
-                json={"expediente": expediente, "sesion_id": id_sesion},
-                timeout=5
-            )
+            enviar_a_whisper(expediente, id_sesion)
 
     except Exception as e:
-        actualizar_job(job_id, estado="error", error=str(e))
+        if job_id:
+            actualizar_job(job_id, estado="error", error=str(e))
+
+        finalizar_archivo(
+            sesion_id=id_sesion,
+            tipo_archivo=tipo,
+            ruta=normalizar_ruta(salida),
+            estado="error",
+            mensaje=str(e),
+            conversion_completa=False
+        )
         raise
 
     finally:
@@ -268,16 +288,17 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
         # )
     return True
 
+
 # ============================================================
 #   TAREAS CELERY
 # ============================================================
 
 
-@celery_app.task(name="worker.tasks.unir_video")
+@celery_app.task(name="worker.tasks.unir_video", queue="uniones_video")
 def unir_video(expediente, id_sesion, manifest_path, *_):
     return _unir_video(expediente, id_sesion, manifest_path, "video")
 
 
-@celery_app.task(name="worker.tasks.unir_video2")
+@celery_app.task(name="worker.tasks.unir_video2", queue="videos2")
 def unir_video2(expediente, id_sesion, manifest_path, *_):
     return _unir_video(expediente, id_sesion, manifest_path, "video2")
