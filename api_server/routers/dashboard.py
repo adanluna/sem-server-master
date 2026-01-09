@@ -173,12 +173,12 @@ def dashboard_resumen(
             i.numero_expediente,
             p.nombre AS plancha_nombre,
             s.estado,
-            COALESCE(j.tipo, sa.tipo_archivo::text) AS origen,
+            COALESCE(j.tipo::text, sa.tipo_archivo::text) AS origen,
             COALESCE(j.error, sa.mensaje) AS mensaje,
             GREATEST(
-                COALESCE(j.fecha_creacion, '1970-01-01'::timestamp),
-                COALESCE(sa.fecha_finalizacion, '1970-01-01'::timestamp),
-                COALESCE(s.fecha, s.fecha)
+                COALESCE(j.fecha_creacion::timestamp, '1970-01-01'::timestamp),
+                COALESCE(sa.fecha_finalizacion::timestamp, '1970-01-01'::timestamp),
+                COALESCE(s.fecha::timestamp, '1970-01-01'::timestamp)
             ) AS ultima_actualizacion
         FROM sesiones s
         LEFT JOIN investigaciones i ON i.id = s.investigacion_id
@@ -199,7 +199,7 @@ def dashboard_resumen(
         ) sa ON TRUE
         WHERE (j.tipo IS NOT NULL OR sa.tipo_archivo IS NOT NULL)
         ORDER BY ultima_actualizacion DESC
-        LIMIT 10
+        LIMIT 10;
     """)
     errores = list(db.execute(errores_sql).mappings().all())
 
