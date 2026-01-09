@@ -26,6 +26,10 @@ API_URL = _normalizar_api_url()
 WORKER_CLIENT_ID = os.getenv("WORKER_CLIENT_ID", "").strip()
 WORKER_CLIENT_SECRET = os.getenv("WORKER_CLIENT_SECRET", "").strip()
 
+# 🔧 Switch para desactivar auth sin borrar nada (solo env)
+WORKER_NO_AUTH = os.getenv("WORKER_NO_AUTH", "0").strip() in (
+    "1", "true", "True", "yes", "YES")
+
 # Cache simple en memoria
 _TOKEN_CACHE = {
     "access_token": None,
@@ -56,6 +60,10 @@ def _get_service_token(force_refresh: bool = False) -> str | None:
     """
     Obtiene token de servicio (JWT access) y lo cachea.
     """
+    # ✅ Si se desactiva auth, NO pedimos token.
+    if WORKER_NO_AUTH:
+        return None
+
     now = time.time()
 
     if not force_refresh:
@@ -85,13 +93,10 @@ def _get_service_token(force_refresh: bool = False) -> str | None:
             print("❌ API no devolvió access_token para service-token")
             return None
 
-        # Si no tenemos exp decodificado, hacemos un TTL conservador (23h)
-        # (Si luego quieres, decodificamos JWT sin verificar firma solo para exp)
         _TOKEN_CACHE["access_token"] = token
         exp_ts = _jwt_exp_ts(token)
         _TOKEN_CACHE["expires_at_ts"] = exp_ts if exp_ts else (
             now + 3600)  # fallback 1h
-
         return token
 
     except Exception as e:
@@ -100,6 +105,10 @@ def _get_service_token(force_refresh: bool = False) -> str | None:
 
 
 def _auth_headers() -> dict:
+    # ✅ Sin auth: headers vacíos (sin Authorization)
+    if WORKER_NO_AUTH:
+        return {}
+
     token = _get_service_token()
     if not token:
         return {}
@@ -109,19 +118,21 @@ def _auth_headers() -> dict:
 def _request(method: str, url: str, *, json=None, timeout=10):
     """
     Wrapper con:
-    - headers auth
-    - retry único si 401
+    - headers auth (si aplica)
+    - retry único si 401 (solo si auth está activo)
     """
     headers = {"Content-Type": "application/json", **_auth_headers()}
     r = requests.request(method, url, json=json,
                          timeout=timeout, headers=headers)
 
-    if r.status_code == 401:
-        # refresh token y retry 1 vez
+    # ✅ Solo reintenta 401 si auth está activo
+    if (not WORKER_NO_AUTH) and r.status_code == 401:
         token = _get_service_token(force_refresh=True)
         if token:
-            headers = {"Content-Type": "application/json",
-                       "Authorization": f"Bearer {token}"}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }
             r = requests.request(method, url, json=json,
                                  timeout=timeout, headers=headers)
 
@@ -180,7 +191,11 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 # ============================================================
 #   ARCHIVOS
 # ============================================================
-def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="en_progreso", mensaje=None):
+def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="pendiente", mensaje=None):
+    """
+    Registra un archivo en la API.
+    Nota: default estado="pendiente" para no romper enum (NO existe "en_progreso" en archivos).
+    """
     try:
         payload = {
             "sesion_id": int(id_sesion),
@@ -191,6 +206,10 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=No
             "mensaje": mensaje,
             "conversion_completa": False
         }
+
+        # ⚠️ Si tu endpoint correcto es POST /archivos/ (como ya manejas en otros lados)
+        r = _request("POST", f"{API_URL}/archivos/", json=payload, timeout=10)
+        return r.json()
 
     except Exception as e:
         print(f"❌ Error registrando archivo {tipo_archivo}: {e}")
@@ -204,7 +223,11 @@ def finalizar_archivo(sesion_id, tipo_archivo, ruta, estado="completado", mensaj
     try:
         payload = {
             "estado": estado,
-            "mensaje": mensaje or (f"Archivo finalizado correctamente: {ruta}" if estado == "completado" else f"Error procesando archivo: {ruta}"),
+            "mensaje": mensaje or (
+                f"Archivo finalizado correctamente: {ruta}"
+                if estado == "completado"
+                else f"Error procesando archivo: {ruta}"
+            ),
             "fecha_finalizacion": _utcnow_iso(),
             "ruta_convertida": ruta,
             "conversion_completa": conversion_completa if estado == "completado" else False
@@ -251,8 +274,10 @@ def obtener_pausas_todas(sesion_id: int) -> dict:
 
 
 def enviar_a_whisper(expediente: str, sesion_id: int):
-    _request("POST", f"{API_URL}/whisper/enviar", json={
-        "expediente": expediente,
-        "sesion_id": sesion_id
-    }, timeout=10)
+    _request(
+        "POST",
+        f"{API_URL}/whisper/enviar",
+        json={"expediente": expediente, "sesion_id": sesion_id},
+        timeout=10
+    )
     return True

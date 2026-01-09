@@ -233,7 +233,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
         # (Recomendado) Marcar el job como procesando también
         if job_id:
-            actualizar_job(job_id, estado="en_progreso")
+            actualizar_job(job_id, estado="procesando")
 
         esperar_cpu_baja()
 
