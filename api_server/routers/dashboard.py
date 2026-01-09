@@ -312,7 +312,7 @@ def dashboard_sesiones(
             "duracion_real": s.duracion_real,
             "jobs": {
                 "pendiente": resumen.get("pendiente", 0),
-                "en_progeso": resumen.get("en_progeso", 0),
+                "en_progreso": resumen.get("en_progreso", 0),
                 "completado": resumen.get("completado", 0),
                 "error": resumen.get("error", 0),
             }
@@ -337,7 +337,7 @@ def dashboard_jobs(
     db: Session = Depends(get_db),
     principal=Depends(require_roles("dashboard_admin"))
 ):
-    if estado not in {"pendiente", "en_progeso", "completado", "error"}:
+    if estado not in {"pendiente", "en_progreso", "completado", "error"}:
         raise HTTPException(status_code=400, detail="Estado inválido")
 
     base_q = (

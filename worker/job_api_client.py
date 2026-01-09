@@ -180,7 +180,7 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 # ============================================================
 #   ARCHIVOS
 # ============================================================
-def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="en_progeso", mensaje=None):
+def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="en_progreso", mensaje=None):
     try:
         payload = {
             "sesion_id": int(id_sesion),

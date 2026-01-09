@@ -14,7 +14,7 @@ def verificar_estado_sesion(sesion_id: int, db: Session):
         return
 
     errores = [j for j in jobs if j.estado == "error"]
-    pendientes = [j for j in jobs if j.estado in ("pendiente", "en_progeso")]
+    pendientes = [j for j in jobs if j.estado in ("pendiente", "en_progreso")]
 
     # ❌ Error operativo
     if errores:
@@ -103,7 +103,7 @@ def detectar_pipeline_bloqueado(db, minutos=15):
             continue
 
         # Si video existe pero no avanza
-        if video and video.estado in ("pendiente", "en_progeso"):
+        if video and video.estado in ("pendiente", "en_progreso"):
             if video.fecha_actualizacion < limite:
                 sesiones_bloqueadas.append({
                     "sesion_id": ses.id,
@@ -112,7 +112,7 @@ def detectar_pipeline_bloqueado(db, minutos=15):
                     "desde": video.fecha_actualizacion
                 })
 
-        if video2 and video2.estado in ("pendiente", "en_progeso"):
+        if video2 and video2.estado in ("pendiente", "en_progreso"):
             if video2.fecha_actualizacion < limite:
                 sesiones_bloqueadas.append({
                     "sesion_id": ses.id,
