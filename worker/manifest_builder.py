@@ -7,14 +7,13 @@
 
 import os
 import json
-import datetime
 import subprocess
 from glob import glob
 from dotenv import load_dotenv
 from .celery_app import celery_app
 from worker.job_api_client import actualizar_job
 from worker.heartbeat import send_heartbeat
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, date
 
 load_dotenv()
 
@@ -81,7 +80,7 @@ def extraer_timestamps(filename, fullpath):
         if dur is None:
             return None, None, None
 
-        fin = inicio + datetime.timedelta(seconds=dur)
+        fin = inicio + timedelta(seconds=dur)
         return inicio, fin, dur
 
     except ValueError:
@@ -273,5 +272,5 @@ def obtener_fechas_a_procesar(fecha_base):
     """
     return [
         fecha_base,
-        fecha_base + datetime.timedelta(days=1)
+        fecha_base + timedelta(days=1)
     ]
