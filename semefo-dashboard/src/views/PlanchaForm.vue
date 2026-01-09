@@ -71,13 +71,46 @@ function validar(): boolean {
     return Object.keys(errors.value).length === 0;
 }
 
+function toBool(v: any) {
+    if (v === true || v === false) return v;
+    if (v === 1 || v === "1" || v === "true" || v === "t") return true;
+    if (v === 0 || v === "0" || v === "false" || v === "f") return false;
+    return false;
+}
+
+function buildPayload() {
+    return {
+        nombre: (form.value.nombre ?? "").trim(),
+        activo: toBool(form.value.activo),
+        asignada: toBool(form.value.asignada),
+        camara1_activa: toBool(form.value.camara1_activa),
+        camara2_activa: toBool(form.value.camara2_activa),
+        camara1_ip: form.value.camara1_ip || null,
+        camara1_id: form.value.camara1_id || null,
+        camara2_ip: form.value.camara2_ip || null,
+        camara2_id: form.value.camara2_id || null,
+    };
+}
+
 async function guardar() {
     if (!validar()) return;
 
+    const payload = buildPayload();
+
     if (props.modo === "create") {
-        await createPlancha(form.value);
+        try {
+            await createPlancha(payload);
+        } catch (e: any) {
+            console.log("API error:", e?.response?.status, e?.response?.data);
+            throw e;
+        }
     } else {
-        await updatePlancha(form.value.id, form.value);
+        try {
+            await updatePlancha(form.value.id, payload);
+        } catch (e: any) {
+            console.log("API error:", e?.response?.status, e?.response?.data);
+            throw e;
+        }
     }
 
     emit("saved");
