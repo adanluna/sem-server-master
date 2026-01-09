@@ -97,6 +97,37 @@ CREATE TABLE workers_heartbeat (
 CREATE UNIQUE INDEX uq_worker_host
 ON workers_heartbeat (worker, host);
 
+CREATE TABLE IF NOT EXISTS dashboard_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(80) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    roles VARCHAR(255) NOT NULL DEFAULT 'dashboard_read',
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TIMESTAMPTZ NULL,
+
+    last_login_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_dashboard_users_username ON dashboard_users (username);
+
+CREATE TABLE IF NOT EXISTS service_clients (
+    id SERIAL PRIMARY KEY,
+    client_id VARCHAR(120) UNIQUE NOT NULL,
+    client_secret_hash VARCHAR(255) NOT NULL,
+    roles VARCHAR(255) NOT NULL DEFAULT 'worker',
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+    allowed_ips TEXT NULL,
+
+    last_used_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_service_clients_client_id ON service_clients (client_id);
+
 /**/
 docker exec -it fastapi_app python api_server/bootstrap_auth.py
 
