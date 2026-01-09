@@ -156,10 +156,7 @@ def crear_job_interno(
         db.commit()
         db.refresh(job_existente)
 
-        return {
-            "job_id": job_existente.id,
-            "reutilizado": True
-        }
+        return job_existente.id
 
     # -----------------------------------------
     # Crear job nuevo

@@ -171,7 +171,7 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
         #    queue="manifest"
         # )
 
-        fecha_base = datetime.datetime.fromisoformat(fecha_iso).date()
+        fecha_base = datetime.fromisoformat(fecha_iso).date()
         fechas_a_procesar = obtener_fechas_a_procesar(fecha_base)
 
         todas_las_rutas = []

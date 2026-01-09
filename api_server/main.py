@@ -585,10 +585,7 @@ def crear_job(data: JobCreate, db: Session = Depends(get_db), principal=Depends(
         db.commit()
         db.refresh(job_existente)
 
-        return {
-            "job_id": job_existente.id,
-            "reutilizado": True
-        }
+        return job_existente.id,
 
     # -------------------------------------------------
     # Crear SOLO si no existe
