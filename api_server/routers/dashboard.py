@@ -309,7 +309,7 @@ def dashboard_sesiones(
             "usuario_ldap": s.usuario_ldap,
             "fecha": s.fecha,
             "estado": s.estado,
-            "duracion_sesion_seg": s.duracion_sesion_seg,
+            "duracion_real": s.duracion_real,
             "jobs": {
                 "pendiente": resumen.get("pendiente", 0),
                 "procesando": resumen.get("procesando", 0),
