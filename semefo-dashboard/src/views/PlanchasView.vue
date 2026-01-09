@@ -51,9 +51,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { fetchPlanchas } from "../api/planchas";
+import { fetchPlanchas, deletePlancha } from "../api/planchas";
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal.vue";
-import { deletePlancha } from "../api/planchas";
 
 const planchas = ref<any[]>([]);
 const deleteModal = ref<any>(null);
