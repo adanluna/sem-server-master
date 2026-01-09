@@ -483,6 +483,8 @@ def actualizar_estado(
 
     if sesion and sesion.estado != "finalizada":
         sesion.estado = "finalizada"
+        db.commit()
+        db.refresh(sesion)
 
     if sesion.duracion_real is None:
         if sesion.fin and sesion.inicio:
