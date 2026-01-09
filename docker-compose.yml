@@ -136,5 +136,21 @@ services:
         condition: service_started
     user: "1000:1000"
 
+  # ============================================================
+  # DASHBOARD (VUE) - NGINX
+  # ============================================================
+  dashboard:
+    build:
+      context: ./semefo-dashboard
+      dockerfile: Dockerfile
+    container_name: semefo_dashboard
+    restart: always
+    depends_on:
+      - fastapi
+    ports:
+      - "8080:80"
+    environment:
+      TZ: America/Monterrey
+
 volumes:
   postgres_data:

@@ -132,9 +132,6 @@ CREATE INDEX IF NOT EXISTS ix_service_clients_client_id ON service_clients (clie
 docker exec -it fastapi_app python api_server/bootstrap_auth.py
 
 /* instalar vue */
-npm create vite@latest semefo-dashboard
-# Framework: Vue
-# Variant: TypeScript
 cd semefo-dashboard
 npm install
 npm install axios vue-router
