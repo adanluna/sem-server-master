@@ -162,7 +162,7 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
 
         pid = os.getpid()
 
-        actualizar_job(job_id, estado="procesando", error=None)
+        actualizar_job(job_id, estado="en_progeso", error=None)
 
         # send_heartbeat(
         #    worker="manifest",
