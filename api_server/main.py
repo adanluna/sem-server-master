@@ -29,9 +29,6 @@ from api_server.schemas import (
     PausaResponse,
     InfraEstadoCreate,
     PlanchaResponse,
-    PlanchaUpdate,
-    PlanchaCreate,
-    WorkerHeartbeat
 )
 from api_server.models import LDAPLoginRequest, AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
@@ -1255,36 +1252,6 @@ def auth_service_token(data: ServiceTokenRequest, db: Session = Depends(get_db))
 # ============================================================
 
 
-@app.post("/planchas/", response_model=PlanchaResponse, status_code=201)
-def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
-    plancha = models.Plancha(**data.dict())
-    db.add(plancha)
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Ya existe una plancha con ese nombre o datos inválidos"
-        )
-    db.refresh(plancha)
-    return plancha
-
-
-@app.get("/planchas/", response_model=list[PlanchaResponse])
-def listar_planchas(
-    incluir_inactivas: bool = True,
-    db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
-):
-    q = db.query(models.Plancha)
-
-    if not incluir_inactivas:
-        q = q.filter(models.Plancha.activo == True)
-
-    return q.order_by(models.Plancha.nombre.asc()).all()
-
-
 @app.get("/planchas/disponibles", response_model=list[PlanchaResponse],)
 def listar_planchas_disponibles(db: Session = Depends(get_db)):
     return (
@@ -1297,72 +1264,10 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
         .all()
     )
 
-
-@app.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    return plancha
-
-
-@app.put("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def actualizar_plancha(
-    plancha_id: int,
-    data: PlanchaUpdate,
-    db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
-):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    for field, value in data.dict(exclude_unset=True).items():
-        setattr(plancha, field, value)
-
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Error al actualizar la plancha"
-        )
-
-    db.refresh(plancha)
-    return plancha
-
-
-@app.delete("/planchas/{plancha_id}", status_code=204)
-def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
-    plancha = (
-        db.query(models.Plancha)
-        .filter(models.Plancha.id == plancha_id)
-        .first()
-    )
-
-    if not plancha:
-        raise HTTPException(status_code=404, detail="Plancha no encontrada")
-
-    # 🔒 Borrado lógico
-    plancha.activo = False
-    db.commit()
-
-
 # ============================================================
 #  🔍 CONSULTAS PARA SEMEFO (expedientes)
 # ============================================================
+
 
 @app.get("/consultas/expedientes/{numero_expediente}")
 def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):

@@ -14,7 +14,10 @@ from api_server.utils.jwt import require_dashboard_admin, require_roles, pwd_con
 from api_server.database import get_db
 from api_server import models
 from api_server.schemas import (
-    DashboardLoginRequest
+    DashboardLoginRequest,
+    PlanchaUpdate,
+    PlanchaCreate,
+    PlanchaResponse,
 )
 
 # Router para endpoints de dashboard
@@ -553,3 +556,95 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
         }
 
     return estado
+
+
+@router.post("/planchas/", response_model=PlanchaResponse, status_code=201)
+def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+    plancha = models.Plancha(**data.dict())
+    db.add(plancha)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe una plancha con ese nombre o datos inválidos"
+        )
+    db.refresh(plancha)
+    return plancha
+
+
+@router.get("/planchas/", response_model=list[PlanchaResponse])
+def listar_planchas(
+    incluir_inactivas: bool = True,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
+):
+    q = db.query(models.Plancha)
+
+    if not incluir_inactivas:
+        q = q.filter(models.Plancha.activo == True)
+
+    return q.order_by(models.Plancha.nombre.asc()).all()
+
+
+@router.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    return plancha
+
+
+@router.put("/planchas/{plancha_id}", response_model=PlanchaResponse)
+def actualizar_plancha(
+    plancha_id: int,
+    data: PlanchaUpdate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
+):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    for field, value in data.dict(exclude_unset=True).items():
+        setattr(plancha, field, value)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Error al actualizar la plancha"
+        )
+
+    db.refresh(plancha)
+    return plancha
+
+
+@router.delete("/planchas/{plancha_id}", status_code=204)
+def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+    plancha = (
+        db.query(models.Plancha)
+        .filter(models.Plancha.id == plancha_id)
+        .first()
+    )
+
+    if not plancha:
+        raise HTTPException(status_code=404, detail="Plancha no encontrada")
+
+    # 🔒 Borrado lógico
+    plancha.activo = False
+    db.commit()
