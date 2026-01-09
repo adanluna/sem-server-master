@@ -14,8 +14,8 @@
     "noUncheckedSideEffectImports": true
   },
   "include": [
-    "../dashboard/src/**/*.ts",
-    "../dashboard/src/**/*.tsx",
-    "../dashboard/src/**/*.vue"
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue"
   ]
 }
