@@ -1507,3 +1507,18 @@ def worker_heartbeat(data: dict, db: Session = Depends(get_db)):
     db.commit()
 
     return {"ok": True}
+
+
+@app.get("/sesiones/{sesion_id}/archivos")
+def listar_archivos_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    ses = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not ses:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.SesionArchivo.id.asc())
+        .all()
+    )
+    return archivos
