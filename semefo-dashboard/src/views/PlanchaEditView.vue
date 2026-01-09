@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import api from "../api/api";
+import { getPlancha } from "../api/planchas";
 import PlanchaForm from "./PlanchaForm.vue";
+
 
 const route = useRoute();
 const router = useRouter();
@@ -10,8 +11,7 @@ const router = useRouter();
 const plancha = ref<any>(null);
 
 onMounted(async () => {
-    const { data } = await api.get(`/planchas/${route.params.id}`);
-    plancha.value = data;
+    plancha.value = await getPlancha(Number(route.params.id));
 });
 
 function regresar() {

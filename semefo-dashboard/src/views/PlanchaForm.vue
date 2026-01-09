@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import api from "../api/api";
+import { updatePlancha, createPlancha } from "../api/planchas";
 
 const props = defineProps<{
     modelValue: any;
@@ -75,9 +75,9 @@ async function guardar() {
     if (!validar()) return;
 
     if (props.modo === "create") {
-        await api.post("/planchas", form.value);
+        await createPlancha(form.value);
     } else {
-        await api.put(`/planchas/${form.value.id}`, form.value);
+        await updatePlancha(form.value.id, form.value);
     }
 
     emit("saved");
