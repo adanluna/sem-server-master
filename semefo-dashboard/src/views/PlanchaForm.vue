@@ -15,35 +15,19 @@ const emit = defineEmits<{
 const form = ref({ ...props.modelValue });
 const errors = ref<Record<string, string>>({});
 
-// Debounced emitter to avoid emitting on every keystroke
-const emitUpdateDebounced = (() => {
-    let timer: number | null = null;
-    const delay = 150; // ms, adjust if needed
-    return (v: any) => {
-        if (timer) clearTimeout(timer);
-        // @ts-ignore
-        timer = setTimeout(() => {
-            emit("update:modelValue", v);
-            timer = null;
-        }, delay) as unknown as number;
-    };
-})();
-
 /* Sync padre → hijo */
-watch(() => props.modelValue, (v) => {
-    // Only copy from parent when the incoming modelValue actually differs
-    // This helps avoid overwriting the local `form` while the user types.
-    try {
-        if (JSON.stringify(v) !== JSON.stringify(form.value)) {
-            form.value = { ...v };
-        }
-    } catch (e) {
-        form.value = { ...v };
-    }
-});
+watch(
+    () => props.modelValue,
+    (v) => (form.value = { ...v }),
+    { deep: true }
+);
 
 /* Sync hijo → padre */
-watch(form, (v) => emitUpdateDebounced(v), { deep: true });
+watch(
+    form,
+    (v) => emit("update:modelValue", v),
+    { deep: true }
+);
 
 function validar(): boolean {
     errors.value = {};

@@ -20,13 +20,13 @@ killall ffmpeg
 
 curl -X POST http://localhost:8000/whisper/enviar \
   -H "Content-Type: application/json" \
-  -d '{"sesion_id": 24, "expediente": "INV-TEST-001"}'
+  -d '{"sesion_id": 28, "expediente": "INV-TEST-001"}'
 
 curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion":25,
+      "id_sesion":30,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_Corta",
 
@@ -76,7 +76,7 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
   -H "Content-Type: application/json" \
   -d '{
     "sesion_activa": {
-      "id_sesion": 26,
+      "id_sesion": 30,
       "expediente": "INV-TEST-001",
       "nombre": "Autopsia_Prueba_Manifest_5min",
 

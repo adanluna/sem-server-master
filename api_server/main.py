@@ -195,16 +195,11 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
             app_version=ses.get("version_app", "1.0.0"),
-
-            # ESTADO FINALIZADA (tablet ya terminó)
             estado="procesando",
-
-            # Guardamos inicio y fin exactos
             inicio=inicio_dt,
             fin=fin_dt,
-
-            # Duración real (no duración bruta)
-            duracion_sesion_seg=duracion_real_seg
+            duracion_real=float(
+                duracion_real_seg) if duracion_real_seg is not None else None
         )
 
         db.add(sesion_obj)
@@ -228,7 +223,8 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
         sesion_obj.fin = fin_dt
 
         # Duración corregida
-        sesion_obj.duracion_sesion_seg = duracion_real_seg
+        sesion_obj.duracion_real = float(
+            duracion_real_seg) if duracion_real_seg is not None else None
 
         db.commit()
 
@@ -487,18 +483,14 @@ def actualizar_estado(
 
     if sesion and sesion.estado != "finalizada":
         sesion.estado = "finalizada"
-        sesion.duracion_real = (
-            sesion.duracion_sesion_seg
-            if sesion.duracion_sesion_seg is not None
-            else (
-                (sesion.fin - sesion.inicio).total_seconds()
-                if sesion.fin and sesion.inicio
-                else None
-            )
-        )
-        db.commit()
 
-        logger.info(f"[SESION] Sesión {sesion_id} FINALIZADA correctamente")
+    if sesion.duracion_real is None:
+        if sesion.fin and sesion.inicio:
+            sesion.duracion_real = (sesion.fin - sesion.inicio).total_seconds()
+            db.commit()
+
+            logger.info(
+                f"[SESION] Sesión {sesion_id} FINALIZADA correctamente")
 
     return {
         "message": f"Archivo {tipo} actualizado",
