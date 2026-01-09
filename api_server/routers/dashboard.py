@@ -1,6 +1,6 @@
 import os
 import math
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Response, APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, timezone
@@ -558,7 +558,11 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
     return estado
 
 
-@router.post("/planchas/", response_model=PlanchaResponse, status_code=201)
+# ============================================================
+# 📊 DASHBOARD / CONSULTAS (ESCRITURA) — Planchas
+# ============================================================
+
+@router.post("/planchas", response_model=PlanchaResponse, status_code=201)
 def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
     plancha = models.Plancha(**data.dict())
     db.add(plancha)
@@ -574,11 +578,11 @@ def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=
     return plancha
 
 
-@router.get("/planchas/", response_model=list[PlanchaResponse])
+@router.get("/planchas", response_model=list[PlanchaResponse])
 def listar_planchas(
     incluir_inactivas: bool = True,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
+    principal=Depends(require_roles("dashboard_read", "dashboard_admin"))
 ):
     q = db.query(models.Plancha)
 
@@ -589,7 +593,7 @@ def listar_planchas(
 
 
 @router.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_read", "dashboard_admin"))):
     plancha = (
         db.query(models.Plancha)
         .filter(models.Plancha.id == plancha_id)
@@ -648,3 +652,4 @@ def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal
     # 🔒 Borrado lógico
     plancha.activo = False
     db.commit()
+    return Response(status_code=204)
