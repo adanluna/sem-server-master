@@ -35,7 +35,7 @@ from worker.celery_app import celery_app
 from api_server.utils.ping import ping_ip
 from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhmmss_to_seconds
 from api_server.utils.jobs import crear_job_interno, verificar_estado_sesion
-from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
+from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, allow_worker, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
 from api_server.routers.dashboard import router as dashboard_router
 
 # Declaración del logger
@@ -330,7 +330,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
 def registrar_archivo(
     data: SesionArchivoCreate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("worker"))
+
 ):
 
     existente = (
@@ -385,7 +385,7 @@ def actualizar_estado(
     tipo: str,
     data: SesionArchivoEstadoUpdate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("worker"))
+
 ):
 
     archivo = db.query(models.SesionArchivo).filter_by(
@@ -503,7 +503,7 @@ def actualizar_estado(
 # ============================================================
 
 @app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
-def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
+def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db), ):
 
     progreso = data.get("progreso")
     if progreso is None:
@@ -563,7 +563,7 @@ def registrar_pausas_detectadas(sesion_id: int, data: dict, db: Session = Depend
 # ============================================================
 
 @app.post("/jobs/crear")
-def crear_job(data: JobCreate, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
+def crear_job(data: JobCreate, db: Session = Depends(get_db), ):
 
     # 🔒 Buscar SIEMPRE el job por sesión + tipo
     job_existente = (
@@ -623,7 +623,7 @@ def actualizar_job_api(
     job_id: int,
     data: JobUpdate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("worker"))
+
 ):
     job = db.query(models.Job).filter_by(id=job_id).first()
     if not job:
@@ -771,7 +771,7 @@ def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get
 # ============================================================
 
 @app.get("/sesiones/{sesion_id}/pausas_todas")
-def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("worker"))):
+def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db), ):
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
@@ -913,7 +913,7 @@ def obtener_ffmpeg_log(sesion_id: int):
 # ============================================================
 
 @app.post("/whisper/enviar")
-def enviar_a_whisper(data: dict, principal=Depends(require_roles("worker"))):
+def enviar_a_whisper(data: dict, ):
 
     sesion_id = data.get("sesion_id")
     expediente = data.get("expediente")

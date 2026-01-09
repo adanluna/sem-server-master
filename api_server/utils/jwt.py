@@ -28,6 +28,10 @@ def _now_utc():
     return datetime.now(timezone.utc)
 
 
+def allow_worker():
+    return {"sub": "worker", "roles": ["worker"]}
+
+
 def _sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
