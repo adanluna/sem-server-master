@@ -9,7 +9,7 @@ function badgeClass(estado: string) {
   if (estado === "finalizada") return "bg-success";
   if (estado === "error") return "bg-danger";
   if (estado === "pausada") return "bg-warning text-dark";
-  if (estado === "en_progreso") return "bg-info text-dark";
+  if (estado === "procesando") return "bg-info text-dark";
   return "bg-secondary";
 }
 

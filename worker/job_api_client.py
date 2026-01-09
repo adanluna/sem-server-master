@@ -194,7 +194,7 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="pendiente", mensaje=None):
     """
     Registra un archivo en la API.
-    Nota: default estado="pendiente" para no romper enum (NO existe "en_progreso" en archivos).
+    Nota: default estado="pendiente" para no romper enum (NO existe "procesando" en archivos).
     """
     try:
         payload = {

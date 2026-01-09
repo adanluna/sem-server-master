@@ -120,7 +120,7 @@ function estadoBadge(estado: string) {
     switch (estado) {
         case "finalizada":
             return "bg-success";
-        case "en_progreso":
+        case "procesando":
             return "bg-primary";
         case "pausada":
             return "bg-warning text-dark";

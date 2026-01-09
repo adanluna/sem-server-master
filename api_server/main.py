@@ -195,7 +195,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
             app_version=ses.get("version_app", "1.0.0"),
-            estado="en_progreso",
+            estado="procesando",
             inicio=inicio_dt,
             fin=fin_dt,
             duracion_real=float(
@@ -216,7 +216,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
         sesion_obj.camara1_mac_address = cam1
         sesion_obj.camara2_mac_address = cam2
         sesion_obj.app_version = ses.get("version_app", "1.0.0")
-        sesion_obj.estado = "en_progreso"
+        sesion_obj.estado = "procesando"
 
         # Guardamos inicio/fin reales SIEMPRE
         sesion_obj.inicio = inicio_dt
@@ -306,7 +306,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
     # RESPUESTA
     # ---------------------------------------------------------
     return {
-        "status": "en_progreso",
+        "status": "procesando",
         "expediente": expediente,
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,
@@ -452,7 +452,7 @@ def actualizar_estado(
     ]
 
     jobs_pendientes = [
-        j for j in jobs_criticos if j.estado in ("pendiente", "en_progreso")
+        j for j in jobs_criticos if j.estado in ("pendiente", "procesando")
     ]
 
     jobs_error = [
@@ -470,7 +470,7 @@ def actualizar_estado(
     if jobs_pendientes:
         return {
             "message": "Archivos completos, esperando jobs críticos",
-            "estado": "en_progreso"
+            "estado": "procesando"
         }
 
     # -------------------------------------------------
@@ -852,7 +852,7 @@ def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
 def procesos_activos(db: Session = Depends(get_db)):
     sesiones = (
         db.query(models.Sesion)
-        .filter(models.Sesion.estado.in_(["en_progreso"]))
+        .filter(models.Sesion.estado.in_(["procesando"]))
         .all()
     )
 

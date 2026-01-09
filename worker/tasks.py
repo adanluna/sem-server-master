@@ -228,7 +228,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
             tipo_archivo=tipo,
             ruta_original=normalizar_ruta(salida),
             ruta_convertida=normalizar_ruta(salida),
-            estado="en_progreso"
+            estado="procesando"
         )
 
         # (Recomendado) Marcar el job como procesando también

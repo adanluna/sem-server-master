@@ -58,7 +58,7 @@ class Sesion(Base):
 
     tablet_id = Column(String(100), nullable=False)
 
-    estado = Column(String(50), nullable=False, default="en_progreso")
+    estado = Column(String(50), nullable=False, default="procesando")
 
     fecha = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
