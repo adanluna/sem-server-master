@@ -1295,7 +1295,7 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
             "fecha": s.fecha,
             "usuario_ldap": s.usuario_ldap,
             "estado": s.estado,
-            "duracion_sesion_seg": s.duracion_sesion_seg,
+            "duracion_real": s.duracion_real,
             "archivos": archivos
         })
 
