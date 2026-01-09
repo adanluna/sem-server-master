@@ -42,7 +42,7 @@ defineProps({
 const emit = defineEmits(["confirm"]);
 
 const modalRef = ref<HTMLElement | null>(null);
-let modal: Modal;
+let modal: InstanceType<typeof Modal>;
 
 
 
