@@ -175,21 +175,6 @@ function infraBadge(s: string) {
             : "bg-danger";
 }
 
-function statusBadge(status: string) {
-    switch (status) {
-        case "ok":
-            return { cls: "bg-success", icon: "check-circle", text: "OK" }
-        case "error":
-            return { cls: "bg-danger", icon: "x-circle", text: "Error" }
-        case "warning":
-            return { cls: "bg-warning text-dark", icon: "exclamation-triangle", text: "Warning" }
-        case "sin_reporte":
-            return { cls: "bg-secondary", icon: "dash-circle", text: "Sin reporte" }
-        default:
-            return { cls: "bg-secondary", icon: "question-circle", text: status }
-    }
-}
-
 function workerBadge(s: string) {
     if (s === "activo") return "bg-success";
     if (s === "inactivo") return "bg-secondary";
