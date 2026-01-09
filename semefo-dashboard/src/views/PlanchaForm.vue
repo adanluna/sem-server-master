@@ -17,9 +17,9 @@ const errors = ref<Record<string, string>>({});
 
 /* Sync padre → hijo */
 watch(
-    () => props.modelValue,
-    (v) => (form.value = { ...v }),
-    { deep: true }
+    form,
+    (v) => emit("update:modelValue", v),
+    { deep: true, flush: "post" }
 );
 
 /* Sync hijo → padre */
