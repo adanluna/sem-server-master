@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, distinct, text
 import socket
 import shutil
+from sqlalchemy.exc import IntegrityError, DataError
 
 from api_server.database import get_db
 from api_server.utils.jobs import detectar_pipeline_bloqueado
@@ -564,16 +565,31 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
 
 @router.post("/planchas", response_model=PlanchaResponse, status_code=201)
 def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
-    plancha = models.Plancha(**data.dict())
+    payload = data.dict()
+
+    payload["camara1_ip"] = (payload.get("camara1_ip"))
+    payload["camara2_ip"] = (payload.get("camara2_ip"))
+    payload["camara1_id"] = (payload.get("camara1_id"))
+    payload["camara2_id"] = (payload.get("camara2_id"))
+
+    plancha = models.Plancha(**payload)
     db.add(plancha)
+
     try:
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=400,
-            detail="Ya existe una plancha con ese nombre o datos inválidos"
-        )
+            status_code=400, detail="Ya existe una plancha con ese nombre")
+    except DataError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="IP inválida (debe ser una IP o vacío)")
+    except Exception as e:
+        db.rollback()
+        print("[PLANCHAS] Error create:", repr(e))
+        raise HTTPException(status_code=400, detail="Datos inválidos")
+
     db.refresh(plancha)
     return plancha
 
@@ -622,17 +638,38 @@ def actualizar_plancha(
     if not plancha:
         raise HTTPException(status_code=404, detail="Plancha no encontrada")
 
-    for field, value in data.dict(exclude_unset=True).items():
+    patch = data.dict(exclude_unset=True)
+
+    # ✅ Normalización INET (y opcionalmente IDs si los borran)
+    if "camara1_ip" in patch:
+        patch["camara1_ip"] = (patch["camara1_ip"])
+    if "camara2_ip" in patch:
+        patch["camara2_ip"] = (patch["camara2_ip"])
+
+    if "camara1_id" in patch:
+        patch["camara1_id"] = (patch["camara1_id"])
+    if "camara2_id" in patch:
+        patch["camara2_id"] = (patch["camara2_id"])
+
+    for field, value in patch.items():
         setattr(plancha, field, value)
 
     try:
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=400,
-            detail="Error al actualizar la plancha"
-        )
+            status_code=400, detail="Ya existe una plancha con ese nombre")
+    except DataError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="IP inválida (debe ser una IP o vacío)")
+    except Exception as e:
+        db.rollback()
+        # 👇 opcional, para que lo veas en logs y no adivinar
+        print("[PLANCHAS] Error update:", repr(e))
+        raise HTTPException(
+            status_code=400, detail="Error al actualizar la plancha")
 
     db.refresh(plancha)
     return plancha

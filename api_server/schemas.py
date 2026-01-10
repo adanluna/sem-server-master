@@ -1,5 +1,5 @@
 # api_server/schemas.py
-from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from typing import Optional, Union
@@ -74,7 +74,7 @@ class SesionCreate(BaseModel):
     plancha_id: Optional[int] = None
     plancha_nombre: Optional[str] = None
     tablet_id: str
-    estado: Optional[str] = "procesando"
+    estado: Optional[str] = "en_progreso"
     user_nombre: Optional[str] = None
     camara1_mac_address: Optional[str] = None
     camara2_mac_address: Optional[str] = None
@@ -155,11 +155,11 @@ class InfraEstadoCreate(BaseModel):
 class PlanchaBase(BaseModel):
     nombre: str
 
-    camara1_ip: Optional[IPvAnyAddress] = None
+    camara1_ip: Optional[str] = None
     camara1_id: Optional[str] = None
     camara1_activa: bool = True
 
-    camara2_ip: Optional[IPvAnyAddress] = None
+    camara2_ip: Optional[str] = None
     camara2_id: Optional[str] = None
     camara2_activa: bool = True
 
@@ -174,11 +174,11 @@ class PlanchaCreate(PlanchaBase):
 class PlanchaUpdate(BaseModel):
     nombre: Optional[str] = None
 
-    camara1_ip: Optional[IPvAnyAddress] = None
+    camara1_ip: Optional[str] = None
     camara1_id: Optional[str] = None
     camara1_activa: Optional[bool] = None
 
-    camara2_ip: Optional[IPvAnyAddress] = None
+    camara2_ip: Optional[str] = None
     camara2_id: Optional[str] = None
     camara2_activa: Optional[bool] = None
 
