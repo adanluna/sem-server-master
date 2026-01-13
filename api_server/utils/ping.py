@@ -23,11 +23,8 @@ def ping_camara(ip: str, timeout: int = 1) -> dict:
 
     # 1) ICMP
     if ping_bin:
-        if debug["platform"] == "windows":
-            cmd = [ping_bin, "-n", "1", "-w", str(timeout * 1000), ip]
-        else:
-            cmd = [ping_bin, "-c", "1", "-W", str(timeout), ip]
-
+        cmd = [ping_bin, "-n", "-c", "1", "-W", str(timeout), ip]
+        cmd_fallback = [ping_bin, "-n", "-c", "1", "-w", str(timeout), ip]
         debug["icmp_cmd"] = cmd
 
         try:
