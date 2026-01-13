@@ -9,7 +9,7 @@ import subprocess
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import psutil
 import time
@@ -78,13 +78,16 @@ def obtener_pausas_api(id_sesion):
 
 
 def construir_intervalos_validos(inicio_sesion, fin_sesion, pausas):
+    inicio_sesion = _to_utc_aware(inicio_sesion)
+    fin_sesion = _to_utc_aware(fin_sesion)
+
     pausas = sorted(pausas, key=lambda x: x["inicio"])
     intervalos = []
     cursor = inicio_sesion
 
     for p in pausas:
-        ini = datetime.fromisoformat(p["inicio"])
-        fin = datetime.fromisoformat(p["fin"])
+        ini = _parse_iso_utc(p["inicio"])
+        fin = _parse_iso_utc(p["fin"])
 
         if fin <= cursor:
             continue
@@ -101,15 +104,20 @@ def construir_intervalos_validos(inicio_sesion, fin_sesion, pausas):
 
 
 def fragmentos_del_manifest(manifest, inicio, fin):
+    inicio = _to_utc_aware(inicio)
+    fin = _to_utc_aware(fin)
+
     frags = []
     for f in manifest["archivos"]:
         try:
-            f["_dt_ini"] = datetime.fromisoformat(f["inicio"])
-            f["_dt_fin"] = datetime.fromisoformat(f["fin"])
-        except:
+            dt_ini = _parse_iso_utc(f["inicio"])
+            dt_fin = _parse_iso_utc(f["fin"])
+            f["_dt_ini"] = dt_ini
+            f["_dt_fin"] = dt_fin
+        except Exception:
             continue
 
-        if f["_dt_fin"] >= inicio and f["_dt_ini"] <= fin:
+        if dt_fin >= inicio and dt_ini <= fin:
             frags.append(f)
 
     if not frags:
@@ -182,6 +190,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
     nombre_final = "video.webm" if tipo == "video" else "video2.webm"
     job_id = registrar_job(expediente, id_sesion, tipo, nombre_final)
+    salida = None
 
     try:
         manifest = cargar_manifest(manifest_path)
@@ -268,14 +277,17 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
         if job_id:
             actualizar_job(job_id, estado="error", error=str(e))
 
+        ruta_err = normalizar_ruta(salida) if salida else None
+
         finalizar_archivo(
             sesion_id=id_sesion,
             tipo_archivo=tipo,
-            ruta=normalizar_ruta(salida),
+            ruta=ruta_err or "",   # si tu API permite vacío; si no, usa manifest_path
             estado="error",
             mensaje=str(e),
             conversion_completa=False
         )
+
         raise
 
     finally:
@@ -287,6 +299,28 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
         #    pid=pid,
         # )
     return True
+
+
+def _to_utc_aware(dt: datetime) -> datetime:
+    """
+    Asegura datetime timezone-aware en UTC.
+    - si viene naive: se asume UTC (consistente con tu backend)
+    - si viene aware: se convierte a UTC
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _parse_iso_utc(s: str) -> datetime:
+    """
+    Parsea ISO 8601 a datetime aware UTC.
+    Acepta strings con o sin timezone.
+    """
+    dt = datetime.fromisoformat(s)
+    return _to_utc_aware(dt)
 
 
 # ============================================================
