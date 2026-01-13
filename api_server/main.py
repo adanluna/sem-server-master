@@ -889,6 +889,7 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "ruta_original": ruta_original_abs,
             "id": a.id,
             "conversion_completa": bool(a.conversion_completa),
+            "tamano_kb": size_kb(ruta_abs),
             "fecha_finalizacion": a.fecha_finalizacion,
         })
 
@@ -1407,7 +1408,6 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
                 "id": a.id,
                 "conversion_completa": bool(a.conversion_completa),
                 "fecha_finalizacion": a.fecha_finalizacion,
-                # extra útil (si lo quieres aquí también)
                 "tamano_kb": size_kb(ruta_abs),
                 "mensaje": a.mensaje,
             })
