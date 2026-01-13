@@ -166,11 +166,32 @@ def registrar_job(numero_expediente, id_sesion, tipo, archivo):
         return None
 
 
+def _solo_job_id(job_id):
+    if job_id is None:
+        return None
+    if isinstance(job_id, int):
+        return job_id
+    if isinstance(job_id, str):
+        s = job_id.strip()
+        if s.isdigit():
+            return int(s)
+        raise ValueError(f"job_id inválido (str): {job_id}")
+    if isinstance(job_id, dict):
+        if "job_id" in job_id:
+            return int(job_id["job_id"])
+        if "id" in job_id:
+            return int(job_id["id"])
+        raise ValueError(f"job_id inválido (dict): {job_id}")
+    raise ValueError(f"job_id inválido ({type(job_id).__name__}): {job_id}")
+
+
 def actualizar_job(job_id, estado=None, resultado=None, error=None):
-    """
-    Actualizar estado o errores de un job existente.
-    """
     try:
+        jid = _solo_job_id(job_id)  # ✅
+        if jid is None:
+            print("❌ actualizar_job recibió job_id=None")
+            return False
+
         payload = {}
         if estado is not None:
             payload["estado"] = estado
@@ -179,10 +200,9 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
         if error is not None:
             payload["error"] = error
 
-        _request("PUT", f"{API_URL}/jobs/{job_id}/actualizar",
+        _request("PUT", f"{API_URL}/jobs/{jid}/actualizar",
                  json=payload, timeout=10)
         return True
-
     except Exception as e:
         print(f"❌ Error actualizando job {job_id}: {e}")
         return False
