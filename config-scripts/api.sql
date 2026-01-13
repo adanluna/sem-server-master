@@ -12,7 +12,7 @@ CREATE TYPE tipo_archivo_enum AS ENUM (
     'video',
     'video2',
     'transcripcion',
-    'maninfest',
+    'manifest'
 );
 
 CREATE TYPE estado_archivo_enum AS ENUM (
@@ -23,7 +23,7 @@ CREATE TYPE estado_archivo_enum AS ENUM (
 );
 
 CREATE TYPE estado_sesion_enum AS ENUM (
-    'en_progreso',
+    'procesando',
     'pausada',
     'finalizada'
 );

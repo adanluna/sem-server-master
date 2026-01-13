@@ -387,118 +387,110 @@ def actualizar_estado(
     tipo: str,
     data: SesionArchivoEstadoUpdate,
     db: Session = Depends(get_db),
-
 ):
+    # -------------------------------------------------
+    # 0. Upsert del archivo
+    # -------------------------------------------------
+    archivo = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id, tipo_archivo=tipo)
+        .first()
+    )
 
-    archivo = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id, tipo_archivo=tipo
-    ).first()
-
-    # ✅ En vez de 404, creamos si no existe (idempotente)
     if not archivo:
         archivo = models.SesionArchivo(
             sesion_id=sesion_id,
             tipo_archivo=tipo,
-            ruta_original=getattr(data, "ruta_original",
-                                  None) or data.ruta_convertida,
+            ruta_original=data.ruta_original or data.ruta_convertida,
             ruta_convertida=data.ruta_convertida,
             estado=data.estado,
             mensaje=data.mensaje,
-            fecha_finalizacion=data.fecha_finalizacion,
-            conversion_completa=data.conversion_completa if data.conversion_completa is not None else False
+            fecha_finalizacion=(
+                datetime.now(timezone.utc)
+                if data.estado == "completado"
+                else None
+            ),
+            conversion_completa=bool(data.conversion_completa),
         )
         db.add(archivo)
     else:
-        # Actualizar datos del archivo
         archivo.estado = data.estado
+
         if data.mensaje is not None:
             archivo.mensaje = data.mensaje
-        if data.estado == "completado":
-            archivo.fecha_finalizacion = datetime.now(timezone.utc)
+
         if data.ruta_convertida is not None:
             archivo.ruta_convertida = data.ruta_convertida
+
         if data.conversion_completa is not None:
             archivo.conversion_completa = data.conversion_completa
+
+        if data.estado == "completado":
+            archivo.fecha_finalizacion = datetime.now(timezone.utc)
 
     db.commit()
 
     # -------------------------------------------------
-    # 1. Obtener archivos completados
+    # 1. Verificar ARCHIVOS requeridos
     # -------------------------------------------------
+    ARCHIVOS_REQUERIDOS = {"video", "video2", "audio", "transcripcion"}
+
     archivos = (
         db.query(models.SesionArchivo)
         .filter_by(sesion_id=sesion_id)
         .all()
     )
 
-    archivos_completados = {
-        a.tipo_archivo for a in archivos if a.estado == "completado"
-    }
+    mapa = {a.tipo_archivo: a for a in archivos}
 
-    ARCHIVOS_REQUERIDOS = {"video", "video2", "audio", "transcripcion"}
-
-    if not ARCHIVOS_REQUERIDOS.issubset(archivos_completados):
-        return {"message": f"Archivo {tipo} actualizado (sesión aún incompleta)"}
-
-    # -------------------------------------------------
-    # 2. Verificar jobs críticos
-    # -------------------------------------------------
-    jobs = (
-        db.query(models.Job)
-        .filter_by(sesion_id=sesion_id)
-        .all()
-    )
-
-    jobs_criticos = [
-        j for j in jobs if j.tipo in {"manifest", "video", "video2", "audio", "transcripcion"}
-    ]
-
-    jobs_pendientes = [
-        j for j in jobs_criticos if j.estado in ("pendiente", "procesando")
-    ]
-
-    jobs_error = [
-        j for j in jobs_criticos if j.estado == "error"
-    ]
-
-    # ❌ No cerrar si hay error
-    if jobs_error:
+    # faltantes
+    faltantes = [t for t in ARCHIVOS_REQUERIDOS if t not in mapa]
+    if faltantes:
         return {
-            "message": "Archivos completos, pero existen jobs con error",
-            "estado": "error"
+            "message": f"Archivo {tipo} actualizado (faltan: {faltantes})",
+            "estado_sesion": "procesando",
         }
 
-    # ⏳ No cerrar si aún hay jobs activos
-    if jobs_pendientes:
+    # no completados
+    no_completados = [
+        t for t in ARCHIVOS_REQUERIDOS if mapa[t].estado != "completado"
+    ]
+    if no_completados:
         return {
-            "message": "Archivos completos, esperando jobs críticos",
-            "estado": "procesando"
+            "message": f"Archivo {tipo} actualizado (incompletos: {no_completados})",
+            "estado_sesion": "procesando",
+        }
+
+    # no convertidos
+    no_convertidos = [
+        t for t in ARCHIVOS_REQUERIDOS if not bool(mapa[t].conversion_completa)
+    ]
+    if no_convertidos:
+        return {
+            "message": f"Archivo {tipo} actualizado (sin convertir: {no_convertidos})",
+            "estado_sesion": "procesando",
         }
 
     # -------------------------------------------------
-    # 3. Cierre FINAL de sesión (ÚNICO lugar)
+    # 2. CIERRE FINAL DE SESIÓN (ÚNICO LUGAR)
     # -------------------------------------------------
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
 
-    if not sesion or sesion.estado == "finalizada":
-        return {"message": "Sesión ya finalizada", "sesion_estado": "finalizada"}
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    if sesion and sesion.estado != "finalizada":
+    if sesion.estado != "finalizada":
         sesion.estado = "finalizada"
         db.commit()
         db.refresh(sesion)
 
-    if sesion.duracion_real is None:
-        if sesion.fin and sesion.inicio:
-            sesion.duracion_real = (sesion.fin - sesion.inicio).total_seconds()
-            db.commit()
-
-            logger.info(
-                f"[SESION] Sesión {sesion_id} FINALIZADA correctamente")
+    if sesion.duracion_real is None and sesion.inicio and sesion.fin:
+        sesion.duracion_real = (sesion.fin - sesion.inicio).total_seconds()
+        db.commit()
 
     return {
         "message": f"Archivo {tipo} actualizado",
-        "sesion_estado": "finalizada"
+        "estado_sesion": "finalizada",
     }
 
 
