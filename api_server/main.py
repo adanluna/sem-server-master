@@ -616,10 +616,76 @@ def actualizar_job_api(
 
     return {"message": "Job actualizado", "job_id": job.id}
 
+# ============================================================
+#  🗂️ SEMEFO CORE (Investigaciones / Sesiones)
+# ============================================================
+
+# ============================================================
+#  INVESTIGACIONES
+# ============================================================
+
+
+@app.post("/investigaciones/")
+def crear_o_devolver_investigacion(data: InvestigacionCreate, db: Session = Depends(get_db)):
+    existente = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=data.numero_expediente)
+        .first()
+    )
+
+    if existente:
+        return existente
+
+    nueva = models.Investigacion(
+        numero_expediente=data.numero_expediente,
+        nombre_carpeta=None,
+        observaciones=None,
+        fecha_creacion=datetime.now()
+    )
+
+    db.add(nueva)
+    db.commit()
+    db.refresh(nueva)
+
+    return nueva
+
+
+@app.get("/investigaciones/")
+def list_investigaciones(db: Session = Depends(get_db)):
+    return db.query(models.Investigacion).all()
+
+
+@app.get("/investigaciones/{numero_expediente}", response_model=InvestigacionCreate)
+def get_investigacion(numero_expediente: str, db: Session = Depends(get_db)):
+    inv = db.query(models.Investigacion).filter_by(
+        numero_expediente=numero_expediente).first()
+    if not inv:
+        raise HTTPException(
+            status_code=404, detail="Investigación no encontrada")
+    return inv
+
+
+@app.put("/investigaciones/{numero_expediente}", response_model=InvestigacionCreate)
+def update_investigacion(numero_expediente: str, datos: InvestigacionUpdate, db: Session = Depends(get_db)):
+    inv = db.query(models.Investigacion).filter_by(
+        numero_expediente=numero_expediente).first()
+    if not inv:
+        raise HTTPException(
+            status_code=404, detail="Investigación no encontrada")
+
+    if datos.nombre_carpeta is not None:
+        inv.nombre_carpeta = datos.nombre_carpeta
+    if datos.observaciones is not None:
+        inv.observaciones = datos.observaciones
+
+    db.commit()
+    db.refresh(inv)
+    return inv
 
 # ============================================================
 #  SESIONES
 # ============================================================
+
 
 @app.post("/sesiones/", response_model=SesionResponse)
 def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
