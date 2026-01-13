@@ -1372,86 +1372,43 @@ def ping_camara(ip: str):
 
 @app.post("/infra/estado_general")
 def estado_general_infraestructura(payload: dict):
-    """
-    Devuelve el estado general de la infraestructura:
-    - API FastAPI (online)
-    - Estado de cámaras por ping ICMP
-
-    Payload esperado:
-        {
-            "timestamp": "2025-12-26T18:12:44Z",
-            "api": {
-                "status": "ok"
-            },
-            "camaras": {
-                "total": 2,
-                "online": 1,
-                "offline": 1,
-                "detalle": [
-                {
-                    "id": "camara_principal",
-                    "ip": "192.168.1.125",
-                    "online": true
-                },
-                {
-                    "id": "camara_secundaria",
-                    "ip": "192.168.1.200",
-                    "online": false
-                }
-                ]
-            }
-        }
-    """
-
-    # -----------------------------
-    # API STATUS (si este endpoint responde, API está OK)
-    # -----------------------------
     api_status = "ok"
 
-    # -----------------------------
-    # CAMARAS
-    # -----------------------------
     camaras = payload.get("camaras", [])
-
     if not camaras:
         raise HTTPException(
-            status_code=400,
-            detail="Debe enviar una lista de cámaras"
-        )
+            status_code=400, detail="Debe enviar una lista de cámaras")
 
     estado_camaras = []
 
     for cam in camaras:
         cam_id = cam.get("id")
         ip = cam.get("ip")
-
         if not cam_id or not ip:
             continue
 
         try:
-            online = ping_camara(ip)
+            r = ping_camara(ip)
         except Exception as e:
-            logger.error(f"[INFRA] Error ping cámara {cam_id} ({ip}): {e}")
-            online = False
+            # ojo: ping_camara ya atrapa casi todo, pero por seguridad dejamos esto
+            r = {"online": False, "metodo": "exc", "debug": {"exc": str(e)}}
 
         estado_camaras.append({
             "id": cam_id,
             "ip": ip,
-            "online": online
+            "online": bool(r.get("online", False)),   # <-- BOOLEAN REAL
+            "metodo": r.get("metodo"),
+            # OJO SEGURIDAD: debug solo si eres admin/worker o en modo dev
+            # "debug": r.get("debug"),
         })
 
-    # -----------------------------
-    # RESPUESTA FINAL
-    # -----------------------------
     return {
-        "timestamp": datetime.now(timezone.utc),
-        "api": {
-            "status": api_status
-        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "api": {"status": api_status},
         "camaras": {
             "total": len(estado_camaras),
-            "online": sum(1 for c in estado_camaras if c["online"]),
-            "offline": sum(1 for c in estado_camaras if not c["online"]),
+            "online": sum(1 for c in estado_camaras if c["online"] is True),
+            "offline": sum(1 for c in estado_camaras if c["online"] is False),
             "detalle": estado_camaras
         }
     }

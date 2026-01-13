@@ -2,6 +2,8 @@ import platform
 import subprocess
 import shutil
 import socket
+from datetime import datetime, timezone
+from fastapi import HTTPException
 
 
 def _tcp_probe(ip: str, port: int, timeout: float = 0.8) -> bool:
@@ -12,7 +14,7 @@ def _tcp_probe(ip: str, port: int, timeout: float = 0.8) -> bool:
         return False
 
 
-def ping_camara(ip: str, timeout: int = 1) -> bool:
+def ping_camara(ip: str, timeout: int = 1) -> dict:
     debug = {}
 
     ping_bin = shutil.which("ping")
@@ -40,7 +42,7 @@ def ping_camara(ip: str, timeout: int = 1) -> bool:
         except Exception as e:
             debug["icmp_exc"] = str(e)
 
-    # 2) TCP fallback
+    # 2) TCP fallback (si ICMP no está o falla)
     for port in (554, 80, 443):
         ok = _tcp_probe(ip, port, timeout=float(timeout))
         debug[f"tcp_{port}"] = ok
