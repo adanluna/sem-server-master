@@ -192,8 +192,8 @@ class InfraEstado(Base):
     disco_usado_gb = Column(Float, nullable=False)
     disco_libre_gb = Column(Float, nullable=False)
 
-    fecha = Column(DateTime(timezone=True), default=utcnow,
-                   index=True, nullable=False)
+    fecha = Column(DateTime(timezone=True),
+                   server_default=func.now(), nullable=False)
 
 
 # ============================================================

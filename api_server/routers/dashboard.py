@@ -546,13 +546,19 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
     )
 
     if whisper:
-        retraso = datetime.now(timezone.utc) - whisper.fecha
+        wf = whisper.fecha
+
+        # Si viene naive, asumimos que está en UTC (por convención del sistema)
+        if wf is not None and wf.tzinfo is None:
+            wf = wf.replace(tzinfo=timezone.utc)
+
+        retraso = datetime.now(timezone.utc) - wf
 
         estado["disco"]["whisper"] = {
             "total_gb": whisper.disco_total_gb,
             "usado_gb": whisper.disco_usado_gb,
             "libre_gb": whisper.disco_libre_gb,
-            "fecha": whisper.fecha,
+            "fecha": wf,
             "status": "stale" if retraso > timedelta(minutes=10) else "ok"
         }
 
