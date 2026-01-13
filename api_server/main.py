@@ -1,3 +1,5 @@
+from ldap3 import Server, Connection, ALL, SIMPLE, NTLM
+import re
 from datetime import timedelta, datetime, timezone
 from ldap3 import Server, Connection, NTLM, ALL
 from fastapi.middleware.cors import CORSMiddleware
@@ -1070,26 +1072,16 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
 #  AUTH / LDAP
 # ============================================================
 
-def ldap_authenticate(username: str, password: str):
-    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "")
-    LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
-    LDAP_DOMAIN = os.getenv("LDAP_DOMAIN", "")
 
-    # Validar configuración
-    if not LDAP_HOST or not LDAP_DOMAIN:
-        print(f"❌ ERROR LDAP Config: HOST={LDAP_HOST}, DOMAIN={LDAP_DOMAIN}")
-        return {
-            "success": False,
-            "message": f"Configuración LDAP incompleta: HOST={LDAP_HOST}, DOMAIN={LDAP_DOMAIN}"
-        }
+def ldap_authenticate(username: str, password: str):
+    LDAP_HOST = os.getenv("LDAP_SERVER_IP", "192.168.115.8")
+    LDAP_PORT = int(os.getenv("LDAP_PORT", 389))
 
     # ESTE ES EL UPN REAL DEL DOMINIO
-    user_principal = f"{username}@{LDAP_DOMAIN}"
-    print(f"🔍 LDAP Auth: {user_principal} -> {LDAP_HOST}:{LDAP_PORT}")
+    user_principal = f"{username}@fiscalianl.gob"
 
     try:
         server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
-        print(f"✓ Servidor LDAP creado: {server}")
 
         conn = Connection(
             server,
@@ -1102,19 +1094,11 @@ def ldap_authenticate(username: str, password: str):
         # Intento de TLS (si el servidor lo soporta)
         try:
             conn.start_tls()
-            print("✓ TLS establecido")
-        except Exception as tls_error:
-            print(f"⚠ TLS no disponible: {tls_error}, continuando sin TLS")
+        except:
             pass
 
         if not conn.bind():
-            print(f"❌ Bind falló: {conn.result}")
-            return {
-                "success": False,
-                "message": f"Credenciales inválidas: {conn.result.get('description', 'Error desconocido')}"
-            }
-
-        print(f"✓ Autenticación exitosa para: {username}")
+            return {"success": False, "message": "Credenciales inválidas"}
 
         # DefaultNamingContext detectado del servidor
         search_base = "DC=fiscalianl,DC=gob"
@@ -1132,7 +1116,6 @@ def ldap_authenticate(username: str, password: str):
                 "displayName": str(entry.displayName) if "displayName" in entry else None,
                 "mail": str(entry.mail) if "mail" in entry else None
             }
-            print(f"✓ Información de usuario recuperada: {info}")
 
         conn.unbind()
 
@@ -1146,9 +1129,6 @@ def ldap_authenticate(username: str, password: str):
         }
 
     except Exception as e:
-        print(f"❌ Error LDAP: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return {"success": False, "message": f"Error LDAP: {str(e)}"}
 
 
