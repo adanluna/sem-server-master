@@ -1152,8 +1152,9 @@ def ldap_authenticate(username: str, password: str):
         return {"success": False, "message": f"Error LDAP: {str(e)}"}
 
 
-@app.post("/auth/login")
-def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
+@app.post("/auth/ldap")
+def auth_ldap(data: LDAPLoginRequest, db: Session = Depends(get_db)):
+    """Endpoint de autenticación LDAP"""
     result = ldap_authenticate(data.username, data.password)
     if not result["success"]:
         raise HTTPException(status_code=401, detail=result["message"])
@@ -1167,6 +1168,38 @@ def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
         sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
 
     # Guardar refresh en DB (modelo RefreshToken)
+    rt = models.RefreshToken(
+        subject=sub,
+        jti=jti,
+        token_hash=token_hash,
+        expires_at=expires_at
+    )
+    db.add(rt)
+    db.commit()
+
+    return {
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "bearer",
+        "user": result.get("user", {})
+    }
+
+
+@app.post("/auth/login")
+def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
+    """Alias de /auth/ldap para compatibilidad"""
+    result = ldap_authenticate(data.username, data.password)
+    if not result["success"]:
+        raise HTTPException(status_code=401, detail=result["message"])
+
+    sub = f"ldap:{data.username}"
+    roles = ["operador"]
+
+    access = create_access_token(
+        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES)
+    refresh, jti, token_hash, expires_at = create_refresh_token(
+        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
+
     rt = models.RefreshToken(
         subject=sub,
         jti=jti,
