@@ -1429,7 +1429,7 @@ def estado_general_infraestructura(payload: dict):
             continue
 
         try:
-            online = ping_ip(ip)
+            online = ping_camara(ip)
         except Exception as e:
             logger.error(f"[INFRA] Error ping cámara {cam_id} ({ip}): {e}")
             online = False
