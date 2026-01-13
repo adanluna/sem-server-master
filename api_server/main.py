@@ -37,7 +37,7 @@ from api_server.schemas import (
 )
 from api_server.models import LDAPLoginRequest, AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
-from api_server.utils.ping import ping_camara
+from api_server.utils.ping import _ping_probe
 from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhmmss_to_seconds
 from api_server.utils.jobs import crear_job_interno, verificar_estado_sesion
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, allow_worker, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
@@ -1373,53 +1373,40 @@ def ping_camara(ip: str):
 
 @app.post("/infra/estado_general")
 def estado_general_infraestructura(payload: dict):
-    api_status = "ok"
-
     camaras = payload.get("camaras", [])
     if not camaras:
         raise HTTPException(
-            status_code=400,
-            detail="Debe enviar una lista de cámaras"
-        )
+            status_code=400, detail="Debe enviar una lista de cámaras")
 
     estado_camaras = []
-
     for cam in camaras:
         cam_id = cam.get("id")
         ip = cam.get("ip")
-
         if not cam_id or not ip:
             continue
 
         try:
-            r = ping_camara(ip)
+            r = _ping_probe(ip, timeout=1, retries=2)
         except Exception as e:
-            r = {
-                "online": False,
-                "metodo": "exc",
-                "debug": {
-                    "error": repr(e),
-                    "traceback": traceback.format_exc()
-                }
-            }
+            r = {"online": False, "metodo": "exc", "debug": {"error": repr(e)}}
 
         estado_camaras.append({
             "id": cam_id,
             "ip": ip,
             "online": bool(r.get("online", False)),
             "metodo": r.get("metodo"),
-            "debug": r.get("debug")  # 👈 MOSTRAR TODO
+            "debug": r.get("debug"),   # temporal
         })
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "api": {"status": api_status},
+        "api": {"status": "ok"},
         "camaras": {
             "total": len(estado_camaras),
-            "online": sum(1 for c in estado_camaras if c["online"] is True),
-            "offline": sum(1 for c in estado_camaras if c["online"] is False),
-            "detalle": estado_camaras
-        }
+            "online": sum(1 for c in estado_camaras if c["online"]),
+            "offline": sum(1 for c in estado_camaras if not c["online"]),
+            "detalle": estado_camaras,
+        },
     }
 
 
