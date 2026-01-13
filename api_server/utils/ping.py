@@ -14,26 +14,23 @@ def ping_camara(ip: str, timeout: int = 1, retries: int = 2) -> dict:
     if not ping_bin:
         return {"online": False, "metodo": "no-ping-bin", "debug": debug}
 
-    # Linux (iputils): -n no DNS, -c 1 un paquete, -W timeout por respuesta
-    # Windows: -n 1, -w ms
     for attempt in range(1, retries + 1):
         if debug["platform"] == "windows":
             cmd = [ping_bin, "-n", "1", "-w", str(timeout * 1000), ip]
-        else:
-            cmd = [ping_bin, "-n", "-c", "1", "-W", str(timeout), ip]
-
-        debug[f"icmp_cmd_{attempt}"] = cmd
-
-        try:
+            debug[f"icmp_cmd_{attempt}"] = cmd
             r = subprocess.run(cmd, capture_output=True,
                                text=True, timeout=timeout + 2)
-            debug[f"icmp_rc_{attempt}"] = r.returncode
-            debug[f"icmp_stdout_{attempt}"] = (r.stdout or "").strip()[:300]
-            debug[f"icmp_stderr_{attempt}"] = (r.stderr or "").strip()[:300]
+        else:
+            cmd = [ping_bin, "-n", "-c", "1", "-W", str(timeout), ip]
+            debug[f"icmp_cmd_{attempt}"] = cmd
+            r = subprocess.run(cmd, capture_output=True,
+                               text=True, timeout=timeout + 2)
 
-            if r.returncode == 0:
-                return {"online": True, "metodo": f"icmp:{attempt}", "debug": debug}
-        except Exception as e:
-            debug[f"icmp_exc_{attempt}"] = str(e)
+        debug[f"icmp_rc_{attempt}"] = r.returncode
+        debug[f"icmp_stdout_{attempt}"] = (r.stdout or "").strip()[:300]
+        debug[f"icmp_stderr_{attempt}"] = (r.stderr or "").strip()[:300]
+
+        if r.returncode == 0:
+            return {"online": True, "metodo": f"icmp:{attempt}", "debug": debug}
 
     return {"online": False, "metodo": "icmp_fail", "debug": debug}
