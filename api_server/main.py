@@ -15,6 +15,7 @@ from celery import chain
 import requests
 import json
 import socket
+import traceback
 
 # Imports internos
 from api_server.database import get_db
@@ -1377,29 +1378,37 @@ def estado_general_infraestructura(payload: dict):
     camaras = payload.get("camaras", [])
     if not camaras:
         raise HTTPException(
-            status_code=400, detail="Debe enviar una lista de cámaras")
+            status_code=400,
+            detail="Debe enviar una lista de cámaras"
+        )
 
     estado_camaras = []
 
     for cam in camaras:
         cam_id = cam.get("id")
         ip = cam.get("ip")
+
         if not cam_id or not ip:
             continue
 
         try:
             r = ping_camara(ip)
         except Exception as e:
-            # ojo: ping_camara ya atrapa casi todo, pero por seguridad dejamos esto
-            r = {"online": False, "metodo": "exc", "debug": {"exc": str(e)}}
+            r = {
+                "online": False,
+                "metodo": "exc",
+                "debug": {
+                    "error": repr(e),
+                    "traceback": traceback.format_exc()
+                }
+            }
 
         estado_camaras.append({
             "id": cam_id,
             "ip": ip,
-            "online": bool(r.get("online", False)),   # <-- BOOLEAN REAL
+            "online": bool(r.get("online", False)),
             "metodo": r.get("metodo"),
-            # OJO SEGURIDAD: debug solo si eres admin/worker o en modo dev
-            # "debug": r.get("debug"),
+            "debug": r.get("debug")  # 👈 MOSTRAR TODO
         })
 
     return {
