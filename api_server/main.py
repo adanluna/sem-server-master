@@ -1371,14 +1371,43 @@ def ping_camara(ip: str):
         )
 
 
+# ============================================================
+#   ENDPOINT — Estado general infraestructura (cámaras)
+# ============================================================
+
 @app.post("/infra/estado_general")
-def estado_general_infraestructura(payload: dict):
+def estado_general_infraestructura(
+    payload: dict,
+    debug: bool = Query(
+        False, description="Si true, incluye debug detallado (solo uso interno)."),
+    timeout: int = Query(
+        1, ge=1, le=3, description="Timeout por ping en segundos (1..3)."),
+    retries: int = Query(
+        2, ge=1, le=3, description="Reintentos de ping (1..3)."),
+):
+    """
+    Recibe:
+    {
+      "camaras":[{"id":"camera1","ip":"172.21.82.121"}, ...]
+    }
+
+    Devuelve:
+    - api.status = ok
+    - camaras.total/online/offline/detalle
+    - detalle incluye online/metodo y opcional debug si ?debug=1
+    """
+
     camaras = payload.get("camaras", [])
     if not camaras:
         raise HTTPException(
             status_code=400, detail="Debe enviar una lista de cámaras")
 
+    # Doble seguridad: clamp por si llegan valores raros (aunque Query ya valida)
+    timeout = _clamp_int(timeout, 1, 3)
+    retries = _clamp_int(retries, 1, 3)
+
     estado_camaras = []
+
     for cam in camaras:
         cam_id = cam.get("id")
         ip = cam.get("ip")
@@ -1386,25 +1415,34 @@ def estado_general_infraestructura(payload: dict):
             continue
 
         try:
-            r = _ping_probe(ip, timeout=1, retries=2)
+            r = _ping_probe(ip, timeout=timeout, retries=retries)
         except Exception as e:
-            r = {"online": False, "metodo": "exc", "debug": {"error": repr(e)}}
+            # En producción, no exponemos traceback si debug=False
+            err_debug = {"error": repr(e)}
+            if debug:
+                err_debug["traceback"] = traceback.format_exc()[:2000]
 
-        estado_camaras.append({
+            r = {"online": False, "metodo": "exc", "debug": err_debug}
+
+        item = {
             "id": cam_id,
             "ip": ip,
             "online": bool(r.get("online", False)),
             "metodo": r.get("metodo"),
-            "debug": r.get("debug"),   # temporal
-        })
+        }
+
+        if debug:
+            item["debug"] = r.get("debug")
+
+        estado_camaras.append(item)
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "api": {"status": "ok"},
         "camaras": {
             "total": len(estado_camaras),
-            "online": sum(1 for c in estado_camaras if c["online"]),
-            "offline": sum(1 for c in estado_camaras if not c["online"]),
+            "online": sum(1 for c in estado_camaras if c["online"] is True),
+            "offline": sum(1 for c in estado_camaras if c["online"] is False),
             "detalle": estado_camaras,
         },
     }
