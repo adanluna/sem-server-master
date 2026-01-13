@@ -1,12 +1,10 @@
-import socket
 import platform
 import subprocess
+import shutil
+import socket
 
 
-def _tcp_ping(ip: str, port: int, timeout: int = 2) -> bool:
-    """
-    Verifica si un puerto TCP responde (más fiable que ICMP).
-    """
+def _tcp_probe(ip: str, port: int, timeout: float = 0.8) -> bool:
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
@@ -14,38 +12,41 @@ def _tcp_ping(ip: str, port: int, timeout: int = 2) -> bool:
         return False
 
 
-def ping_camara(ip: str, timeout: int = 2) -> bool:
+def ping_camara(ip: str, timeout: int = 1) -> bool:
     """
-    Verifica si una cámara está ONLINE desde server master.
-
-    Prioridad:
-    1) RTSP (554)  ← criterio REAL
-    2) HTTP (80 / 443)
-    3) ICMP (solo como último fallback)
+    Verifica si un dispositivo está accesible.
+    - 1) ICMP ping (si existe el binario)
+    - 2) Fallback TCP (RTSP/HTTP/HTTPS) si no hay ping o falla
     """
+    # ---------- 1) ICMP ----------
+    ping_bin = shutil.which("ping")
+    if ping_bin:
+        system = platform.system().lower()
 
-    # 1️⃣ RTSP (lo que importa para SEMEFO)
-    if _tcp_ping(ip, 554, timeout):
-        return True
+        # Linux en Debian/Ubuntu: -W es timeout en segundos (por paquete)
+        # Windows: -w es timeout en ms
+        if system == "windows":
+            cmd = [ping_bin, "-n", "1", "-w", str(timeout * 1000), ip]
+        else:
+            cmd = [ping_bin, "-c", "1", "-W", str(timeout), ip]
 
-    # 2️⃣ Web UI (opcional)
-    if _tcp_ping(ip, 80, timeout):
-        return True
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout + 1
+            )
+            if result.returncode == 0:
+                return True
+        except Exception:
+            # si falla ping por permisos/caps/timeout, seguimos a TCP
+            pass
 
-    if _tcp_ping(ip, 443, timeout):
-        return True
+    # ---------- 2) TCP fallback ----------
+    # Cámaras: RTSP 554 suele ser el mejor indicador real.
+    for port in (554, 80, 443):
+        if _tcp_probe(ip, port, timeout=float(timeout)):
+            return True
 
-    # 3️⃣ ICMP (último recurso)
-    system = platform.system().lower()
-    if system == "windows":
-        cmd = ["ping", "-n", "1", "-w", str(timeout * 1000), ip]
-    else:
-        cmd = ["ping", "-c", "1", "-W", str(timeout), ip]
-
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-    return result.returncode == 0
+    return False
