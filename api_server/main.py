@@ -816,8 +816,8 @@ def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db), ):
 #  🔍 APIS PARA CONSULTA SEMEFO (lectura operacional)
 # ============================================================
 
-@app.get("/jobs/en_progreso")
-def jobs_en_progreso(db: Session = Depends(get_db)):
+@app.get("/jobs/procesando")
+def jobs_procesando(db: Session = Depends(get_db)):
     jobs = (
         db.query(models.Job)
         .filter(models.Job.estado.in_(["pendiente"]))
@@ -827,7 +827,7 @@ def jobs_en_progreso(db: Session = Depends(get_db)):
     return jobs
 
 
-@app.get("/sesiones/{sesion_id}/estatus_completo")
+@app.get("/sesiones/{sesion_id}")
 def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
@@ -835,12 +835,10 @@ def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
 
     archivos = db.query(models.SesionArchivo).filter_by(
         sesion_id=sesion_id).all()
-    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
 
     return {
         "sesion": sesion,
         "archivos": archivos,
-        "jobs": jobs
     }
 
 

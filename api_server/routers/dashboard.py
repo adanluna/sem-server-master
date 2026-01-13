@@ -107,7 +107,7 @@ def dashboard_resumen(
         SELECT
             COUNT(*) AS total_30_dias,
             SUM(CASE WHEN s.estado = 'finalizada' THEN 1 ELSE 0 END) AS finalizadas,
-            SUM(CASE WHEN s.estado IN ('en_progreso','pausada') THEN 1 ELSE 0 END) AS pendientes,
+            SUM(CASE WHEN s.estado IN ('procesando','pausada') THEN 1 ELSE 0 END) AS pendientes,
             -- "errores": sesiones con algún job o archivo en estado error (en 30 días)
             SUM(CASE WHEN EXISTS (
                 SELECT 1 FROM jobs j
@@ -143,7 +143,7 @@ def dashboard_resumen(
         FROM sesiones s
         LEFT JOIN investigaciones i ON i.id = s.investigacion_id
         LEFT JOIN planchas p ON p.id = s.plancha_id
-        WHERE s.estado IN ('en_progreso','pausada')
+        WHERE s.estado IN ('procesando','pausada')
         ORDER BY s.fecha ASC
         LIMIT 10
     """)

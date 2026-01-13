@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS sesiones (
     plancha_id INTEGER REFERENCES planchas(id),
     plancha_nombre VARCHAR(255),
 
-    estado estado_sesion_enum DEFAULT 'en_progreso',
+    estado estado_sesion_enum DEFAULT 'procesando',
 
     inicio TIMESTAMP,
     fin TIMESTAMP,

@@ -74,7 +74,7 @@ class SesionCreate(BaseModel):
     plancha_id: Optional[int] = None
     plancha_nombre: Optional[str] = None
     tablet_id: str
-    estado: Optional[str] = "en_progreso"
+    estado: Optional[str] = "procesando"
     user_nombre: Optional[str] = None
     camara1_mac_address: Optional[str] = None
     camara2_mac_address: Optional[str] = None
