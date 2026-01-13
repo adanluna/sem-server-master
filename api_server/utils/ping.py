@@ -13,40 +13,38 @@ def _tcp_probe(ip: str, port: int, timeout: float = 0.8) -> bool:
 
 
 def ping_camara(ip: str, timeout: int = 1) -> bool:
-    """
-    Verifica si un dispositivo está accesible.
-    - 1) ICMP ping (si existe el binario)
-    - 2) Fallback TCP (RTSP/HTTP/HTTPS) si no hay ping o falla
-    """
-    # ---------- 1) ICMP ----------
-    ping_bin = shutil.which("ping")
-    if ping_bin:
-        system = platform.system().lower()
+    debug = {}
 
-        # Linux en Debian/Ubuntu: -W es timeout en segundos (por paquete)
-        # Windows: -w es timeout en ms
-        if system == "windows":
+    ping_bin = shutil.which("ping")
+    debug["ping_bin"] = ping_bin
+    debug["platform"] = platform.system().lower()
+
+    # 1) ICMP
+    if ping_bin:
+        if debug["platform"] == "windows":
             cmd = [ping_bin, "-n", "1", "-w", str(timeout * 1000), ip]
         else:
             cmd = [ping_bin, "-c", "1", "-W", str(timeout), ip]
 
+        debug["icmp_cmd"] = cmd
+
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=timeout + 1
-            )
-            if result.returncode == 0:
-                return True
-        except Exception:
-            # si falla ping por permisos/caps/timeout, seguimos a TCP
-            pass
+            r = subprocess.run(cmd, capture_output=True,
+                               text=True, timeout=timeout + 1)
+            debug["icmp_rc"] = r.returncode
+            debug["icmp_stdout"] = (r.stdout or "").strip()[:500]
+            debug["icmp_stderr"] = (r.stderr or "").strip()[:500]
 
-    # ---------- 2) TCP fallback ----------
-    # Cámaras: RTSP 554 suele ser el mejor indicador real.
+            if r.returncode == 0:
+                return {"online": True, "metodo": "icmp", "debug": debug}
+        except Exception as e:
+            debug["icmp_exc"] = str(e)
+
+    # 2) TCP fallback
     for port in (554, 80, 443):
-        if _tcp_probe(ip, port, timeout=float(timeout)):
-            return True
+        ok = _tcp_probe(ip, port, timeout=float(timeout))
+        debug[f"tcp_{port}"] = ok
+        if ok:
+            return {"online": True, "metodo": f"tcp:{port}", "debug": debug}
 
-    return False
+    return {"online": False, "metodo": "none", "debug": debug}
