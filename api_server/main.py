@@ -36,7 +36,7 @@ from api_server.schemas import (
 )
 from api_server.models import LDAPLoginRequest, AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
-from api_server.utils.ping import ping_ip
+from api_server.utils.ping import ping_camara
 from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhmmss_to_seconds
 from api_server.utils.jobs import crear_job_interno, verificar_estado_sesion
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, allow_worker, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
@@ -1354,7 +1354,7 @@ def ping_camara(ip: str):
     Verifica si una cámara (o cualquier dispositivo) responde en red.
     """
     try:
-        online = ping_ip(ip)
+        online = ping_camara(ip)
 
         return {
             "ip": ip,
