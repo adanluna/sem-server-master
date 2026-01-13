@@ -304,11 +304,11 @@ CREATE INDEX IF NOT EXISTS ix_refresh_tokens_expires_at ON refresh_tokens (expir
 
 CREATE TABLE infra_estado (
     id SERIAL PRIMARY KEY,
-    servidor VARCHAR(50) NOT NULL, -- master | whisper
+    servidor VARCHAR(50) NOT NULL UNIQUE, -- master | whisper
     disco_total_gb DOUBLE PRECISION NOT NULL,
     disco_usado_gb DOUBLE PRECISION NOT NULL,
     disco_libre_gb DOUBLE PRECISION NOT NULL,
-    fecha TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    fecha TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_infra_estado_servidor_fecha
