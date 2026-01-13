@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException
 from ldap3 import Server, Connection, ALL, SIMPLE, NTLM
 import re
 from datetime import timedelta, datetime, timezone
@@ -828,17 +830,71 @@ def jobs_procesando(db: Session = Depends(get_db)):
 
 
 @app.get("/sesiones/{sesion_id}")
-def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db)):
+def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    archivos = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id).all()
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.SesionArchivo.id.asc())
+        .all()
+    )
+
+    sesion_out = {
+        "id": sesion.id,
+        "user_nombre": sesion.user_nombre,
+        "plancha_id": sesion.plancha_id,
+        "plancha_nombre": sesion.plancha_nombre,
+        "investigacion_id": sesion.investigacion_id,
+        "app_version": sesion.app_version,
+        "progreso_porcentaje": sesion.progreso_porcentaje,
+        "tablet_id": sesion.tablet_id,
+        "estado": sesion.estado,
+        "fecha": sesion.fecha,
+        "fin": sesion.fin,
+        "nombre_sesion": sesion.nombre_sesion,
+    }
+
+    archivos_out = []
+    for a in archivos:
+        ruta_base = a.ruta_convertida or a.ruta_original
+
+        ruta_abs = normalizar_ruta(
+            ruta_base,
+            tipo=a.tipo_archivo,
+            expediente=None,   # si tu normalizar_ruta requiere expediente/sesion_id, pásalos aquí
+            sesion_id=None
+        )
+
+        ruta_publica = ruta_red(ruta_abs)
+
+        fecha_archivo = getattr(a, "fecha_creacion",
+                                None) or getattr(a, "fecha", None)
+
+        ruta_original_abs = normalizar_ruta(
+            a.ruta_original,
+            tipo=a.tipo_archivo,
+            expediente=None,
+            sesion_id=None
+        )
+
+        archivos_out.append({
+            "tipo_archivo": a.tipo_archivo,
+            "sesion_id": a.sesion_id,
+            "ruta_convertida": ruta_publica,
+            "estado": a.estado,
+            "fecha": fecha_archivo,
+            "ruta_original": ruta_original_abs,
+            "id": a.id,
+            "conversion_completa": bool(a.conversion_completa),
+            "fecha_finalizacion": a.fecha_finalizacion,
+        })
 
     return {
-        "sesion": sesion,
-        "archivos": archivos,
+        "sesion": sesion_out,
+        "archivos": archivos_out
     }
 
 
@@ -1285,9 +1341,8 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
 # ============================================================
 
 
-@app.get("/consultas/expedientes/{numero_expediente}")
+@app.get("/expedientes/{numero_expediente}")
 def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
-
     inv = (
         db.query(models.Investigacion)
         .filter_by(numero_expediente=numero_expediente)
@@ -1299,28 +1354,67 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
 
     sesiones_out = []
 
+    # Si tienes relación inv.sesiones, úsala; si no, query por investigacion_id
     for s in inv.sesiones:
-        archivos = []
-        for a in s.archivos:
-            size_kb = 0
-            if a.ruta_convertida and os.path.exists(a.ruta_convertida):
-                size_kb = round(os.path.getsize(
-                    a.ruta_convertida) / 1024, 2)
+        # ---------- sesion_out (mismo shape que /sesiones/{id}) ----------
+        sesion_out = {
+            "id": s.id,
+            "user_nombre": s.user_nombre,
+            "plancha_id": s.plancha_id,
+            "plancha_nombre": s.plancha_nombre,
+            "investigacion_id": s.investigacion_id,
+            "app_version": s.app_version,
+            "progreso_porcentaje": s.progreso_porcentaje,
+            "tablet_id": s.tablet_id,
+            "estado": s.estado,
+            "fecha": s.fecha,
+            "fin": s.fin,
+            "nombre_sesion": s.nombre_sesion,
+        }
 
-            archivos.append({
-                "tipo": a.tipo_archivo,
+        # ---------- archivos_out (mismo shape que /sesiones/{id}) ----------
+        archivos_out = []
+        for a in s.archivos:
+            ruta_base = a.ruta_convertida or a.ruta_original
+
+            # Normalizar a absoluta (para que size_kb y ruta_red funcionen)
+            ruta_abs = normalizar_ruta(
+                ruta_base,
+                tipo=a.tipo_archivo,
+                expediente=inv.numero_expediente,
+                sesion_id=s.id
+            )
+
+            ruta_publica = ruta_red(ruta_abs)
+
+            fecha_archivo = getattr(
+                a, "fecha_creacion", None) or getattr(a, "fecha", None)
+
+            ruta_original_abs = normalizar_ruta(
+                a.ruta_original,
+                tipo=a.tipo_archivo,
+                expediente=inv.numero_expediente,
+                sesion_id=s.id
+            )
+
+            archivos_out.append({
+                "tipo_archivo": a.tipo_archivo,
+                "sesion_id": a.sesion_id,
+                "ruta_convertida": ruta_publica,
                 "estado": a.estado,
-                "tamano_kb": size_kb,
-                "mensaje": a.mensaje
+                "fecha": fecha_archivo,
+                "ruta_original": ruta_original_abs,
+                "id": a.id,
+                "conversion_completa": bool(a.conversion_completa),
+                "fecha_finalizacion": a.fecha_finalizacion,
+                # extra útil (si lo quieres aquí también)
+                "tamano_kb": size_kb(ruta_abs),
+                "mensaje": a.mensaje,
             })
 
         sesiones_out.append({
-            "sesion_id": s.id,
-            "fecha": s.fecha,
-            "usuario_ldap": s.usuario_ldap,
-            "estado": s.estado,
-            "duracion_real": s.duracion_real,
-            "archivos": archivos
+            "sesion": sesion_out,
+            "archivos": archivos_out
         })
 
     return {
