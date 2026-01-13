@@ -1,49 +1,39 @@
 import platform
 import subprocess
 import shutil
-import socket
-from datetime import datetime, timezone
-from fastapi import HTTPException
 
 
-def _tcp_probe(ip: str, port: int, timeout: float = 0.8) -> bool:
-    try:
-        with socket.create_connection((ip, port), timeout=timeout):
-            return True
-    except Exception:
-        return False
-
-
-def ping_camara(ip: str, timeout: int = 1) -> dict:
+def ping_camara(ip: str, timeout: int = 1, retries: int = 2) -> dict:
     debug = {}
-
     ping_bin = shutil.which("ping")
     debug["ping_bin"] = ping_bin
     debug["platform"] = platform.system().lower()
+    debug["timeout"] = timeout
+    debug["retries"] = retries
 
-    # 1) ICMP
-    if ping_bin:
-        cmd = [ping_bin, "-n", "-c", "1", "-W", str(timeout), ip]
-        cmd_fallback = [ping_bin, "-n", "-c", "1", "-w", str(timeout), ip]
-        debug["icmp_cmd"] = cmd
+    if not ping_bin:
+        return {"online": False, "metodo": "no-ping-bin", "debug": debug}
+
+    # Linux (iputils): -n no DNS, -c 1 un paquete, -W timeout por respuesta
+    # Windows: -n 1, -w ms
+    for attempt in range(1, retries + 1):
+        if debug["platform"] == "windows":
+            cmd = [ping_bin, "-n", "1", "-w", str(timeout * 1000), ip]
+        else:
+            cmd = [ping_bin, "-n", "-c", "1", "-W", str(timeout), ip]
+
+        debug[f"icmp_cmd_{attempt}"] = cmd
 
         try:
             r = subprocess.run(cmd, capture_output=True,
-                               text=True, timeout=timeout + 1)
-            debug["icmp_rc"] = r.returncode
-            debug["icmp_stdout"] = (r.stdout or "").strip()[:500]
-            debug["icmp_stderr"] = (r.stderr or "").strip()[:500]
+                               text=True, timeout=timeout + 2)
+            debug[f"icmp_rc_{attempt}"] = r.returncode
+            debug[f"icmp_stdout_{attempt}"] = (r.stdout or "").strip()[:300]
+            debug[f"icmp_stderr_{attempt}"] = (r.stderr or "").strip()[:300]
 
             if r.returncode == 0:
-                return {"online": True, "metodo": "icmp", "debug": debug}
+                return {"online": True, "metodo": f"icmp:{attempt}", "debug": debug}
         except Exception as e:
-            debug["icmp_exc"] = str(e)
+            debug[f"icmp_exc_{attempt}"] = str(e)
 
-    # 2) TCP fallback (si ICMP no está o falla)
-    for port in (554, 80, 443):
-        ok = _tcp_probe(ip, port, timeout=float(timeout))
-        debug[f"tcp_{port}"] = ok
-        if ok:
-            return {"online": True, "metodo": f"tcp:{port}", "debug": debug}
-
-    return {"online": False, "metodo": "none", "debug": debug}
+    return {"online": False, "metodo": "icmp_fail", "debug": debug}
