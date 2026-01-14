@@ -40,7 +40,7 @@ def check_ldap_config():
     print("=" * 70)
 
     # Intentamos hacer login con credenciales inválidas para ver el error
-    url = f"{API_BASE_URL}/auth/ldap"
+    url = f"{API_BASE_URL}/auth/login"
 
     # Primero con credenciales obviamente incorrectas
     payload = {"username": "test_invalid_user_12345", "password": "invalid"}

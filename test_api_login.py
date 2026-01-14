@@ -166,7 +166,7 @@ def main():
     print("\n" + "=" * 70)
 
     # Probar /auth/ldap
-    success_ldap, data_ldap = test_auth_endpoint("/auth/ldap")
+    success_ldap, data_ldap = test_auth_endpoint("/auth/login")
 
     # Si alguno fue exitoso, probar el access token
     if success_login and data_login and "access_token" in data_login:
@@ -179,7 +179,7 @@ def main():
     print("RESUMEN DE PRUEBAS")
     print("=" * 70)
     print(f"/auth/login: {'✅ EXITOSO' if success_login else '❌ FALLIDO'}")
-    print(f"/auth/ldap:  {'✅ EXITOSO' if success_ldap else '❌ FALLIDO'}")
+    print(f"/auth/login:  {'✅ EXITOSO' if success_ldap else '❌ FALLIDO'}")
     print("=" * 70)
 
     return success_login or success_ldap

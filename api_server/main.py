@@ -51,6 +51,11 @@ logger = logging.getLogger(__name__)
 #  VARIABLES GLOBALES
 # ============================================================
 
+
+TERMINALES = {"completado", "error"}
+ARCHIVOS_JOB_TIPOS = {"audio", "audio2", "video",
+                      "video2", "manifesto", "transcripcion"}
+
 EXPEDIENTES_PATH = os.getenv(
     "EXPEDIENTES_PATH",
     "/mnt/wave/archivos_sistema_semefo"
@@ -114,6 +119,10 @@ async def health():
 # ============================================================
 #  PROCESAR SESIÓN — MANIFEST + AUDIO + VIDEO
 # ============================================================
+
+def _now_utc():
+    return datetime.now(timezone.utc)
+
 
 @app.post("/procesar_sesion")
 def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depends(require_roles("operador", "supervisor"))):
@@ -638,23 +647,76 @@ def actualizar_job_api(
     job_id: int,
     data: JobUpdate,
     db: Session = Depends(get_db),
-
 ):
     job = db.query(models.Job).filter_by(id=job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
 
-    if data.estado is not None:
-        job.estado = data.estado
-    if data.resultado is not None:
-        job.resultado = data.resultado
-    if data.error is not None:
-        job.error = data.error
+    try:
+        # =========================
+        # 1) Actualiza JOB
+        # =========================
+        if data.estado is not None:
+            job.estado = data.estado
+        if data.resultado is not None:
+            job.resultado = data.resultado
+        if data.error is not None:
+            job.error = data.error
 
-    db.commit()
-    db.refresh(job)
+        # Si tu modelo Job tiene fecha_actualizacion, setéala
+        if hasattr(job, "fecha_actualizacion"):
+            job.fecha_actualizacion = _now_utc()
 
-    return {"message": "Job actualizado", "job_id": job.id}
+        # =========================
+        # 2) Sincroniza SESION_ARCHIVOS
+        #    Solo si es un tipo de archivo y estado terminal
+        # =========================
+        if (job.tipo in ARCHIVOS_JOB_TIPOS) and (job.estado in TERMINALES):
+            sa = (
+                db.query(models.SesionArchivo)
+                .filter_by(sesion_id=job.sesion_id, tipo_archivo=job.tipo)
+                .first()
+            )
+
+            if sa:
+                sa.estado = job.estado
+
+                # mensaje en error, limpio en completado
+                if hasattr(sa, "mensaje"):
+                    sa.mensaje = job.error if job.estado == "error" else None
+
+                # fecha_finalizacion
+                if hasattr(sa, "fecha_finalizacion"):
+                    sa.fecha_finalizacion = _now_utc()
+
+                # conversion_completa: true solo si completado
+                if hasattr(sa, "conversion_completa"):
+                    sa.conversion_completa = (job.estado == "completado")
+
+                # ruta_convertida (si job.resultado trae path final y el campo existe)
+                if job.resultado and hasattr(sa, "ruta_convertida"):
+                    sa.ruta_convertida = job.resultado
+
+            # Si NO existe SesionArchivo, NO lo creo aquí por defecto
+            # para evitar “inventar evidencia”. Mejor que exista desde el registro inicial.
+            # Si tú sí quieres autocrearlo, lo hacemos pero con reglas estrictas.
+
+        db.commit()
+        db.refresh(job)
+
+        return {
+            "message": "Job actualizado",
+            "job_id": job.id,
+            "sesion_id": job.sesion_id,
+            "tipo": job.tipo,
+            "estado": job.estado,
+            "error": job.error,
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Error al actualizar job: {str(e)}")
 
 # ============================================================
 #  🗂️ SEMEFO CORE (Investigaciones / Sesiones)
@@ -852,12 +914,31 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
+    # 1) Archivos
     archivos = (
         db.query(models.SesionArchivo)
         .filter_by(sesion_id=sesion_id)
         .order_by(models.SesionArchivo.id.asc())
         .all()
     )
+
+    # 2) Jobs (para consolidar estado)
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+
+    # último job por tipo (audio/video/transcripcion/etc.)
+    ultimo_job_por_tipo = {}
+    for j in jobs:
+        # Solo tipos que correspondan a sesion_archivos
+        if j.tipo not in {"audio", "audio2", "video", "video2", "transcripcion"}:
+            continue
+        if j.tipo not in ultimo_job_por_tipo:
+            # como vienen desc, el primero es el más reciente
+            ultimo_job_por_tipo[j.tipo] = j
 
     sesion_out = {
         "id": sesion.id,
@@ -881,7 +962,7 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
         ruta_abs = normalizar_ruta(
             ruta_base,
             tipo=a.tipo_archivo,
-            expediente=None,   # si tu normalizar_ruta requiere expediente/sesion_id, pásalos aquí
+            expediente=None,
             sesion_id=None
         )
 
@@ -897,23 +978,40 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
             sesion_id=None
         )
 
+        # === Consolidación: si job más reciente está terminal, prevalece ===
+        estado_final = a.estado
+        mensaje_final = getattr(a, "mensaje", None)
+        fecha_finalizacion_final = a.fecha_finalizacion
+        tamano_kb_final = size_kb(ruta_abs)
+
+        j = ultimo_job_por_tipo.get(a.tipo_archivo)
+        if j and (j.estado in TERMINALES):
+            estado_final = j.estado
+            # Si el job trae error, úsalo
+            if j.error:
+                mensaje_final = j.error
+            # Fecha final: usa fecha_actualizacion del job si existe
+            if getattr(j, "fecha_actualizacion", None):
+                fecha_finalizacion_final = j.fecha_actualizacion
+            # Tamaño: si el job reporta tamaño y es > 0, úsalo (evita 0 por race condition)
+            if getattr(j, "tamano_actual_KB", None) and j.tamano_actual_KB > 0:
+                tamano_kb_final = j.tamano_actual_KB
+
         archivos_out.append({
             "tipo_archivo": a.tipo_archivo,
             "sesion_id": a.sesion_id,
             "ruta_convertida": ruta_publica,
-            "estado": a.estado,
+            "estado": estado_final,
+            "mensaje": mensaje_final,
             "fecha": fecha_archivo,
             "ruta_original": ruta_original_abs,
             "id": a.id,
             "conversion_completa": bool(a.conversion_completa),
-            "tamano_kb": size_kb(ruta_abs),
-            "fecha_finalizacion": a.fecha_finalizacion,
+            "tamano_kb": tamano_kb_final,
+            "fecha_finalizacion": fecha_finalizacion_final,
         })
 
-    return {
-        "sesion": sesion_out,
-        "archivos": archivos_out
-    }
+    return {"sesion": sesion_out, "archivos": archivos_out}
 
 
 @app.get("/procesos/activos")
@@ -1120,6 +1218,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         "sesion_id": sesion_id,
         "expediente": expediente,
         "estado_sesion": sesion.estado,
+        "nombre_sesion": sesion.nombre_sesion,
         "jobs": sorted(
             salida,
             key=lambda x: x["fecha_creacion"] or datetime.min,

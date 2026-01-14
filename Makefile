@@ -35,6 +35,15 @@ restart:
 logs:
 	docker compose -f $(COMPOSE_BASE) logs -f
 
+logs-manifest:
+	docker logs -f celery_manifest
+
+logs-uniones:
+	docker logs -f celery_uniones
+
+logs-api:
+	docker compose logs fastapi -f
+
 # ============================================================
 # DESARROLLO / MAC (emulación /mnt/wave)
 # ============================================================
