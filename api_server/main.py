@@ -385,6 +385,21 @@ def registrar_archivo(
     return archivo
 
 
+@app.get("/sesiones/{sesion_id}/archivos")
+def listar_archivos_sesion(sesion_id: int, db: Session = Depends(get_db)):
+    ses = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not ses:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.SesionArchivo.id.asc())
+        .all()
+    )
+    return archivos
+
+
 @app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
 def actualizar_estado(
     sesion_id: int,
@@ -496,6 +511,30 @@ def actualizar_estado(
         "message": f"Archivo {tipo} actualizado",
         "estado_sesion": "finalizada",
     }
+
+# ============================================================
+#  PROGRESO POR ARCHIVO (usado por workers)
+# ============================================================
+
+
+@app.put("/sesiones/{sesion_id}/progreso/{tipo_archivo}")
+def actualizar_progreso(sesion_id: int, tipo_archivo: str, data: dict, db: Session = Depends(get_db), ):
+
+    progreso = data.get("progreso")
+    if progreso is None:
+        raise HTTPException(status_code=400, detail="Falta 'progreso'")
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    # Guardar progreso general de la sesión
+    sesion.progreso_porcentaje = progreso
+    db.commit()
+
+    print(f"[PROGRESO] Sesión {sesion_id} – {tipo_archivo}: {progreso}%")
+
+    return {"message": "Progreso actualizado"}
 
 # ============================================================
 #  REGISTRAR PAUSAS DETECTADAS (Workers)
@@ -715,6 +754,34 @@ def crear_sesion(sesion_data: SesionCreate, db: Session = Depends(get_db)):
 
 
 # ============================================================
+#  ⏸️ PAUSAS (manuales y lectura)
+# ============================================================
+
+# ============================================================
+#  PAUSAS MANUALES
+# ============================================================
+
+@app.post("/sesiones/{sesion_id}/pausas", response_model=PausaResponse)
+def registrar_pausa(sesion_id: int, data: PausaCreate, db: Session = Depends(get_db)):
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    pausa = models.LogPausa(
+        sesion_id=sesion_id,
+        inicio=data.inicio,
+        fin=data.fin,
+        duracion=data.duracion,
+        fuente=data.fuente
+    )
+
+    db.add(pausa)
+    db.commit()
+    db.refresh(pausa)
+    return pausa
+
+
+# ============================================================
 #  LISTAR TODAS LAS PAUSAS (APP + AUTO) PARA PROCESAMIENTO
 # ============================================================
 
@@ -767,6 +834,17 @@ def obtener_pausas_todas(sesion_id: int, db: Session = Depends(get_db), ):
 # ============================================================
 #  🔍 APIS PARA CONSULTA SEMEFO (lectura operacional)
 # ============================================================
+
+@app.get("/jobs/procesando")
+def jobs_procesando(db: Session = Depends(get_db)):
+    jobs = (
+        db.query(models.Job)
+        .filter(models.Job.estado.in_(["pendiente"]))
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+    return jobs
+
 
 @app.get("/sesiones/{sesion_id}")
 def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
@@ -836,6 +914,39 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
         "sesion": sesion_out,
         "archivos": archivos_out
     }
+
+
+@app.get("/procesos/activos")
+def procesos_activos(db: Session = Depends(get_db)):
+    sesiones = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.estado.in_(["procesando"]))
+        .all()
+    )
+
+    output = []
+    for ses in sesiones:
+        jobs = (
+            db.query(models.Job)
+            .filter_by(sesion_id=ses.id)
+            .order_by(models.Job.fecha_creacion.desc())
+            .all()
+        )
+        archivos = (
+            db.query(models.SesionArchivo)
+            .filter_by(sesion_id=ses.id)
+            .all()
+        )
+
+        output.append({
+            "sesion_id": ses.id,
+            "expediente": ses.investigacion.numero_expediente,
+            "estado_sesion": ses.estado,
+            "jobs": jobs,
+            "archivos": archivos
+        })
+
+    return output
 
 # ============================================================
 #  LOGS FFMPEG

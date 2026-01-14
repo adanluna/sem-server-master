@@ -1,3 +1,12 @@
+--- si ----
+docker compose exec db psql -U semefo_user -d semefo
+docker logs -f celery_manifest
+docker logs celery_uniones -f
+docker compose logs fastapi -f
+ps aux | grep ffmpeg
+killall ffmpeg
+--- si ----
+
 curl -X POST http://127.0.0.1:8000/investigaciones/ \
   -H "Content-Type: application/json" \
   -d '{
@@ -9,14 +18,6 @@ curl -X POST http://127.0.0.1:8000/investigaciones/ \
 make restart
 ---------- no -----
 
---- si ----
-docker compose exec db psql -U semefo_user -d semefo
-docker logs -f celery_manifest
-docker logs celery_uniones -f
-docker compose logs fastapi -f
-ps aux | grep ffmpeg
-killall ffmpeg
---- si ----
 
 curl -X POST http://localhost:8000/whisper/enviar \
   -H "Content-Type: application/json" \
