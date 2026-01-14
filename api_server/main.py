@@ -1484,10 +1484,8 @@ def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
                 "fecha": fecha_archivo,
                 "ruta_original": ruta_original_abs,
                 "id": a.id,
-                "conversion_completa": bool(a.conversion_completa),
                 "fecha_finalizacion": a.fecha_finalizacion,
                 "tamano_kb": size_kb(ruta_abs),
-                "mensaje": a.mensaje,
             })
 
         sesiones_out.append({

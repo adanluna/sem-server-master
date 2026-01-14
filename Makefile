@@ -44,6 +44,11 @@ logs-uniones:
 logs-api:
 	docker compose logs fastapi -f
 
+clear-logs:
+	@echo "🧹 Limpiando logs de contenedores..."
+	@docker ps -aq | xargs -I {} sh -c 'truncate -s 0 $$(docker inspect --format="{{.LogPath}}" {}) 2>/dev/null || true'
+	@echo "✅ Logs limpiados correctamente."
+
 # ============================================================
 # DESARROLLO / MAC (emulación /mnt/wave)
 # ============================================================
