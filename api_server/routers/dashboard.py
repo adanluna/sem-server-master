@@ -877,3 +877,20 @@ def desactivar_service_client(
     db.commit()
     db.refresh(sc)
     return sc
+
+
+@router.delete("/service-clients/{sc_id}")
+def eliminar_service_client(
+    sc_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    sc = db.query(models.ServiceClient).filter_by(id=sc_id).first()
+    if not sc:
+        raise HTTPException(
+            status_code=404, detail="Service client no encontrado")
+
+    db.delete(sc)
+    db.commit()
+
+    return {"message": "Service client eliminado", "id": sc_id}

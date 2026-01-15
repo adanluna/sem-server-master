@@ -8,6 +8,7 @@ import {
     rotateServiceClientToken,
     activateServiceClient,
     deactivateServiceClient,
+    deleteServiceClient
 } from "../api/service_clients";
 
 const loading = ref(false);
@@ -124,10 +125,91 @@ async function toggle(sc: ServiceClient) {
     }
 }
 
-function copyToken() {
-    navigator.clipboard.writeText(lastToken.value);
-    alert("Token copiado al portapapeles.");
+async function confirmDelete(sc: ServiceClient) {
+    const ok = confirm(
+        `⚠️ ELIMINAR SERVICE CLIENT\n\n` +
+        `Client ID: ${sc.client_id}\n\n` +
+        `Esta acción:\n` +
+        `• Revoca el token inmediatamente\n` +
+        `• Puede tumbar workers activos\n` +
+        `• NO se puede deshacer\n\n` +
+        `¿Deseas continuar?`
+    );
+
+    if (!ok) return;
+
+    loading.value = true;
+    try {
+        await deleteServiceClient(sc.id);
+        await load();
+        alert("Service client eliminado correctamente.");
+    } catch (e) {
+        alert("No se pudo eliminar el service client.");
+    } finally {
+        loading.value = false;
+    }
 }
+
+
+function copyToken() {
+    const text = (lastToken.value || "").trim();
+    if (!text) return;
+
+    console.log("[copyToken] intentando copiar...");
+
+    // ✅ Clipboard API (solo HTTPS o localhost)
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text)
+            .then(() => {
+                console.log("[copyToken] copiado con clipboard API");
+                alert("Token copiado al portapapeles.");
+            })
+            .catch((e) => {
+                console.warn("[copyToken] clipboard API falló, usando fallback", e);
+                fallbackCopy(text);
+            });
+        return;
+    }
+
+    // ❌ HTTP por IP / sin permisos
+    fallbackCopy(text);
+}
+
+function fallbackCopy(text: string) {
+    try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+
+        // Importante: debe ser seleccionable
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        textarea.style.opacity = "0";
+
+        document.body.appendChild(textarea);
+
+        // Selección robusta
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+
+        if (ok) {
+            console.log("[copyToken] copiado con fallback execCommand");
+            alert("Token copiado al portapapeles.");
+        } else {
+            console.warn("[copyToken] execCommand devolvió false");
+            alert("No se pudo copiar automáticamente. Cópialo manualmente.");
+        }
+    } catch (err) {
+        console.error("[copyToken] error en fallback", err);
+        alert("No se pudo copiar automáticamente. Cópialo manualmente.");
+    }
+}
+
 
 onMounted(load);
 </script>
@@ -174,8 +256,14 @@ onMounted(load);
                         <td class="flex gap-2 justify-end">
                             <button class="btn" @click="openEdit(r)">Editar</button>
                             <button class="btn" @click="rotate(r)">Rotar token</button>
-                            <button class="btn" @click="toggle(r)">{{ r.activo ? "Desactivar" : "Activar" }}</button>
+                            <button class="btn" @click="toggle(r)">
+                                {{ r.activo ? "Desactivar" : "Activar" }}
+                            </button>
+                            <button class="btn btn-danger" @click="confirmDelete(r)">
+                                Eliminar
+                            </button>
                         </td>
+
                     </tr>
                     <tr v-if="rows.length === 0">
                         <td colspan="6" class="text-center py-6 text-gray-500">Sin registros</td>
@@ -301,5 +389,14 @@ onMounted(load);
 .table td {
     padding: 10px;
     border-bottom: 1px solid #f0f0f0;
+}
+
+.btn-danger {
+    border-color: #dc2626;
+    color: #dc2626;
+}
+
+.btn-danger:hover {
+    background: #fee2e2;
 }
 </style>
