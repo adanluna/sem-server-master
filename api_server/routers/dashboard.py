@@ -1,13 +1,16 @@
 import os
 import math
-from fastapi import Response, APIRouter, Depends, HTTPException
+from fastapi import Response, APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, distinct, text
 import socket
 import shutil
+import secrets
+import ipaddress
 from sqlalchemy.exc import IntegrityError, DataError
+from typing import Optional
 
 from api_server.database import get_db
 from api_server.utils.jobs import detectar_pipeline_bloqueado
@@ -19,6 +22,10 @@ from api_server.schemas import (
     PlanchaUpdate,
     PlanchaCreate,
     PlanchaResponse,
+    ServiceClientCreate,
+    ServiceClientUpdate,
+    ServiceClientResponse,
+    ServiceClientCreatedResponse,
 )
 
 # Router para endpoints de dashboard
@@ -706,3 +713,167 @@ def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal
     plancha.activo = False
     db.commit()
     return Response(status_code=204)
+
+
+# ============================================================
+#  DASHBOARD — CRUD Service Clients (API Keys)
+# ============================================================
+
+
+def _validate_allowed_ips(allowed_ips: Optional[str]) -> None:
+    if allowed_ips is None:
+        return
+    s = allowed_ips.strip()
+    if s == "":
+        return
+
+    parts = allowed_ips.replace(" ", ",").split(",")
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        try:
+            if "/" in p:
+                ipaddress.ip_network(p, strict=False)
+            else:
+                ipaddress.ip_address(p)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"allowed_ips inválido: '{p}'")
+
+
+def _generate_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def _get_sc_or_404(db: Session, sc_id: int):
+    sc = db.query(models.ServiceClient).filter_by(id=sc_id).first()
+    if not sc:
+        raise HTTPException(
+            status_code=404, detail="Service client no encontrado")
+    return sc
+
+
+@router.get("/service-clients", response_model=list[ServiceClientResponse])
+def listar_service_clients(
+    q: Optional[str] = Query(default=None),
+    solo_activos: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    query = db.query(models.ServiceClient)
+
+    if q:
+        query = query.filter(models.ServiceClient.client_id.ilike(f"%{q}%"))
+
+    if solo_activos:
+        query = query.filter(models.ServiceClient.activo.is_(True))
+
+    return query.order_by(models.ServiceClient.created_at.desc()).limit(limit).all()
+
+
+@router.get("/service-clients/{sc_id}", response_model=ServiceClientResponse)
+def obtener_service_client(
+    sc_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    return _get_sc_or_404(db, sc_id)
+
+
+@router.post("/service-clients", response_model=ServiceClientCreatedResponse, status_code=201)
+def crear_service_client(
+    data: ServiceClientCreate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    _validate_allowed_ips(data.allowed_ips)
+
+    exists = db.query(models.ServiceClient).filter_by(
+        client_id=data.client_id).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="client_id ya existe")
+
+    token = (data.token or "").strip() or _generate_token()
+
+    sc = models.ServiceClient(
+        client_id=data.client_id.strip(),
+        client_secret_hash=token,  # 👈 tu regla: el token ES client_secret_hash
+        roles=(data.roles or "worker").strip(),
+        activo=bool(data.activo),
+        allowed_ips=(data.allowed_ips.strip() if data.allowed_ips else None),
+        last_used_at=None,
+    )
+
+    db.add(sc)
+    db.commit()
+    db.refresh(sc)
+
+    return {"service_client": sc, "token": token}
+
+
+@router.put("/service-clients/{sc_id}", response_model=ServiceClientResponse)
+def actualizar_service_client(
+    sc_id: int,
+    data: ServiceClientUpdate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    sc = _get_sc_or_404(db, sc_id)
+
+    _validate_allowed_ips(data.allowed_ips)
+
+    if data.roles is not None:
+        sc.roles = data.roles.strip()
+    if data.activo is not None:
+        sc.activo = bool(data.activo)
+    if data.allowed_ips is not None:
+        sc.allowed_ips = (data.allowed_ips.strip() or None)
+
+    db.commit()
+    db.refresh(sc)
+    return sc
+
+
+@router.post("/service-clients/{sc_id}/rotar-token", response_model=ServiceClientCreatedResponse)
+def rotar_token_service_client(
+    sc_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    sc = _get_sc_or_404(db, sc_id)
+    token = _generate_token()
+
+    sc.client_secret_hash = token
+    sc.last_used_at = None
+
+    db.commit()
+    db.refresh(sc)
+    return {"service_client": sc, "token": token}
+
+
+@router.post("/service-clients/{sc_id}/activar", response_model=ServiceClientResponse)
+def activar_service_client(
+    sc_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    sc = _get_sc_or_404(db, sc_id)
+    sc.activo = True
+    db.commit()
+    db.refresh(sc)
+    return sc
+
+
+@router.post("/service-clients/{sc_id}/desactivar", response_model=ServiceClientResponse)
+def desactivar_service_client(
+    sc_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin")),
+):
+    sc = _get_sc_or_404(db, sc_id)
+    sc.activo = False
+    db.commit()
+    db.refresh(sc)
+    return sc
