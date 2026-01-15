@@ -61,9 +61,8 @@ EXPEDIENTES_PATH = os.getenv(
 ).rstrip("/")
 
 app = FastAPI(
-    title="Sistema Forense SEMEFO",
-    description="API del Sistema Integral de Grabación y Gestión de Autopsias del Gobierno del Estado de Nuevo León.",
-    version="1.0.0"
+    docs_url=None,
+    redoc_url=None,
 )
 
 app.add_middleware(
@@ -79,7 +78,7 @@ app.add_middleware(
 # Agregar routers
 app.include_router(dashboard_router)
 app.include_router(apk_router)
-app.include_router(api_router)
+app.mount("/api", api_router)
 
 rabbit_user = os.getenv("RABBITMQ_USER")
 rabbit_pass = os.getenv("RABBITMQ_PASS")
