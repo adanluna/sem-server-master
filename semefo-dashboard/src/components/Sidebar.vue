@@ -17,6 +17,9 @@
                 Sesiones
             </router-link>
 
+            <router-link to="/service-clients" class="item" active-class="active">
+                Tokens
+            </router-link>
 
             <router-link to="/jobs/pendiente" class="item" active-class="active">
                 Jobs pendientes

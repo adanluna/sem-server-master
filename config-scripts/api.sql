@@ -266,7 +266,7 @@ CREATE INDEX IF NOT EXISTS ix_dashboard_users_username ON dashboard_users (usern
 
 
 -- ============================================================
--- AUTH: Service Clients (workers / integraciones)
+-- AUTH: Service Clients  API
 -- ============================================================
 CREATE TABLE IF NOT EXISTS service_clients (
     id SERIAL PRIMARY KEY,
@@ -282,6 +282,7 @@ CREATE TABLE IF NOT EXISTS service_clients (
 );
 
 CREATE INDEX IF NOT EXISTS ix_service_clients_client_id ON service_clients (client_id);
+CREATE INDEX IF NOT EXISTS ix_service_clients_secret_hash ON service_clients (client_secret_hash);
 
 
 -- ============================================================

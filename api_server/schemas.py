@@ -247,3 +247,37 @@ class WorkerHeartbeat(BaseModel):
     queue: Optional[str] = None
     pid: Optional[int] = None
     status: str            # listening | processing
+
+
+class ServiceClientCreate(BaseModel):
+    client_id: str = Field(..., min_length=3, max_length=120)
+    roles: str = Field(default="worker", max_length=255)
+    allowed_ips: Optional[str] = None
+    activo: bool = True
+
+    # opcional: si no lo mandas, lo generamos
+    token: Optional[str] = Field(default=None, min_length=20)
+
+
+class ServiceClientUpdate(BaseModel):
+    roles: Optional[str] = Field(default=None, max_length=255)
+    allowed_ips: Optional[str] = None
+    activo: Optional[bool] = None
+
+
+class ServiceClientResponse(BaseModel):
+    id: int
+    client_id: str
+    roles: str
+    activo: bool
+    allowed_ips: Optional[str] = None
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ServiceClientCreatedResponse(BaseModel):
+    service_client: ServiceClientResponse
+    token: str  # se devuelve solo en create/rotate

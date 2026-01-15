@@ -62,6 +62,16 @@ const router = createRouter({
                     component: () => import("../views/InfraestructuraView.vue"),
                     meta: { title: "Infraestructura | SEMEFO" }
                 },
+
+                // =========================
+                // SERVICE CLIENTS (API KEYS)
+                // =========================
+                {
+                    path: "service-clients",
+                    name: "service-clients",
+                    component: () => import("../views/ServiceClientsView.vue"),
+                    meta: { title: "Service Clients | SEMEFO" }
+                },
             ]
         },
 
@@ -69,12 +79,11 @@ const router = createRouter({
     ]
 });
 
-
 // =======================================================
 // 🔒 GUARD GLOBAL DE AUTENTICACIÓN
 // =======================================================
 router.beforeEach((to, _from, next) => {
-    const requiresAuth = to.matched.some(r => r.meta.requiresAuth);
+    const requiresAuth = to.matched.some((r) => r.meta.requiresAuth);
     const token = localStorage.getItem("token");
 
     if (requiresAuth && !token) {

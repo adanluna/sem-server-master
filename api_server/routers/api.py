@@ -6,8 +6,15 @@ from sqlalchemy.orm import Session
 from api_server.database import get_db
 from api_server import models
 from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red
+from api_server.utils.service_auth import require_service_bearer
 
-router = APIRouter(prefix="/api", tags=["api"])
+
+router = APIRouter(
+    prefix="/api",
+    tags=["api"],
+    # el rol que quieras exigir
+    dependencies=[Depends(require_service_bearer("semefo_read"))]
+)
 logger = logging.getLogger("api")
 
 TERMINALES = {"completado", "error"}
