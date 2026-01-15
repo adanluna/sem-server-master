@@ -42,6 +42,7 @@ from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red, parse_hhm
 from api_server.utils.jobs import crear_job_interno, verificar_estado_sesion
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, allow_worker, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
 from api_server.routers.dashboard import router as dashboard_router
+from api_server.routers.apk import router as apk_router
 
 # Declaración del logger
 logging.basicConfig(level=logging.INFO)
@@ -79,6 +80,7 @@ app.add_middleware(
 )
 
 app.include_router(dashboard_router)
+app.include_router(apk_router)
 
 rabbit_user = os.getenv("RABBITMQ_USER")
 rabbit_pass = os.getenv("RABBITMQ_PASS")

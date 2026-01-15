@@ -63,6 +63,7 @@ services:
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
       - ${TEMP_ROOT}:${TEMP_ROOT}
+      - /opt/semefo/apks:/opt/semefo/apks:ro
     env_file:
       - .env
     environment:
