@@ -35,7 +35,7 @@ from api_server.schemas import (
 from api_server.models import AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from worker.celery_app import celery_app
 from api_server.utils.ping import _ping_probe, _clamp_int
-from api_server.utils.rutas import parse_hhmmss_to_seconds
+from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, size_kb
 from api_server.utils.jobs import crear_job_interno
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
 from api_server.routers.dashboard import router as dashboard_router
@@ -909,6 +909,107 @@ def jobs_procesando(db: Session = Depends(get_db)):
         .all()
     )
     return jobs
+
+
+@app.get("/sesiones/{sesion_id}/jobs")
+def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
+
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    expediente = sesion.investigacion.numero_expediente
+
+    # ============================
+    # JOBS (procesos)
+    # ============================
+    jobs = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id)
+        .order_by(models.Job.fecha_creacion.desc())
+        .all()
+    )
+
+    # ============================
+    # ARCHIVOS (evidencia real)
+    # ============================
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id)
+        .all()
+    )
+
+    archivos_por_tipo = {a.tipo_archivo: a for a in archivos}
+
+    salida = []
+
+    # ============================
+    # JOBS CON ARCHIVO
+    # ============================
+    for j in jobs:
+        archivo_real = archivos_por_tipo.get(j.tipo)
+
+        if archivo_real and archivo_real.ruta_convertida:
+            ruta = normalizar_ruta(archivo_real.ruta_convertida)
+        elif j.resultado:
+            ruta = normalizar_ruta(j.resultado)
+        else:
+            ruta = normalizar_ruta(
+                f"{expediente}/{sesion_id}/{j.archivo}"
+            )
+
+        salida.append({
+            "id": j.id,
+            "tipo": j.tipo,
+            "archivo": j.archivo,
+            "estado": j.estado,
+            "error": j.error,
+            "fecha_creacion": j.fecha_creacion,
+            "fecha_actualizacion": j.fecha_actualizacion,
+            "ruta": ruta,
+            "ruta_red": ruta_red(ruta),
+            "tamano_actual_KB": size_kb(ruta)
+        })
+
+    # ============================
+    # ARCHIVOS SIN JOB (audio, etc.)
+    # ============================
+    tipos_con_job = {j["tipo"] for j in salida}
+
+    for tipo, a in archivos_por_tipo.items():
+        if tipo in tipos_con_job:
+            continue
+
+        ruta = normalizar_ruta(
+            a.ruta_convertida,
+            tipo=tipo,
+            expediente=expediente,
+            sesion_id=sesion_id
+        )
+
+        salida.append({
+            "id": None,
+            "tipo": tipo,
+            "archivo": os.path.basename(a.ruta_convertida or ""),
+            "estado": a.estado,
+            "error": a.mensaje,
+            "fecha_creacion": a.fecha,
+            "fecha_actualizacion": a.fecha_finalizacion,
+            "ruta": ruta,
+            "tamano_actual_KB": size_kb(ruta)
+        })
+
+    return {
+        "sesion_id": sesion_id,
+        "expediente": expediente,
+        "estado_sesion": sesion.estado,
+        "nombre_sesion": sesion.nombre_sesion,
+        "jobs": sorted(
+            salida,
+            key=lambda x: x["fecha_creacion"] or datetime.min,
+            reverse=True
+        )
+    }
 
 
 @app.get("/procesos/activos")
