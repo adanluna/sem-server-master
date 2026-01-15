@@ -40,7 +40,7 @@ from api_server.utils.jobs import crear_job_interno
 from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
 from api_server.routers.dashboard import router as dashboard_router
 from api_server.routers.apk import router as apk_router
-from api_server.routers.api import router as api_router
+from api_server.api_app import api_app
 
 # Declaración del logger
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +70,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",  # dashboard
         "http://127.0.0.1:3000",
+        "http://172.21.82.2:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -78,7 +79,7 @@ app.add_middleware(
 # Agregar routers
 app.include_router(dashboard_router)
 app.include_router(apk_router)
-app.mount("/api", api_router)
+app.mount("/api", api_app)
 
 rabbit_user = os.getenv("RABBITMQ_USER")
 rabbit_pass = os.getenv("RABBITMQ_PASS")
