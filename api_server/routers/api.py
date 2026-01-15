@@ -24,7 +24,7 @@ TERMINALES = {"completado", "error"}
 # ============================================================
 
 
-@router.get("/sesiones/{sesion_id}/jobs")
+@router.get("/sesion/jobs/{sesion_id}")
 def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
 
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
