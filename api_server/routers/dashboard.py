@@ -399,35 +399,14 @@ def dashboard_jobs(
 
 
 @router.get("/jobs/sesion/{sesion_id}")
-def estatus_completo_sesion(
-    sesion_id: int,
-    db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
-):
-    s = (
-        db.query(models.Sesion)
-        .filter(models.Sesion.id == sesion_id)
-        .first()
-    )
+def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+    s = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    inv = s.investigacion
-    plancha = s.plancha
-
-    archivos = (
-        db.query(models.SesionArchivo)
-        .filter(models.SesionArchivo.sesion_id == sesion_id)
-        .order_by(models.SesionArchivo.fecha_creacion.asc())
-        .all()
-    )
-
-    jobs = (
-        db.query(models.Job)
-        .filter(models.Job.sesion_id == sesion_id)
-        .order_by(models.Job.fecha_creacion.asc())
-        .all()
-    )
+    archivos = db.query(models.SesionArchivo).filter_by(
+        sesion_id=sesion_id).all()
+    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
 
     return {
         "sesion": {
@@ -436,19 +415,20 @@ def estatus_completo_sesion(
             "estado": s.estado,
             "fecha": s.fecha,
             "duracion_real": s.duracion_real,
-            "usuario_ldap": s.usuario_ldap,
-            "numero_expediente": (inv.numero_expediente if inv else None),
-            "plancha": (plancha.nombre if plancha else None),
+            "investigacion_id": s.investigacion_id,
+            "plancha_id": s.plancha_id,
         },
         "archivos": [
             {
                 "id": a.id,
                 "tipo_archivo": a.tipo_archivo,
                 "estado": a.estado,
-                "ruta": a.ruta,
+                "ruta_original": a.ruta_original,
+                "ruta_convertida": a.ruta_convertida,
                 "mensaje": a.mensaje,
                 "fecha_creacion": a.fecha_creacion,
                 "fecha_finalizacion": a.fecha_finalizacion,
+                "conversion_completa": a.conversion_completa,
             }
             for a in archivos
         ],
@@ -461,7 +441,6 @@ def estatus_completo_sesion(
                 "error": j.error,
                 "fecha_creacion": j.fecha_creacion,
                 "fecha_actualizacion": j.fecha_actualizacion,
-                "celery_task_id": getattr(j, "celery_task_id", None),
             }
             for j in jobs
         ],

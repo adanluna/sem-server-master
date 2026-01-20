@@ -13,7 +13,7 @@ export type DashboardResumen = {
 };
 
 export async function fetchSesionProcesos(sesionId: number) {
-    const { data } = await api.get(`/jobs/sesion/${sesionId}`);
+    const { data } = await api.get(`/dashboard/jobs/sesion/${sesionId}`);
     return data;
 }
 

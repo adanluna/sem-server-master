@@ -116,25 +116,24 @@ def _auth_headers() -> dict:
 
 
 def _request(method: str, url: str, *, json=None, timeout=10):
-    """
-    Wrapper con:
-    - headers auth (si aplica)
-    - retry único si 401 (solo si auth está activo)
-    """
     headers = {"Content-Type": "application/json", **_auth_headers()}
     r = requests.request(method, url, json=json,
                          timeout=timeout, headers=headers)
 
-    # ✅ Solo reintenta 401 si auth está activo
     if (not WORKER_NO_AUTH) and r.status_code == 401:
         token = _get_service_token(force_refresh=True)
         if token:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }
+            headers = {"Content-Type": "application/json",
+                       "Authorization": f"Bearer {token}"}
             r = requests.request(method, url, json=json,
                                  timeout=timeout, headers=headers)
+
+    if r.status_code >= 400:
+        print(f"❌ API ERROR {r.status_code} {method} {url}")
+        try:
+            print("❌ Response:", r.text)
+        except Exception:
+            pass
 
     r.raise_for_status()
     return r
