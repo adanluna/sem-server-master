@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { fetchDashboardResumen } from "../api/dashboard";
+import { formatFechaLocal } from "../utils/fechas";
 
 const loading = ref(true);
 const resumen = ref<any>(null);
@@ -11,17 +12,6 @@ function badgeClass(estado: string) {
   if (estado === "pausada") return "bg-warning text-dark";
   if (estado === "procesando") return "bg-info text-dark";
   return "bg-secondary";
-}
-
-function formatFecha(fecha: string | null) {
-  if (!fecha) return "-";
-  const d = new Date(fecha);
-  const dia = String(d.getDate()).padStart(2, "0");
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const anio = d.getFullYear();
-  const hora = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  return `${dia}/${mes}/${anio} ${hora}:${min}`;
 }
 
 onMounted(async () => {
@@ -104,7 +94,7 @@ onMounted(async () => {
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.plancha_nombre }}</td>
                     <td><span class="badge" :class="badgeClass(s.estado)">{{ s.estado }}</span></td>
-                    <td class="text-nowrap small">{{ formatFecha(s.fecha) }}</td>
+                    <td class="text-nowrap small">{{ formatFechaLocal(s.fecha) }}</td>
                   </tr>
                   <tr v-if="!resumen.pendientes?.length">
                     <td colspan="4" class="text-muted p-3">Sin pendientes</td>
@@ -134,7 +124,7 @@ onMounted(async () => {
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.plancha_nombre }}</td>
                     <td><span class="badge" :class="badgeClass(s.estado)">{{ s.estado }}</span></td>
-                    <td class="text-nowrap small">{{ formatFecha(s.fecha_creacion || s.updated_at) }}</td>
+                    <td class="text-nowrap small">{{ formatFechaLocal(s.fecha) }}</td>
                   </tr>
                   <tr v-if="!resumen.ultimas?.length">
                     <td colspan="4" class="text-muted p-3">Sin datos</td>
@@ -162,7 +152,7 @@ onMounted(async () => {
                   <tr v-for="s in resumen.errores" :key="s.id">
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.origen }}</td>
-                    <td class="text-nowrap small">{{ formatFecha(s.fecha_creacion || s.updated_at) }}</td>
+                    <td class="text-nowrap small">{{ formatFechaLocal(s.ultima_actualizacion) }}</td>
                   </tr>
                   <tr v-if="!resumen.errores?.length">
                     <td colspan="3" class="text-muted p-3">Sin errores</td>
