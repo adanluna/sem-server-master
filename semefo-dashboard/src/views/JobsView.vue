@@ -151,7 +151,7 @@ function changePage(p: number) {
 }
 
 function formatDate(d: string) {
-    return new Date(d).toLocaleString();
+    return new Date(d).toLocaleString('es-MX', { timeZone: 'America/Monterrey' });
 }
 
 function estadoBadge(estado: string) {

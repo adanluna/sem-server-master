@@ -9,25 +9,26 @@
                 Dashboard
             </router-link>
 
-            <router-link to="/planchas" class="item" active-class="active">
-                Planchas
-            </router-link>
-
             <router-link to="/sesiones" class="item" active-class="active">
                 Sesiones
-            </router-link>
-
-            <router-link to="/service-clients" class="item" active-class="active">
-                Tokens
             </router-link>
 
             <router-link to="/jobs/pendiente" class="item" active-class="active">
                 Jobs pendientes
             </router-link>
 
+            <router-link to="/planchas" class="item" active-class="active">
+                Planchas
+            </router-link>
+
+            <router-link to="/service-clients" class="item" active-class="active">
+                Tokens
+            </router-link>
+
             <router-link to="/infraestructura" class="item" active-class="active">
                 Infraestructura
             </router-link>
+
         </nav>
     </aside>
 </template>
