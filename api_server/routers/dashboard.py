@@ -144,6 +144,7 @@ def dashboard_resumen(
         SELECT
             s.id,
             i.numero_expediente,
+            s.nombre_sesion,
             p.nombre AS plancha_nombre,
             s.estado,
             s.fecha
@@ -164,6 +165,7 @@ def dashboard_resumen(
             s.id,
             i.numero_expediente,
             p.nombre AS plancha_nombre,
+            s.nombre_sesion,
             s.estado,
             s.fecha
         FROM sesiones s
@@ -184,6 +186,7 @@ def dashboard_resumen(
             i.numero_expediente,
             p.nombre AS plancha_nombre,
             s.estado,
+            s.nombre_sesion,
             COALESCE(j.tipo::text, sa.tipo_archivo::text) AS origen,
             COALESCE(j.error, sa.mensaje) AS mensaje,
             GREATEST(
@@ -314,6 +317,7 @@ def dashboard_sesiones(
         data.append({
             "sesion_id": s.id,
             "numero_expediente": s.investigacion.numero_expediente,
+            "nombre_sesion": s.nombre_sesion,
             "usuario_ldap": s.usuario_ldap,
             "fecha": s.fecha,
             "estado": s.estado,

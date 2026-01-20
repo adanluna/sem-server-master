@@ -84,6 +84,7 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>Expediente</th>
+                    <th>Sesión</th>
                     <th>Plancha</th>
                     <th>Estado</th>
                     <th>Fecha</th>
@@ -92,6 +93,7 @@ onMounted(async () => {
                 <tbody>
                   <tr v-for="s in resumen.pendientes" :key="s.id">
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
+                    <td class="text-truncate" style="max-width:120px">{{ s.nombre_sesion }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.plancha_nombre }}</td>
                     <td><span class="badge" :class="badgeClass(s.estado)">{{ s.estado }}</span></td>
                     <td class="text-nowrap small">{{ formatFechaLocal(s.fecha) }}</td>
@@ -114,6 +116,7 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>Expediente</th>
+                    <th>Sesión</th>
                     <th>Plancha</th>
                     <th>Estado</th>
                     <th>Fecha</th>
@@ -122,6 +125,7 @@ onMounted(async () => {
                 <tbody>
                   <tr v-for="s in resumen.ultimas" :key="s.id">
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
+                    <td class="text-truncate" style="max-width:120px">{{ s.nombre_sesion }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.plancha_nombre }}</td>
                     <td><span class="badge" :class="badgeClass(s.estado)">{{ s.estado }}</span></td>
                     <td class="text-nowrap small">{{ formatFechaLocal(s.fecha) }}</td>
@@ -144,6 +148,7 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>Expediente</th>
+                    <th>Sesión</th>
                     <th>Origen</th>
                     <th>Fecha</th>
                   </tr>
@@ -151,6 +156,7 @@ onMounted(async () => {
                 <tbody>
                   <tr v-for="s in resumen.errores" :key="s.id">
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
+                    <td class="text-truncate" style="max-width:140px">{{ s.nombre_sesion }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.origen }}</td>
                     <td class="text-nowrap small">{{ formatFechaLocal(s.ultima_actualizacion) }}</td>
                   </tr>

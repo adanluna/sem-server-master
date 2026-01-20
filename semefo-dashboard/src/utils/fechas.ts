@@ -1,30 +1,28 @@
-function toIsoUtc(fechaUtc: string | Date): string | Date {
-    if (fechaUtc instanceof Date) return fechaUtc;
+function normalizeIsoUtc(input: string | Date): string | Date {
+    if (input instanceof Date) return input;
 
-    const s = fechaUtc.trim();
+    const s = input.trim();
 
-    // Ya viene en ISO con Z u offset -> dejarlo
-    if (/Z$/.test(s) || /[+-]\d{2}:\d{2}$/.test(s)) return s;
+    // Si ya trae zona (Z u offset), se deja
+    if (/(Z|[+-]\d{2}:\d{2})$/.test(s)) return s;
 
-    // Formato típico Postgres: "YYYY-MM-DD HH:MM:SS.ffffff"
-    // -> "YYYY-MM-DDTHH:MM:SS.mmmZ"
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) {
-        const [datePart, timePart = ""] = s.split(" ");
-        const ms = (timePart.split(".")[1] || "0").padEnd(3, "0").slice(0, 3);
-        const base = timePart.split(".")[0];
-        return `${datePart}T${base}.${ms}Z`;
+    // Si es ISO sin zona: "YYYY-MM-DDTHH:MM:SS(.ffffff)"
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) {
+        // recorta microsegundos a milisegundos
+        const [base, frac] = s.split(".");
+        if (!frac) return `${s}Z`;
+        const ms = frac.padEnd(3, "0").slice(0, 3);
+        return `${base}.${ms}Z`;
     }
 
-    // fallback
     return s;
 }
 
 export function formatFechaLocal(fechaUtc: string | Date | null | undefined): string {
     if (!fechaUtc) return "-";
 
-    const normalized = toIsoUtc(fechaUtc);
+    const normalized = normalizeIsoUtc(fechaUtc);
     const fecha = new Date(normalized as any);
-
     if (isNaN(fecha.getTime())) return "-";
 
     const dia = String(fecha.getDate()).padStart(2, "0");
