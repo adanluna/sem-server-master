@@ -393,7 +393,7 @@ onMounted(load);
 
 .btn-danger {
     border-color: #dc2626;
-    color: #dc2626;
+    color: #f0f0f0
 }
 
 .btn-danger:hover {

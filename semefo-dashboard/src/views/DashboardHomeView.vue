@@ -86,7 +86,7 @@ onMounted(async () => {
       <!-- 3 columnas: pendientes / ultimas / errores -->
       <div class="row g-3">
         <!-- Pendientes -->
-        <div class="col-lg-4">
+        <div class="col-lg-12">
           <div class="card shadow-sm">
             <div class="card-header fw-semibold">Top 10 pendientes</div>
             <div class="table-responsive">
@@ -116,7 +116,7 @@ onMounted(async () => {
         </div>
 
         <!-- Últimas -->
-        <div class="col-lg-4">
+        <div class="col-lg-12">
           <div class="card shadow-sm">
             <div class="card-header fw-semibold">Top 10 últimas creadas</div>
             <div class="table-responsive">
@@ -134,7 +134,7 @@ onMounted(async () => {
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.plancha_nombre }}</td>
                     <td><span class="badge" :class="badgeClass(s.estado)">{{ s.estado }}</span></td>
-                    <td class="text-nowrap small">{{ formatFecha(s.fecha) }}</td>
+                    <td class="text-nowrap small">{{ formatFecha(s.fecha_creacion || s.updated_at) }}</td>
                   </tr>
                   <tr v-if="!resumen.ultimas?.length">
                     <td colspan="4" class="text-muted p-3">Sin datos</td>
@@ -146,7 +146,7 @@ onMounted(async () => {
         </div>
 
         <!-- Errores -->
-        <div class="col-lg-4">
+        <div class="col-lg-12">
           <div class="card shadow-sm">
             <div class="card-header fw-semibold">Top 10 con error</div>
             <div class="table-responsive">
@@ -162,7 +162,7 @@ onMounted(async () => {
                   <tr v-for="s in resumen.errores" :key="s.id">
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.origen }}</td>
-                    <td class="text-nowrap small">{{ formatFecha(s.ultima_actualizacion) }}</td>
+                    <td class="text-nowrap small">{{ formatFecha(s.fecha_creacion || s.updated_at) }}</td>
                   </tr>
                   <tr v-if="!resumen.errores?.length">
                     <td colspan="3" class="text-muted p-3">Sin errores</td>
