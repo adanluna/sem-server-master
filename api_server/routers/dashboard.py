@@ -355,9 +355,11 @@ def dashboard_jobs(
     base_q = (
         db.query(
             models.Job,
-            models.Sesion.nombre_sesion.label("nombre_sesion")
+            models.Sesion.nombre_sesion.label("nombre_sesion"),
+            models.Investigacion.numero_expediente.label("numero_expediente"),
         )
         .join(models.Sesion, models.Job.sesion_id == models.Sesion.id)
+        .outerjoin(models.Investigacion, models.Sesion.investigacion_id == models.Investigacion.id)
         .filter(models.Job.estado == estado)
     )
 
@@ -372,12 +374,12 @@ def dashboard_jobs(
     )
 
     data = []
-    for job, nombre_sesion in rows:
+    for job, nombre_sesion, numero_expediente in rows:
         data.append({
             "job_id": job.id,
             "sesion_id": job.sesion_id,
             "nombre_sesion": nombre_sesion,
-            "numero_expediente": job.investigacion.numero_expediente,
+            "numero_expediente": numero_expediente,
             "tipo": job.tipo,
             "archivo": job.archivo,
             "estado": job.estado,
@@ -397,19 +399,72 @@ def dashboard_jobs(
 
 
 @router.get("/jobs/sesion/{sesion_id}")
-def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
-    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
-    if not sesion:
+def estatus_completo_sesion(
+    sesion_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("dashboard_admin"))
+):
+    s = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.id == sesion_id)
+        .first()
+    )
+    if not s:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    archivos = db.query(models.SesionArchivo).filter_by(
-        sesion_id=sesion_id).all()
-    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
+    inv = s.investigacion
+    plancha = s.plancha
+
+    archivos = (
+        db.query(models.SesionArchivo)
+        .filter(models.SesionArchivo.sesion_id == sesion_id)
+        .order_by(models.SesionArchivo.fecha_creacion.asc())
+        .all()
+    )
+
+    jobs = (
+        db.query(models.Job)
+        .filter(models.Job.sesion_id == sesion_id)
+        .order_by(models.Job.fecha_creacion.asc())
+        .all()
+    )
 
     return {
-        "sesion": sesion,
-        "archivos": archivos,
-        "jobs": jobs
+        "sesion": {
+            "id": s.id,
+            "nombre_sesion": s.nombre_sesion,
+            "estado": s.estado,
+            "fecha": s.fecha,
+            "duracion_real": s.duracion_real,
+            "usuario_ldap": s.usuario_ldap,
+            "numero_expediente": (inv.numero_expediente if inv else None),
+            "plancha": (plancha.nombre if plancha else None),
+        },
+        "archivos": [
+            {
+                "id": a.id,
+                "tipo_archivo": a.tipo_archivo,
+                "estado": a.estado,
+                "ruta": a.ruta,
+                "mensaje": a.mensaje,
+                "fecha_creacion": a.fecha_creacion,
+                "fecha_finalizacion": a.fecha_finalizacion,
+            }
+            for a in archivos
+        ],
+        "jobs": [
+            {
+                "id": j.id,
+                "tipo": j.tipo,
+                "estado": j.estado,
+                "archivo": j.archivo,
+                "error": j.error,
+                "fecha_creacion": j.fecha_creacion,
+                "fecha_actualizacion": j.fecha_actualizacion,
+                "celery_task_id": getattr(j, "celery_task_id", None),
+            }
+            for j in jobs
+        ],
     }
 
 

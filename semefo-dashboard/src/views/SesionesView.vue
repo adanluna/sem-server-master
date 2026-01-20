@@ -34,6 +34,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>Expediente</th>
+                            <th>Sesión</th>
                             <th>Usuario</th>
                             <th>Fecha</th>
                             <th>Estado</th>
@@ -44,6 +45,9 @@
                         <tr v-for="s in sesiones" :key="s.sesion_id">
                             <td class="fw-semibold">
                                 {{ s.numero_expediente }}
+                            </td>
+                            <td class="fw-semibold">
+                                {{ s.nombre_sesion }}
                             </td>
                             <td>{{ s.usuario_ldap }}</td>
                             <td>{{ formatDate(s.fecha) }}</td>
