@@ -44,6 +44,11 @@ logs-uniones:
 logs-api:
 	docker compose logs fastapi -f
 
+restart-api:
+	@echo "♻️  Reiniciando FastAPI..."
+	docker compose -f $(COMPOSE_BASE) up -d --build --force-recreate fastapi
+	@echo "✅ FastAPI reiniciado."
+
 clear-logs:
 	@echo "🧹 Limpiando logs de contenedores..."
 	@docker ps -aq | xargs -I {} sh -c 'truncate -s 0 $$(docker inspect --format="{{.LogPath}}" {}) 2>/dev/null || true'
@@ -86,6 +91,14 @@ logs-dev:
 		-f $(COMPOSE_BASE) \
 		-f $(COMPOSE_MAC) \
 		logs -f
+
+restart-api-dev:
+	@echo "♻️  Reiniciando FastAPI (dev)..."
+	docker compose \
+		-f $(COMPOSE_BASE) \
+		-f $(COMPOSE_MAC) \
+		up -d --build --force-recreate fastapi
+	@echo "✅ FastAPI reiniciado en modo desarrollo."
 
 # ============================================================
 # BASH / ACCESO A CONTENEDORES
