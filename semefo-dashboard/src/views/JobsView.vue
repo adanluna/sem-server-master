@@ -52,7 +52,7 @@
                                 {{ j.archivo }}
                             </td>
 
-                            <td>{{ formatDate(j.fecha) }}</td>
+                            <td>{{ formatFechaLocal(j.fecha) }}</td>
 
                             <td style="max-width: 300px;">
                                 <div v-if="j.error" class="text-danger small">
@@ -120,6 +120,7 @@ import { ref, onMounted } from "vue";
 import { fetchJobs, fetchSesionProcesos } from "../api/dashboard";
 import Pagination from "../components/Pagination.vue";
 import { useRoute } from "vue-router";
+import { formatFechaLocal } from "../utils/fechas";
 
 const route = useRoute();
 const estado = route.params.estado as string;
@@ -149,11 +150,6 @@ function changePage(p: number) {
     page.value = p;
     loadJobs();
 }
-
-function formatDate(d: string) {
-    return new Date(d).toLocaleString('es-MX', { timeZone: 'America/Monterrey' });
-}
-
 function estadoBadge(estado: string) {
     switch (estado) {
         case "pendiente":

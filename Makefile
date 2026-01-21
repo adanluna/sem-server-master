@@ -59,6 +59,12 @@ up-dev:
 		-f $(COMPOSE_MAC) \
 		up -d --build
 
+stop-dev:
+	docker compose \
+		-f $(COMPOSE_BASE) \
+		-f $(COMPOSE_MAC) \
+		stop		
+
 down-dev:
 	docker compose \
 		-f $(COMPOSE_BASE) \

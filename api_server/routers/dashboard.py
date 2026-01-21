@@ -426,7 +426,7 @@ def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), princ
                 "ruta_original": a.ruta_original,
                 "ruta_convertida": a.ruta_convertida,
                 "mensaje": a.mensaje,
-                "fecha_creacion": a.fecha_creacion,
+                "fecha_creacion": a.fecha,
                 "fecha_finalizacion": a.fecha_finalizacion,
                 "conversion_completa": a.conversion_completa,
             }

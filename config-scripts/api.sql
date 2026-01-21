@@ -328,6 +328,40 @@ CREATE TABLE workers_heartbeat (
 CREATE UNIQUE INDEX uq_worker_host
 ON workers_heartbeat (worker, host);
 
+CREATE TABLE IF NOT EXISTS public.celery_taskmeta (
+  id SERIAL PRIMARY KEY,
+  task_id VARCHAR(255) UNIQUE,
+  status VARCHAR(50),
+  result BYTEA,
+  date_done TIMESTAMP WITH TIME ZONE,
+  traceback TEXT,
+  name VARCHAR(255),
+  args BYTEA,
+  kwargs BYTEA,
+  worker VARCHAR(255),
+  retries INTEGER,
+  queue VARCHAR(255)
+);
+
+CREATE INDEX IF NOT EXISTS celery_taskmeta_task_id_idx
+  ON public.celery_taskmeta (task_id);
+
+CREATE TABLE IF NOT EXISTS public.celery_tasksetmeta (
+  id SERIAL PRIMARY KEY,
+  taskset_id VARCHAR(255) UNIQUE,
+  result BYTEA,
+  date_done TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS celery_tasksetmeta_taskset_id_idx
+  ON public.celery_tasksetmeta (taskset_id);
+
+
+
+-- =====================================================
+-- FIN
+-- =====================================================
+
 INSERT INTO dashboard_users (
     username,
     password_hash,
@@ -348,10 +382,3 @@ VALUES (
     NULL,
     NOW()
 );
-
-
-
--- =====================================================
--- FIN
--- =====================================================
-

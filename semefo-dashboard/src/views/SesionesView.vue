@@ -50,7 +50,7 @@
                                 {{ s.nombre_sesion }}
                             </td>
                             <td>{{ s.usuario_ldap }}</td>
-                            <td>{{ formatDate(s.fecha) }}</td>
+                            <td>{{ formatFechaLocal(s.fecha) }}</td>
                             <td>
                                 <span class="badge" :class="estadoBadge(s.estado)">
                                     {{ s.estado }}
@@ -90,6 +90,7 @@
 import { ref, onMounted } from "vue";
 import { fetchSesiones } from "../api/dashboard";
 import Pagination from "../components/Pagination.vue";
+import { formatFechaLocal } from "../utils/fechas";
 
 const sesiones = ref<any[]>([]);
 const page = ref(1);
@@ -114,10 +115,6 @@ async function loadSesiones() {
 function changePage(p: number) {
     page.value = p;
     loadSesiones();
-}
-
-function formatDate(d: string) {
-    return new Date(d).toLocaleString();
 }
 
 function estadoBadge(estado: string) {
