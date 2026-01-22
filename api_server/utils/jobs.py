@@ -104,7 +104,12 @@ def detectar_pipeline_bloqueado(db, minutos=15):
 
         # Si video existe pero no avanza
         if video and video.estado in ("pendiente", "procesando"):
-            if video.fecha_actualizacion < limite:
+            # Asegurar que ambos datetimes tengan zona horaria para comparar
+            fecha_act = video.fecha_actualizacion
+            if fecha_act.tzinfo is None:
+                fecha_act = fecha_act.replace(tzinfo=timezone.utc)
+
+            if fecha_act < limite:
                 sesiones_bloqueadas.append({
                     "sesion_id": ses.id,
                     "expediente": ses.investigacion.numero_expediente,
@@ -113,7 +118,12 @@ def detectar_pipeline_bloqueado(db, minutos=15):
                 })
 
         if video2 and video2.estado in ("pendiente", "procesando"):
-            if video2.fecha_actualizacion < limite:
+            # Asegurar que ambos datetimes tengan zona horaria para comparar
+            fecha_act2 = video2.fecha_actualizacion
+            if fecha_act2.tzinfo is None:
+                fecha_act2 = fecha_act2.replace(tzinfo=timezone.utc)
+
+            if fecha_act2 < limite:
                 sesiones_bloqueadas.append({
                     "sesion_id": ses.id,
                     "expediente": ses.investigacion.numero_expediente,
