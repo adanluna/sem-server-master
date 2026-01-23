@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import psutil
 import time
+import re
 
 from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo, obtener_pausas_todas, enviar_a_whisper, finalizar_archivo
 from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
@@ -184,7 +185,8 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
     print(f"[SESION] {inicio} → {fin}")
     print(f"[PAUSAS] {len(pausas)}")
 
-    temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{expediente}_{id_sesion}")
+    exp_fs = expediente_fs(expediente)
+    temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{exp_fs}_{id_sesion}")
     limpiar_temp(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -227,7 +229,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
             for p in partes:
                 f.write(f"file '{p}'\n")
 
-        salida = f"{EXPEDIENTES_PATH}/{expediente}/{id_sesion}/{nombre_final}"
+        salida = f"{EXPEDIENTES_PATH}/{exp_fs}/{id_sesion}/{nombre_final}"
         ensure_dir(os.path.dirname(salida))
 
         # ✅ Registrar archivo al INICIO del proceso (estado procesando)
@@ -271,7 +273,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
         # ✅ Whisper SOLO para video1
         if tipo == "video":
-            enviar_a_whisper(expediente, id_sesion)
+            enviar_a_whisper(exp_fs, id_sesion)
 
     except Exception as e:
         if job_id:
@@ -321,6 +323,14 @@ def _parse_iso_utc(s: str) -> datetime:
     """
     dt = datetime.fromisoformat(s)
     return _to_utc_aware(dt)
+
+
+def expediente_fs(exp: str) -> str:
+    exp = (exp or "").strip()
+    exp = exp.replace("/", "_").replace("\\", "_")
+    exp = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", exp)
+    exp = re.sub(r"_+", "_", exp).strip("_")
+    return exp or "EXP_SIN_NUMERO"
 
 
 # ============================================================
