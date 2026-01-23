@@ -292,11 +292,22 @@ def obtener_pausas_todas(sesion_id: int) -> dict:
     return r.json()
 
 
-def enviar_a_whisper(expediente: str, sesion_id: int):
+def enviar_a_whisper(numero_expediente: str, nombre_carpeta: str, sesion_id: int):
+    payload = {
+        "sesion_id": int(sesion_id),
+
+        # Compatibilidad con implementaciones viejas que solo leen "expediente"
+        "expediente": nombre_carpeta,
+
+        # Nuevos campos claros (recomendado)
+        "numero_expediente": numero_expediente,
+        "nombre_carpeta": nombre_carpeta,
+    }
+
     _request(
         "POST",
         f"{API_URL}/whisper/enviar",
-        json={"expediente": expediente, "sesion_id": sesion_id},
+        json=payload,
         timeout=10
     )
     return True

@@ -164,7 +164,7 @@ def esperar_cpu_baja(limite=85):
 # ============================================================
 
 
-def _unir_video(expediente, id_sesion, manifest_path, tipo):
+def _unir_video(expediente, carpeta, id_sesion, manifest_path, tipo):
 
     pid = os.getpid()
 
@@ -185,8 +185,9 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
     print(f"[SESION] {inicio} → {fin}")
     print(f"[PAUSAS] {len(pausas)}")
 
-    exp_fs = expediente_fs(expediente)
-    temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{exp_fs}_{id_sesion}")
+    carpeta_fs = expediente_fs(carpeta)
+    temp_dir = os.path.join(TEMP_ROOT, f"{tipo}_{carpeta_fs}_{id_sesion}")
+
     limpiar_temp(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -229,7 +230,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
             for p in partes:
                 f.write(f"file '{p}'\n")
 
-        salida = f"{EXPEDIENTES_PATH}/{exp_fs}/{id_sesion}/{nombre_final}"
+        salida = f"{EXPEDIENTES_PATH}/{carpeta_fs}/{id_sesion}/{nombre_final}"
         ensure_dir(os.path.dirname(salida))
 
         # ✅ Registrar archivo al INICIO del proceso (estado procesando)
@@ -273,7 +274,7 @@ def _unir_video(expediente, id_sesion, manifest_path, tipo):
 
         # ✅ Whisper SOLO para video1
         if tipo == "video":
-            enviar_a_whisper(exp_fs, id_sesion)
+            enviar_a_whisper(expediente, carpeta_fs, id_sesion)
 
     except Exception as e:
         if job_id:
@@ -332,17 +333,16 @@ def expediente_fs(exp: str) -> str:
     exp = re.sub(r"_+", "_", exp).strip("_")
     return exp or "EXP_SIN_NUMERO"
 
-
 # ============================================================
 #   TAREAS CELERY
 # ============================================================
 
 
 @celery_app.task(name="worker.tasks.unir_video")
-def unir_video(expediente, id_sesion, manifest_path, *_):
-    return _unir_video(expediente, id_sesion, manifest_path, "video")
+def unir_video(expediente, carpeta, id_sesion, manifest_path, *_):
+    return _unir_video(expediente, carpeta, id_sesion, manifest_path, "video")
 
 
 @celery_app.task(name="worker.tasks.unir_video2")
-def unir_video2(expediente, id_sesion, manifest_path, *_):
-    return _unir_video(expediente, id_sesion, manifest_path, "video2")
+def unir_video2(expediente, carpeta, id_sesion, manifest_path, *_):
+    return _unir_video(expediente, carpeta, id_sesion, manifest_path, "video2")

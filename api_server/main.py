@@ -196,6 +196,15 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
         if not investigacion:
             raise HTTPException(404, "Investigación no encontrada")
 
+    # ---------------------------------------------------------
+    # NOMBRE DE CARPETA (filesystem) vs EXPEDIENTE (informativo)
+    # ---------------------------------------------------------
+    nombre_carpeta = (
+        getattr(investigacion, "nombre_carpeta", None) or "").strip()
+    if not nombre_carpeta:
+        # fallback temporal mientras migras/llenás nombre_carpeta
+        nombre_carpeta = expediente
+
     if not sesion_obj:
         # Crear nueva sesión
         sesion_obj = models.Sesion(
@@ -305,17 +314,31 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
         )
 
     chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam1, fecha_solo, job_manifest1], immutable=True),
-        celery_app.signature("worker.tasks.unir_video", args=[
-                             expediente, id_sesion, path_manifest1, inicio_iso, fin_iso], immutable=True)
+        celery_app.signature(
+            "tasks.generar_manifest",
+            args=[cam1, fecha_solo, job_manifest1],
+            immutable=True
+        ),
+        celery_app.signature(
+            "worker.tasks.unir_video",
+            args=[expediente, nombre_carpeta, id_sesion,
+                  path_manifest1, inicio_iso, fin_iso],
+            immutable=True
+        )
     ).apply_async()
 
     chain(
-        celery_app.signature("tasks.generar_manifest", args=[
-                             cam2, fecha_solo, job_manifest2], immutable=True),
-        celery_app.signature("worker.tasks.unir_video2", args=[
-                             expediente, id_sesion, path_manifest2, inicio_iso, fin_iso], immutable=True)
+        celery_app.signature(
+            "tasks.generar_manifest",
+            args=[cam2, fecha_solo, job_manifest2],
+            immutable=True
+        ),
+        celery_app.signature(
+            "worker.tasks.unir_video2",
+            args=[expediente, nombre_carpeta, id_sesion,
+                  path_manifest2, inicio_iso, fin_iso],
+            immutable=True
+        )
     ).apply_async()
 
     # ---------------------------------------------------------
@@ -324,6 +347,7 @@ def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depe
     return {
         "status": "procesando",
         "expediente": expediente,
+        "nombre_carpeta": nombre_carpeta,
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,
         "fin_sesion": fin_iso,
