@@ -1101,9 +1101,10 @@ def obtener_ffmpeg_log(sesion_id: int):
 # ============================================================
 
 @app.post("/whisper/enviar")
-def enviar_a_whisper(data: dict, ):
+def enviar_a_whisper(data: dict, db: Session = Depends(get_db)):
 
     sesion_id = data.get("sesion_id")
+    # <-- esto hoy te llega como carpeta_fs (ej. 009_223_22)
     expediente = data.get("expediente")
 
     if not sesion_id or not expediente:
@@ -1112,14 +1113,29 @@ def enviar_a_whisper(data: dict, ):
     if not rabbit_user or not rabbit_pass:
         raise HTTPException(500, "RabbitMQ credentials no configuradas")
 
-    print(f"[WHISPER] Tarea recibida para sesión {sesion_id}")
+    # ✅ expediente (carpeta) -> nombre_carpeta
+    nombre_carpeta = str(expediente).strip()
+
+    # ✅ buscar numero_expediente REAL en BD por sesion_id
+    ses = db.query(models.Sesion).filter_by(id=int(sesion_id)).first()
+    if not ses or not ses.investigacion:
+        raise HTTPException(
+            status_code=404, detail="Sesión/Investigación no encontrada")
+
+    numero_expediente = ses.investigacion.numero_expediente
+
+    payload = {
+        "sesion_id": int(sesion_id),
+        "numero_expediente": numero_expediente,
+        "nombre_carpeta": nombre_carpeta,
+    }
+
+    print(
+        f"[WHISPER] Enviando a cola: sesion_id={sesion_id} numero_expediente={numero_expediente} nombre_carpeta={nombre_carpeta}")
 
     import pika
     import json
     credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
-
-    if not rabbit_user or not rabbit_pass:
-        raise HTTPException(500, "RabbitMQ credentials no configuradas")
 
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(
@@ -1135,12 +1151,11 @@ def enviar_a_whisper(data: dict, ):
     channel.basic_publish(
         exchange="",
         routing_key="transcripciones",
-        body=json.dumps(data),
+        body=json.dumps(payload),
         properties=pika.BasicProperties(delivery_mode=2)
     )
 
     connection.close()
-
     return {"status": "whisper_job_enviado"}
 
 

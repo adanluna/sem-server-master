@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 import os
 import logging
 from datetime import datetime
@@ -238,8 +238,12 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
 # ============================================================
 
 
-@router.get("/expedientes/{numero_expediente}")
-def consulta_expediente(numero_expediente: str, db: Session = Depends(get_db)):
+@router.get("/expedientes")
+def consulta_expediente(
+    numero_expediente: str = Query(...,
+                                   description="Número de expediente exacto"),
+    db: Session = Depends(get_db)
+):
     inv = (
         db.query(models.Investigacion)
         .filter_by(numero_expediente=numero_expediente)
