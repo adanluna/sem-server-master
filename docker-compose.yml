@@ -39,6 +39,8 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
       interval: 10s
@@ -89,7 +91,7 @@ services:
       dockerfile: worker/Dockerfile
     container_name: celery_uniones
     working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q uniones_video -c 1 --loglevel=info --hostname=worker_uniones@%h
+    command: celery -A worker.celery_app worker -Q uniones_video -c 1 --loglevel=info --hostname=worker_uniones@%h --without-gossip --without-mingle --without-heartbeat
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw
@@ -108,6 +110,7 @@ services:
       db:
         condition: service_started
     user: "1000:1000"
+    stop_grace_period: 120s
 
   # ============================================================
   # WORKER: MANIFEST BUILDER
@@ -118,11 +121,11 @@ services:
       dockerfile: worker/Dockerfile
     container_name: celery_manifest
     working_dir: /app/worker
-    command: celery -A worker.celery_app worker -Q manifest --loglevel=info --hostname=worker_manifest@%h
+    command: celery -A worker.celery_app worker -Q manifest -c 1 --loglevel=info --hostname=worker_manifest@%h --without-gossip --without-mingle --without-heartbeat
     volumes:
       - .:/app
       - /mnt/wave:/mnt/wave:rw
-      - ${TEMP_ROOT}:${TEMP_ROOT} # <<--- AGREGADO (era la causa del crash)
+      - ${TEMP_ROOT}:${TEMP_ROOT}
     env_file:
       - .env
     environment:
@@ -138,6 +141,7 @@ services:
       db:
         condition: service_started
     user: "1000:1000"
+    stop_grace_period: 60s
 
   # ============================================================
   # DASHBOARD (VUE) - NGINX
@@ -157,3 +161,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:

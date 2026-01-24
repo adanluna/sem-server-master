@@ -31,7 +31,7 @@ echo "Deteniendo contenedores de workers..." | tee -a "$LOGFILE"
 for worker in "${WORKERS[@]}"; do
     if docker ps --format '{{.Names}}' | grep -q "$worker"; then
         echo "Deteniendo $worker..." | tee -a "$LOGFILE"
-        docker stop "$worker" >> "$LOGFILE" 2>&1
+        docker stop -t 120 "$worker" >> "$LOGFILE" 2>&1
     else
         echo "$worker no está en ejecución." | tee -a "$LOGFILE"
     fi

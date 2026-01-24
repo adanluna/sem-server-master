@@ -152,7 +152,7 @@ def registrar_job(numero_expediente, id_sesion, tipo, archivo):
             "id_sesion": id_sesion,
             "tipo": tipo,
             "archivo": archivo,
-            "estado": "pendiente",
+            "estado": "procesando",
             "resultado": None,
             "error": None
         }
@@ -210,10 +210,10 @@ def actualizar_job(job_id, estado=None, resultado=None, error=None):
 # ============================================================
 #   ARCHIVOS
 # ============================================================
-def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="pendiente", mensaje=None):
+def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=None, estado="procesando", mensaje=None):
     """
     Registra un archivo en la API.
-    Nota: default estado="pendiente" para no romper enum (NO existe "procesando" en archivos).
+    Nota: default estado="procesando" para no romper enum (NO existe "procesando" en archivos).
     """
     try:
         payload = {
@@ -311,3 +311,17 @@ def enviar_a_whisper(numero_expediente: str, nombre_carpeta: str, sesion_id: int
         timeout=10
     )
     return True
+
+
+def obtener_estado_archivo(sesion_id: int, tipo_archivo: str, timeout=10) -> dict:
+    """
+    GET protegido (usa service-token si aplica).
+    Retorna dict del endpoint /archivos/{sesion_id}/{tipo}
+    """
+    r = _request(
+        "GET",
+        f"{API_URL}/archivos/{int(sesion_id)}/{tipo_archivo}",
+        json=None,
+        timeout=timeout
+    )
+    return r.json()

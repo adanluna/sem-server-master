@@ -110,11 +110,20 @@ def cargar_manifest(path_manifest):
 def guardar_manifest(path_manifest, data):
     os.makedirs(os.path.dirname(path_manifest), exist_ok=True)
 
+    tmp = path_manifest + ".tmp"
     try:
-        with open(path_manifest, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path_manifest)  # rename atómico
     except Exception as e:
         print(f"[MANIFEST] ERROR guardando manifest {path_manifest}: {e}")
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
 
 
 def ruta_manifest(mac, fecha):
