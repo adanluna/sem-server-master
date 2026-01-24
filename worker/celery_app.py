@@ -57,4 +57,12 @@ celery_app.conf.update(
 
     timezone="America/Monterrey",
     enable_utc=False,
+
+    # ============================================================
+    # 🔁 REANUDAR TAREAS SI WORKER MUERE / SE REINICIA
+    # ============================================================
+    task_acks_late=True,              # ACK hasta que termine la tarea
+    task_reject_on_worker_lost=True,  # si el worker muere → reencolar
+    worker_prefetch_multiplier=1,     # no acaparar tareas
+    task_default_delivery_mode=2,     # mensajes persistentes en RabbitMQ
 )
