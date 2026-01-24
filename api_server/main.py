@@ -548,6 +548,34 @@ def actualizar_estado(
         "estado_sesion": "finalizada",
     }
 
+
+@app.get("/archivos/{sesion_id}/{tipo}")
+def obtener_archivo(sesion_id: int, tipo: str, db: Session = Depends(get_db)):
+    archivo = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id, tipo_archivo=tipo)
+        .first()
+    )
+
+    if not archivo:
+        return {
+            "existe": False,
+            "estado": None,
+            "conversion_completa": False,
+            "ruta_convertida": None,
+            "mensaje": None,
+        }
+
+    return {
+        "existe": True,
+        "estado": archivo.estado,
+        "conversion_completa": bool(archivo.conversion_completa),
+        "ruta_convertida": archivo.ruta_convertida,
+        "mensaje": archivo.mensaje,
+        "fecha_finalizacion": archivo.fecha_finalizacion.isoformat() if archivo.fecha_finalizacion else None,
+    }
+
+
 # ============================================================
 #  PROGRESO POR ARCHIVO (usado por workers)
 # ============================================================

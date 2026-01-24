@@ -3,6 +3,7 @@
 # ============================================================
 
 from celery import Celery
+from kombu import Queue
 import os
 
 # ============================================================
@@ -45,6 +46,14 @@ celery_app.conf.task_routes = {
     "worker.tasks.unir_video2": {"queue": "uniones_video"},
 }
 
+celery_app.conf.task_default_queue = "default"
+
+celery_app.conf.task_queues = (
+    Queue("default", durable=True),
+    Queue("manifest", durable=True),
+    Queue("uniones_video", durable=True),
+)
+
 # ============================================================
 #   CONFIG GENERAL
 # ============================================================
@@ -57,4 +66,22 @@ celery_app.conf.update(
 
     timezone="America/Monterrey",
     enable_utc=False,
+
+    # ============================================================
+    #   ROBUSTEZ CRÍTICA (NO PERDER TRABAJOS EN REINICIOS)
+    # ============================================================
+    task_acks_late=True,                 # ACK hasta terminar
+    task_reject_on_worker_lost=True,     # si el worker muere -> re-encolar
+    # no acaparar mensajes (más justo y seguro)
+    worker_prefetch_multiplier=1,
+
+    # (recomendado) si algo se cuelga
+    task_soft_time_limit=60 * 60 * 6,    # 6h soft (ajusta a tu máximo real)
+    task_time_limit=60 * 60 * 7,         # 7h hard (mata si se pasa)
+
+    task_default_delivery_mode=2,  # persistent
+
+    broker_connection_retry_on_startup=True,
+    worker_cancel_long_running_tasks_on_connection_loss=True,
+    broker_transport_options={"visibility_timeout": 60 * 60 * 8},
 )

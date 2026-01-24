@@ -15,7 +15,7 @@ import psutil
 import time
 import re
 
-from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo, obtener_pausas_todas, enviar_a_whisper, finalizar_archivo
+from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo, obtener_pausas_todas, enviar_a_whisper, finalizar_archivo, obtener_estado_archivo
 from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
 
 load_dotenv()
@@ -166,6 +166,20 @@ def esperar_cpu_baja(limite=85):
 
 def _unir_video(expediente, carpeta, id_sesion, manifest_path, tipo):
 
+    # ============================================================
+    #   IDEMPOTENCIA: si ya está completado, NO reprocesar
+    # ============================================================
+    try:
+        estado_api = obtener_estado_archivo(id_sesion, tipo)
+        if estado_api.get("existe") and estado_api.get("estado") == "completado" and estado_api.get("conversion_completa"):
+            print(
+                f"[IDEMPOTENTE] {tipo} ya completado en sesión {id_sesion}. Saltando reproceso.")
+            return True
+    except Exception as e:
+        # Si la API falla aquí, NO abortamos: seguimos a procesar,
+        # pero quedará log para diagnosticar.
+        print(f"[IDEMPOTENTE] No se pudo consultar estado en API: {e}")
+
     pid = os.getpid()
 
     # 🔴 Worker está PROCESANDO
@@ -240,12 +254,12 @@ def _unir_video(expediente, carpeta, id_sesion, manifest_path, tipo):
             tipo_archivo=tipo,
             ruta_original=normalizar_ruta(salida),
             ruta_convertida=normalizar_ruta(salida),
-            estado="pendiente"
+            estado="procesando"
         )
 
         # (Recomendado) Marcar el job como procesando también
         if job_id:
-            actualizar_job(job_id, estado="pendiente")
+            actualizar_job(job_id, estado="procesando")
 
         esperar_cpu_baja()
 
