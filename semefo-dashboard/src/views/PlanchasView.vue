@@ -14,6 +14,10 @@
                     <th>Nombre</th>
                     <th>Estado</th>
                     <th>Asignada</th>
+                    <th class="text-center">Cám 1 IP</th>
+                    <th class="text-center">Cám 1 ID</th>
+                    <th class="text-center">Cám 2 IP</th>
+                    <th class="text-center">Cám 2 ID</th>
                     <th class="text-end">Acciones</th>
                 </tr>
             </thead>
@@ -32,6 +36,22 @@
                         <span class="badge" :class="p.asignada ? 'bg-info' : 'bg-light text-dark'">
                             {{ p.asignada ? "Sí" : "No" }}
                         </span>
+                    </td>
+                    <td class="text-center">
+                        <span v-if="p.camara1_ip" class="text-success">✓</span>
+                        <span v-else class="text-danger">✗</span>
+                    </td>
+                    <td class="text-center">
+                        <span v-if="p.camara1_id" class="text-success">✓</span>
+                        <span v-else class="text-danger">✗</span>
+                    </td>
+                    <td class="text-center">
+                        <span v-if="p.camara2_ip" class="text-success">✓</span>
+                        <span v-else class="text-danger">✗</span>
+                    </td>
+                    <td class="text-center">
+                        <span v-if="p.camara2_id" class="text-success">✓</span>
+                        <span v-else class="text-danger">✗</span>
                     </td>
                     <td class="text-end">
                         <button class="btn btn-outline-primary btn-sm" @click="$router.push(`/planchas/${p.id}`)">
