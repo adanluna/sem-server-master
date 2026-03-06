@@ -140,7 +140,7 @@ npm run dev
 /* */
 docker compose exec db psql -U semefo_user -d semefo
 /* */
-/*  pass: Admin123!*/
+/*  p: Admin123!*/
 INSERT INTO dashboard_users (
     username,
     password_hash,

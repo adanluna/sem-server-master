@@ -359,7 +359,7 @@ CREATE INDEX IF NOT EXISTS celery_tasksetmeta_taskset_id_idx
 
 
 -- =====================================================
--- FIN
+/*  p: Admin123!*/
 -- =====================================================
 
 INSERT INTO dashboard_users (
