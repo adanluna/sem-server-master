@@ -111,3 +111,49 @@ curl -X POST http://127.0.0.1:8000/procesar_sesion \
       "ultima_actualizacion": "2025-12-17T18:15:00"
     }
   }'
+
+
+
+curl -X POST http://172.21.82.2:8000/procesar_sesion \
+  -H "Content-Type: application/json" \
+  -d '{
+  "sesion_activa": {
+    "id_sesion": 2,
+    "expediente": "873-26",
+    "nombre": "DESCRIPCIÓN FEMINA 060326",
+    "inicio": "2026-03-06T19:27:59.416132",
+    "fin": "2026-03-06T19:42:20.312882",
+    "estado": "finalizada",
+    "duracion_total": "00:13:56",
+    "pausas": [
+      {
+        "inicio": "2026-03-06T19:41:18.862426",
+        "fin": "2026-03-06T19:41:20.088551"
+      },
+      {
+        "inicio": "2026-03-06T19:41:56.073281",
+        "fin": "2026-03-06T19:41:57.357216"
+      },
+      {
+        "inicio": "2026-03-06T19:41:58.553439",
+        "fin": "2026-03-06T19:42:20.312882"
+      }
+    ],
+    "forense": {
+      "id_usuario": "testuser1",
+      "nombre": "Test User 1"
+    },
+    "forense_cerrar": {
+      "id_usuario": "testuser1",
+      "nombre": "Test User 1",
+      "fecha": "2026-03-06T19:42:20.312882"
+    },
+    "tablet": "Tablet 1",
+    "plancha_id": 1,
+    "plancha_nombre": "Plancha 1",
+    "camara1_mac_address": "dab45b6f603de4f2abeba11fdf0c398c",
+    "camara2_mac_address": "E4-30-22-A2-6E-FD",
+    "version_app": "1.0.0",
+    "ultima_actualizacion": "2026-03-06T19:26:08.679293"
+  }
+}'

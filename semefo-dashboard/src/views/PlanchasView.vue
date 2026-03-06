@@ -70,6 +70,7 @@ async function borrar() {
 
 async function load() {
     planchas.value = await fetchPlanchas();
+    planchas.value.sort((a, b) => a.id - b.id);
 }
 
 onMounted(load);
