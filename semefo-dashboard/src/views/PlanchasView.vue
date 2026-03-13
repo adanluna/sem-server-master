@@ -14,10 +14,11 @@
                     <th>Nombre</th>
                     <th>Estado</th>
                     <th>Asignada</th>
-                    <th class="text-center">Cám 1 IP</th>
-                    <th class="text-center">Cám 1 ID</th>
-                    <th class="text-center">Cám 2 IP</th>
-                    <th class="text-center">Cám 2 ID</th>
+                    <th>Cám 1 IP</th>
+                    <th>Cám 1 ID</th>
+                    <th>Cám 2 IP</th>
+                    <th>Cám 2 ID</th>
+                    <th class="text-center">Completo</th>
                     <th class="text-end">Acciones</th>
                 </tr>
             </thead>
@@ -37,21 +38,25 @@
                             {{ p.asignada ? "Sí" : "No" }}
                         </span>
                     </td>
-                    <td class="text-center">
-                        <span v-if="p.camara1_ip" class="text-success">✓</span>
-                        <span v-else class="text-danger">✗</span>
+                    <td>
+                        <span v-if="p.camara1_ip">{{ p.camara1_ip }}</span>
+                        <span v-else class="text-muted fst-italic">No configurada</span>
+                    </td>
+                    <td>
+                        <span v-if="p.camara1_id">{{ p.camara1_id }}</span>
+                        <span v-else class="text-muted fst-italic">No configurado</span>
+                    </td>
+                    <td>
+                        <span v-if="p.camara2_ip">{{ p.camara2_ip }}</span>
+                        <span v-else class="text-muted fst-italic">No configurada</span>
+                    </td>
+                    <td>
+                        <span v-if="p.camara2_id">{{ p.camara2_id }}</span>
+                        <span v-else class="text-muted fst-italic">No configurado</span>
                     </td>
                     <td class="text-center">
-                        <span v-if="p.camara1_id" class="text-success">✓</span>
-                        <span v-else class="text-danger">✗</span>
-                    </td>
-                    <td class="text-center">
-                        <span v-if="p.camara2_ip" class="text-success">✓</span>
-                        <span v-else class="text-danger">✗</span>
-                    </td>
-                    <td class="text-center">
-                        <span v-if="p.camara2_id" class="text-success">✓</span>
-                        <span v-else class="text-danger">✗</span>
+                        <span v-if="isDatosCompletos(p)" class="text-success fs-5">✓</span>
+                        <span v-else class="text-danger fs-5">✗</span>
                     </td>
                     <td class="text-end">
                         <button class="btn btn-outline-primary btn-sm" @click="$router.push(`/planchas/${p.id}`)">
@@ -77,6 +82,10 @@ import ConfirmDeleteModal from "../components/ConfirmDeleteModal.vue";
 const planchas = ref<any[]>([]);
 const deleteModal = ref<any>(null);
 let toDelete: any = null;
+
+function isDatosCompletos(p: any): boolean {
+    return !!(p.camara1_ip && p.camara1_id && p.camara2_ip && p.camara2_id);
+}
 
 function confirmarBorrado(p: any) {
     toDelete = p;
