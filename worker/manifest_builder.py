@@ -8,6 +8,7 @@
 import os
 import json
 import subprocess
+import fcntl
 from glob import glob
 from dotenv import load_dotenv
 from .celery_app import celery_app
@@ -117,6 +118,60 @@ def guardar_manifest(path_manifest, data):
         print(f"[MANIFEST] ERROR guardando manifest {path_manifest}: {e}")
 
 
+def _actualizar_manifest_con_lock(path_manifest, mac_camara, fecha_iso, fragmentos):
+    """
+    Actualiza manifest.json con lock exclusivo para evitar condiciones de
+    carrera cuando varias sesiones terminan al mismo tiempo (misma cámara/día).
+    """
+    lock_path = f"{path_manifest}.lock"
+    os.makedirs(os.path.dirname(path_manifest), exist_ok=True)
+
+    with open(lock_path, "w") as lock_fp:
+        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
+
+        manifest = cargar_manifest(path_manifest)
+        manifest.setdefault("uuid", GRABADOR_UUID)
+        manifest.setdefault("fecha", fecha_iso)
+        manifest.setdefault("camara_mac", mac_camara)
+        manifest.setdefault("archivos", [])
+
+        ya_archivos = {a["archivo"] for a in manifest["archivos"]}
+        ya_timestamps = {
+            (a["inicio"], a["fin"]) for a in manifest["archivos"]
+        }
+
+        nuevos = []
+        for file_path in fragmentos:
+            archivo = os.path.basename(file_path)
+
+            if archivo in ya_archivos:
+                continue
+
+            inicio, fin, dur = extraer_timestamps(archivo, file_path)
+            if inicio is None:
+                continue
+
+            if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
+                print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
+                continue
+
+            entry = {
+                "archivo": archivo,
+                "inicio": inicio.isoformat(),
+                "fin": fin.isoformat(),
+                "duracion_segundos": dur,
+                "ruta": file_path,
+            }
+
+            manifest["archivos"].append(entry)
+            nuevos.append(entry)
+
+        manifest["archivos"].sort(key=lambda x: x["inicio"])
+        guardar_manifest(path_manifest, manifest)
+
+    return nuevos
+
+
 def ruta_manifest(mac, fecha):
     yyyy = fecha.strftime("%Y")
     mm = fecha.strftime("%m")
@@ -197,46 +252,12 @@ def generar_manifest(mac_camara, fecha_iso, job_id):
         fragmentos = sorted(todas_las_rutas)
 
         path_manifest = ruta_manifest(mac_camara, fecha_base)
-        manifest = cargar_manifest(path_manifest)
-
-        manifest.setdefault("uuid", GRABADOR_UUID)
-        manifest.setdefault("fecha", fecha_iso)
-        manifest.setdefault("camara_mac", mac_camara)
-        manifest.setdefault("archivos", [])
-
-        ya_archivos = {a["archivo"] for a in manifest["archivos"]}
-        ya_timestamps = {(a["inicio"], a["fin"]) for a in manifest["archivos"]}
-
-        nuevos = []
-
-        for file_path in fragmentos:
-            archivo = os.path.basename(file_path)
-
-            if archivo in ya_archivos:
-                continue
-
-            inicio, fin, dur = extraer_timestamps(archivo, file_path)
-            if inicio is None:
-                continue
-
-            if (inicio.isoformat(), fin.isoformat()) in ya_timestamps:
-                print(f"[MANIFEST] Duplicado por timestamp evitado: {archivo}")
-                continue
-
-            entry = {
-                "archivo": archivo,
-                "inicio": inicio.isoformat(),
-                "fin": fin.isoformat(),
-                "duracion_segundos": dur,
-                "ruta": file_path
-            }
-
-            manifest["archivos"].append(entry)
-            nuevos.append(entry)
-
-        manifest["archivos"].sort(key=lambda x: x["inicio"])
-
-        guardar_manifest(path_manifest, manifest)
+        nuevos = _actualizar_manifest_con_lock(
+            path_manifest,
+            mac_camara,
+            fecha_iso,
+            fragmentos,
+        )
 
         print(f"[MANIFEST] Guardado → {path_manifest}")
         print(f"[MANIFEST] Fragmentos nuevos agregados: {len(nuevos)}")

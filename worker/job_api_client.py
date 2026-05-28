@@ -304,10 +304,30 @@ def enviar_a_whisper(numero_expediente: str, nombre_carpeta: str, sesion_id: int
         "nombre_carpeta": nombre_carpeta,
     }
 
-    _request(
-        "POST",
-        f"{API_URL}/whisper/enviar",
-        json=payload,
-        timeout=10
+    last_error = None
+    for intento in range(3):
+        try:
+            r = _request(
+                "POST",
+                f"{API_URL}/whisper/enviar",
+                json=payload,
+                timeout=30,
+            )
+            status = (r.json() or {}).get("status", "")
+            print(
+                f"[WHISPER] Sesión {sesion_id} → {status} "
+                f"(intento {intento + 1}/3)"
+            )
+            return True
+        except Exception as e:
+            last_error = e
+            print(
+                f"❌ Error encolando Whisper sesión {sesion_id} "
+                f"(intento {intento + 1}/3): {e}"
+            )
+            time.sleep(2 * (intento + 1))
+
+    print(
+        f"❌ No se pudo encolar Whisper para sesión {sesion_id}: {last_error}"
     )
-    return True
+    return False

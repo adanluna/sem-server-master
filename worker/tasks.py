@@ -272,9 +272,14 @@ def _unir_video(expediente, carpeta, id_sesion, manifest_path, tipo):
             ruta=normalizar_ruta(salida),
         )
 
-        # ✅ Whisper SOLO para video1
+        # ✅ Whisper SOLO para video1 (respaldo; la API también encola al
+        #    completar video en actualizar_estado)
         if tipo == "video":
-            enviar_a_whisper(expediente, carpeta_fs, id_sesion)
+            if not enviar_a_whisper(expediente, carpeta_fs, id_sesion):
+                print(
+                    f"[WHISPER] Sesión {id_sesion}: el worker no pudo encolar; "
+                    "la API debería haberlo hecho al finalizar video"
+                )
 
     except Exception as e:
         if job_id:

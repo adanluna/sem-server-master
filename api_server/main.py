@@ -436,6 +436,121 @@ def listar_archivos_sesion(sesion_id: int, db: Session = Depends(get_db)):
     return archivos
 
 
+def _publicar_whisper_rabbit(
+    *,
+    sesion_id: int,
+    numero_expediente: str,
+    nombre_carpeta: str,
+) -> None:
+    """Publica job de transcripción en RabbitMQ (cola transcripciones)."""
+    if not rabbit_user or not rabbit_pass:
+        raise RuntimeError("RabbitMQ credentials no configuradas")
+
+    import pika
+
+    payload = {
+        "sesion_id": int(sesion_id),
+        "numero_expediente": numero_expediente,
+        "nombre_carpeta": nombre_carpeta,
+    }
+
+    logger.info(
+        "[WHISPER] Encolando sesión %s (exp=%s carpeta=%s)",
+        sesion_id,
+        numero_expediente,
+        nombre_carpeta,
+    )
+
+    credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
+    connection = None
+    last_error = None
+
+    for intento in range(3):
+        try:
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters(
+                    host=rabbit_host,
+                    port=5672,
+                    virtual_host="/",
+                    credentials=credentials,
+                )
+            )
+            channel = connection.channel()
+            channel.queue_declare(queue="transcripciones", durable=True)
+            channel.basic_publish(
+                exchange="",
+                routing_key="transcripciones",
+                body=json.dumps(payload),
+                properties=pika.BasicProperties(delivery_mode=2),
+            )
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "[WHISPER] Intento %s/3 falló encolando sesión %s: %s",
+                intento + 1,
+                sesion_id,
+                e,
+            )
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+                connection = None
+
+    raise RuntimeError(
+        f"No se pudo encolar sesión {sesion_id} en RabbitMQ: {last_error}"
+    )
+
+
+def encolar_whisper_si_corresponde(db: Session, sesion_id: int) -> bool:
+    """
+    Encola Whisper cuando video.webm queda listo.
+    Idempotente: no reencola si la transcripción ya está en curso o terminada.
+    """
+    ses = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not ses or not ses.investigacion:
+        raise ValueError("Sesión/Investigación no encontrada")
+
+    job_trans = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id, tipo="transcripcion")
+        .first()
+    )
+    if job_trans and job_trans.estado in ("pendiente", "procesando", "completado"):
+        logger.info(
+            "[WHISPER] Sesión %s: job transcripcion ya %s, omitiendo encolado",
+            sesion_id,
+            job_trans.estado,
+        )
+        return False
+
+    archivo_trans = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id, tipo_archivo="transcripcion")
+        .first()
+    )
+    if archivo_trans and archivo_trans.estado == "completado":
+        logger.info(
+            "[WHISPER] Sesión %s: transcripción ya completada, omitiendo encolado",
+            sesion_id,
+        )
+        return False
+
+    nombre_carpeta = (ses.investigacion.nombre_carpeta or "").strip()
+    if not nombre_carpeta:
+        nombre_carpeta = ses.investigacion.numero_expediente
+
+    _publicar_whisper_rabbit(
+        sesion_id=sesion_id,
+        numero_expediente=ses.investigacion.numero_expediente,
+        nombre_carpeta=nombre_carpeta,
+    )
+    return True
+
+
 @app.put("/archivos/{sesion_id}/{tipo}/actualizar_estado")
 def actualizar_estado(
     sesion_id: int,
@@ -484,6 +599,30 @@ def actualizar_estado(
             archivo.fecha_finalizacion = datetime.now(timezone.utc)
 
     db.commit()
+
+    # -------------------------------------------------
+    # 0b. WHISPER — al completar video.webm (fuente de verdad)
+    #     Evita perder el encolado cuando hay sesiones concurrentes
+    #     y el worker no logra llamar /whisper/enviar.
+    # -------------------------------------------------
+    if (
+        tipo == "video"
+        and data.estado == "completado"
+        and bool(data.conversion_completa)
+    ):
+        try:
+            encolado = encolar_whisper_si_corresponde(db, sesion_id)
+            if encolado:
+                logger.info(
+                    "[WHISPER] Sesión %s encolada desde actualizar_estado(video)",
+                    sesion_id,
+                )
+        except Exception as e:
+            logger.error(
+                "[WHISPER] Error encolando sesión %s tras completar video: %s",
+                sesion_id,
+                e,
+            )
 
     # -------------------------------------------------
     # 1. Verificar ARCHIVOS requeridos
@@ -1110,52 +1249,24 @@ def enviar_a_whisper(data: dict, db: Session = Depends(get_db)):
     if not sesion_id or not expediente:
         raise HTTPException(status_code=400, detail="Datos incompletos")
 
-    if not rabbit_user or not rabbit_pass:
-        raise HTTPException(500, "RabbitMQ credentials no configuradas")
+    # Compatibilidad: el worker puede mandar nombre_carpeta explícito
+    nombre_carpeta = str(
+        data.get("nombre_carpeta") or expediente
+    ).strip()
 
-    # ✅ expediente (carpeta) -> nombre_carpeta
-    nombre_carpeta = str(expediente).strip()
-
-    # ✅ buscar numero_expediente REAL en BD por sesion_id
     ses = db.query(models.Sesion).filter_by(id=int(sesion_id)).first()
     if not ses or not ses.investigacion:
         raise HTTPException(
             status_code=404, detail="Sesión/Investigación no encontrada")
 
-    numero_expediente = ses.investigacion.numero_expediente
+    try:
+        encolado = encolar_whisper_si_corresponde(db, int(sesion_id))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
-    payload = {
-        "sesion_id": int(sesion_id),
-        "numero_expediente": numero_expediente,
-        "nombre_carpeta": nombre_carpeta,
-    }
+    if not encolado:
+        return {"status": "whisper_ya_encolado_o_completado"}
 
-    print(
-        f"[WHISPER] Enviando a cola: sesion_id={sesion_id} numero_expediente={numero_expediente} nombre_carpeta={nombre_carpeta}")
-
-    import pika
-    import json
-    credentials = pika.PlainCredentials(rabbit_user, rabbit_pass)
-
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(
-            host=rabbit_host,
-            port=5672,
-            virtual_host="/",
-            credentials=credentials
-        )
-    )
-    channel = connection.channel()
-    channel.queue_declare(queue="transcripciones", durable=True)
-
-    channel.basic_publish(
-        exchange="",
-        routing_key="transcripciones",
-        body=json.dumps(payload),
-        properties=pika.BasicProperties(delivery_mode=2)
-    )
-
-    connection.close()
     return {"status": "whisper_job_enviado"}
 
 
