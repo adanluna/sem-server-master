@@ -17,6 +17,7 @@ const username = computed(() => {
 function logout() {
     localStorage.removeItem("token");
     localStorage.removeItem("user_nombre");
+    localStorage.removeItem("user_permissions");
     router.push("/");
 }
 </script>

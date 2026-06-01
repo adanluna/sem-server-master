@@ -142,7 +142,10 @@ onMounted(async () => {
         <!-- Errores -->
         <div class="col-lg-12">
           <div class="card shadow-sm">
-            <div class="card-header fw-semibold">Top 10 con error</div>
+            <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+              <span>Top 10 con error</span>
+              <router-link to="/sesiones-fallidas" class="small">Ver todas →</router-link>
+            </div>
             <div class="table-responsive">
               <table class="table table-sm table-hover mb-0">
                 <thead>
@@ -150,7 +153,9 @@ onMounted(async () => {
                     <th>Expediente</th>
                     <th>Sesión</th>
                     <th>Origen</th>
+                    <th>Error</th>
                     <th>Fecha</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,10 +163,21 @@ onMounted(async () => {
                     <td class="text-truncate" style="max-width:140px">{{ s.numero_expediente }}</td>
                     <td class="text-truncate" style="max-width:140px">{{ s.nombre_sesion }}</td>
                     <td class="text-truncate" style="max-width:120px">{{ s.origen }}</td>
+                    <td class="text-truncate text-danger small" style="max-width:200px" :title="s.mensaje">
+                      {{ s.mensaje || "—" }}
+                    </td>
                     <td class="text-nowrap small">{{ formatFechaLocal(s.ultima_actualizacion) }}</td>
+                    <td class="text-nowrap">
+                      <router-link
+                        :to="`/sesiones-fallidas?sesion=${s.id}`"
+                        class="btn btn-outline-primary btn-sm"
+                      >
+                        Reprocesar
+                      </router-link>
+                    </td>
                   </tr>
                   <tr v-if="!resumen.errores?.length">
-                    <td colspan="3" class="text-muted p-3">Sin errores</td>
+                    <td colspan="6" class="text-muted p-3">Sin errores</td>
                   </tr>
                 </tbody>
               </table>

@@ -54,6 +54,7 @@ class SesionArchivoResponse(BaseModel):
     mensaje: Optional[str] = None
     fecha: datetime
     fecha_finalizacion: Optional[datetime] = None
+    tamano_kb: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -64,6 +65,7 @@ class SesionArchivoEstadoUpdate(BaseModel):
     fecha_finalizacion: Optional[Union[datetime, bool]] = None
     ruta_convertida: Optional[str] = None
     conversion_completa: Optional[bool] = None
+    tamano_kb: Optional[float] = None
 
 
 class SesionCreate(BaseModel):
@@ -137,6 +139,34 @@ class PausaResponse(PausaBase):
     id: int
     sesion_id: int
     model_config = {"from_attributes": True}
+
+
+# ======================================================
+# Sesiones fallidas / reproceso
+# ======================================================
+class SesionFallidaListItem(BaseModel):
+    id: int
+    numero_expediente: Optional[str] = None
+    nombre_sesion: str
+    plancha_nombre: Optional[str] = None
+    usuario_ldap: str
+    user_nombre: Optional[str] = None
+    estado: str
+    fecha: datetime
+    fecha_error_procesamiento: Optional[datetime] = None
+    error_procesamiento: Optional[str] = None
+    error_origen: Optional[str] = None
+    reintentos_procesamiento: int = 0
+    tiene_payload: bool = False
+    jobs_error: int = 0
+    archivos_error: int = 0
+
+
+class ReprocesarSesionResponse(BaseModel):
+    status: str
+    id_sesion: int
+    reintentos_procesamiento: int
+    message: Optional[str] = None
 
 
 # ======================================================
@@ -217,28 +247,44 @@ class DashboardLoginRequest(BaseModel):
     password: str
 
 
+class DashboardPermissions(BaseModel):
+    dashboard: bool = False
+    sesiones: bool = False
+    sesiones_fallidas: bool = False
+    jobs: bool = False
+    planchas: bool = False
+    tokens: bool = False
+    infraestructura: bool = False
+    usuarios: bool = False
+
+
 class DashboardUserCreate(BaseModel):
     username: str
     password: str
-    roles: List[str] = ["dashboard_read"]
     activo: bool = True
+    permissions: DashboardPermissions
 
 
 class DashboardUserUpdate(BaseModel):
     password: Optional[str] = None
-    roles: Optional[List[str]] = None
     activo: Optional[bool] = None
+    permissions: Optional[DashboardPermissions] = None
 
 
 class DashboardUserResponse(BaseModel):
     id: int
     username: str
-    roles: List[str]
     activo: bool
+    permissions: DashboardPermissions
+    is_protected: bool = False
     last_login_at: Optional[datetime] = None
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+
+class DashboardMeResponse(BaseModel):
+    username: str
+    permissions: DashboardPermissions
+    is_protected: bool = False
 
 
 class WorkerHeartbeat(BaseModel):

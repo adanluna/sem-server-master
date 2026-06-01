@@ -5,33 +5,51 @@
         </div>
 
         <nav class="menu">
-            <router-link to="/dashboard" class="item" active-class="active" exact>
+            <router-link v-if="can('dashboard')" to="/dashboard" class="item" active-class="active" exact>
                 Dashboard
             </router-link>
 
-            <router-link to="/sesiones" class="item" active-class="active">
+            <router-link v-if="can('sesiones')" to="/sesiones" class="item" active-class="active">
                 Sesiones
             </router-link>
 
-            <router-link to="/jobs/pendiente" class="item" active-class="active">
+            <router-link v-if="can('sesiones_fallidas')" to="/sesiones-fallidas" class="item" active-class="active">
+                Sesiones Fallidas
+            </router-link>
+
+            <router-link v-if="can('jobs')" to="/jobs/pendiente" class="item" active-class="active">
                 Jobs pendientes
             </router-link>
 
-            <router-link to="/planchas" class="item" active-class="active">
+            <router-link v-if="can('planchas')" to="/planchas" class="item" active-class="active">
                 Planchas
             </router-link>
 
-            <router-link to="/service-clients" class="item" active-class="active">
+            <router-link v-if="can('tokens')" to="/service-clients" class="item" active-class="active">
                 Tokens
             </router-link>
 
-            <router-link to="/infraestructura" class="item" active-class="active">
+            <router-link v-if="can('infraestructura')" to="/infraestructura" class="item" active-class="active">
                 Infraestructura
+            </router-link>
+
+            <router-link v-if="can('usuarios')" to="/usuarios" class="item" active-class="active">
+                Usuarios
             </router-link>
 
         </nav>
     </aside>
 </template>
+
+<script setup lang="ts">
+import { hasPermission } from "../utils/permissions";
+import type { PermissionKey } from "../types/permissions";
+
+function can(key: PermissionKey): boolean {
+    return hasPermission(key);
+}
+</script>
+
 <style scoped>
 /* Branding */
 .brand {

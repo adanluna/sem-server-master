@@ -61,21 +61,36 @@ def normalizar_ruta(
     return f"{EXPEDIENTES_PATH}/{path.lstrip('/')}"
 
 
-def size_kb(path: str | None) -> float:
-    """
-    Calcula tamaño en KB de forma segura
-    """
+def calcular_tamano_kb_desde_path(path: str | None) -> float | None:
+    """Tamaño en KB desde ruta local (workers al completar). None si no existe."""
     if not path:
-        return 0.0
-
+        return None
     try:
         p = Path(path)
-        if p.exists() and p.is_file():
+        if p.is_file():
             return round(p.stat().st_size / 1024, 2)
     except Exception:
         pass
+    return None
 
-    return 0.0
+
+def size_kb(path: str | None) -> float:
+    """
+    Calcula tamaño en KB de forma segura (fallback en lectura API).
+    """
+    valor = calcular_tamano_kb_desde_path(path)
+    return valor if valor is not None else 0.0
+
+
+def tamano_kb_respuesta(archivo, ruta_abs: str | None = None) -> float:
+    """
+    Prioriza tamano_kb persistido en BD; si no hay, intenta stat en disco.
+    """
+    if archivo is not None:
+        guardado = getattr(archivo, "tamano_kb", None)
+        if guardado is not None and guardado > 0:
+            return round(float(guardado), 2)
+    return size_kb(ruta_abs)
 
 
 def _share_base() -> str:

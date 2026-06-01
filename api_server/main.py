@@ -9,7 +9,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 import logging
 import os
-from celery import chain
 import json
 import socket
 import traceback
@@ -33,11 +32,24 @@ from api_server.schemas import (
     PlanchaResponse,
 )
 from api_server.models import AuthLoginRequest, RefreshRequest, ServiceTokenRequest
-from worker.celery_app import celery_app
 from api_server.utils.ping import _ping_probe, _clamp_int
-from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, size_kb
-from api_server.utils.jobs import crear_job_interno
-from api_server.utils.jwt import create_access_token, create_refresh_token, _sha256, _now_utc, require_roles, pwd_context, ACCESS_TOKEN_MINUTES, REFRESH_TOKEN_HOURS, SERVICE_TOKEN_HOURS
+from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, tamano_kb_respuesta
+from api_server.utils.jobs import registrar_error_procesamiento, verificar_estado_sesion
+from api_server.utils.sesion_procesamiento import ejecutar_procesamiento_sesion
+from api_server.utils.jwt import (
+    create_access_token,
+    create_refresh_token,
+    _sha256,
+    _now_utc,
+    require_roles,
+    pwd_context,
+    ACCESS_TOKEN_MINUTES,
+    REFRESH_TOKEN_HOURS,
+    SERVICE_TOKEN_HOURS,
+    DASHBOARD_ACCESS_TOKEN_MINUTES,
+    DASHBOARD_REFRESH_TOKEN_DAYS,
+)
+from api_server.utils.dashboard_permissions import effective_permissions, username_from_sub
 from api_server.routers.dashboard import router as dashboard_router
 from api_server.routers.apk import router as apk_router
 from api_server.api_app import api_app
@@ -127,235 +139,7 @@ def _now_utc():
 
 @app.post("/procesar_sesion")
 def procesar_sesion(payload: dict, db: Session = Depends(get_db), principal=Depends(require_roles("operador", "supervisor"))):
-
-    if not isinstance(payload, dict):
-        raise HTTPException(400, "Payload inválido")
-
-    ses = payload.get("sesion_activa")
-    if not ses:
-        raise HTTPException(status_code=400, detail="Falta 'sesion_activa'")
-
-    # ---------------------------------------------------------
-    # CAMPOS DEL JSON
-    # ---------------------------------------------------------
-    expediente = ses.get("expediente")
-    id_sesion = ses.get("id_sesion")
-    cam1 = ses.get("camara1_mac_address")
-    cam2 = ses.get("camara2_mac_address")
-    duracion_total_str = ses.get("duracion_total")
-    plancha_id = ses.get("plancha_id")
-    plancha_nombre = ses.get("plancha_nombre")
-
-    if not plancha_id or not plancha_nombre:
-        raise HTTPException(
-            status_code=400,
-            detail="Falta plancha_id o plancha_nombre en sesion_activa"
-        )
-
-    if not expediente or not id_sesion:
-        raise HTTPException(
-            status_code=400, detail="Faltan expediente o id_sesion")
-
-    if not cam1 or not cam2:
-        raise HTTPException(status_code=400, detail="Faltan MAC addresses")
-
-    # ---------------------------------------------------------
-    # INICIO / FIN
-    # ---------------------------------------------------------
-    try:
-        inicio_iso = ses["inicio"]
-        fin_iso = ses["fin"]
-        inicio_dt = datetime.fromisoformat(inicio_iso)
-        fin_dt = datetime.fromisoformat(fin_iso)
-    except:
-        raise HTTPException(
-            status_code=400, detail="Formato inválido de inicio/fin")
-
-    # DURACIÓN REAL enviada por la app (HH:MM:SS → seg)
-    duracion_real_seg = None
-    if duracion_total_str:
-        try:
-            duracion_real_seg = parse_hhmmss_to_seconds(duracion_total_str)
-        except:
-            print("[ERROR] No se pudo parsear duracion_total")
-            duracion_real_seg = 0
-
-    # ---------------------------------------------------------
-    # OBTENER O CREAR SESIÓN
-    # ---------------------------------------------------------
-    sesion_obj = db.query(models.Sesion).filter_by(id=id_sesion).first()
-
-    if sesion_obj:
-        investigacion = sesion_obj.investigacion
-    else:
-        investigacion = (
-            db.query(models.Investigacion)
-            .filter_by(numero_expediente=expediente)
-            .first()
-        )
-        if not investigacion:
-            raise HTTPException(404, "Investigación no encontrada")
-
-    # ---------------------------------------------------------
-    # NOMBRE DE CARPETA (filesystem) vs EXPEDIENTE (informativo)
-    # ---------------------------------------------------------
-    nombre_carpeta = (
-        getattr(investigacion, "nombre_carpeta", None) or "").strip()
-    if not nombre_carpeta:
-        # fallback temporal mientras migras/llenás nombre_carpeta
-        nombre_carpeta = expediente
-
-    if not sesion_obj:
-        # Crear nueva sesión
-        sesion_obj = models.Sesion(
-            id=id_sesion,
-            investigacion_id=investigacion.id,
-            nombre_sesion=ses.get("nombre", f"Sesion_{id_sesion}"),
-            usuario_ldap=ses["forense"]["id_usuario"],
-            user_nombre=ses["forense"]["nombre"],
-            plancha_id=plancha_id,
-            plancha_nombre=plancha_nombre,
-            tablet_id=ses.get("tablet", "desconocida"),
-            camara1_mac_address=cam1,
-            camara2_mac_address=cam2,
-            app_version=ses.get("version_app", "1.0.0"),
-            estado="procesando",
-            fecha=inicio_dt,
-            inicio=inicio_dt,
-            fin=fin_dt,
-            duracion_real=float(
-                duracion_real_seg) if duracion_real_seg is not None else None
-        )
-
-        db.add(sesion_obj)
-        db.commit()
-        db.refresh(sesion_obj)
-        print(f"[SESION] Creada sesión {id_sesion}")
-
-    else:
-        # Si ya existe, actualizamos datos
-        print(f"[SESION] Sesión {id_sesion} existente → actualizando")
-
-        sesion_obj.plancha_id = plancha_id
-        sesion_obj.plancha_nombre = plancha_nombre
-        sesion_obj.camara1_mac_address = cam1
-        sesion_obj.camara2_mac_address = cam2
-        sesion_obj.app_version = ses.get("version_app", "1.0.0")
-        sesion_obj.estado = "procesando"
-
-        # Guardamos inicio/fin reales SIEMPRE
-        sesion_obj.inicio = inicio_dt
-        sesion_obj.fin = fin_dt
-
-        # Duración corregida
-        sesion_obj.duracion_real = float(
-            duracion_real_seg) if duracion_real_seg is not None else None
-
-        db.commit()
-
-    # ---------------------------------------------------------
-    # GUARDAR PAUSAS DE LA APP
-    # ---------------------------------------------------------
-    pausas = ses.get("pausas", [])
-    for p in pausas:
-        try:
-            inicio_p = datetime.fromisoformat(p["inicio"])
-            fin_p = datetime.fromisoformat(p["fin"])
-            dur = (fin_p - inicio_p).total_seconds()
-
-            nueva = models.LogPausa(
-                sesion_id=sesion_obj.id,
-                inicio=inicio_p,
-                fin=fin_p,
-                duracion=dur,
-                fuente="app"
-            )
-            db.add(nueva)
-        except Exception as e:
-            print(f"[PAUSAS] Error registrando pausa: {e}")
-
-    db.commit()
-
-    # ---------------------------------------------------------
-    # PREPARAR MANIFESTS
-    # ---------------------------------------------------------
-    fecha_solo = inicio_iso.split("T")[0]
-    yyyy, mm, dd = fecha_solo.split("-")
-
-    path_manifest1 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
-    path_manifest2 = f"/mnt/wave/manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
-
-    # ---------------------------------------------------------
-    # LANZAR WORKERS
-    # ---------------------------------------------------------
-    job_manifest1 = crear_job_interno(
-        db=db,
-        numero_expediente=expediente,
-        sesion_id=id_sesion,
-        tipo="manifest",
-        archivo=f"manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json"
-    )
-    if not job_manifest1:
-        raise HTTPException(
-            status_code=500,
-            detail="No se pudo registrar job de manifest para cámara 1"
-        )
-    job_manifest2 = crear_job_interno(
-        db=db,
-        numero_expediente=expediente,
-        sesion_id=id_sesion,
-        tipo="manifest",
-        archivo=f"manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json"
-    )
-    if not job_manifest2:
-        raise HTTPException(
-            status_code=500,
-            detail="No se pudo registrar job de manifest para cámara 2"
-        )
-
-    chain(
-        celery_app.signature(
-            "tasks.generar_manifest",
-            args=[cam1, fecha_solo, job_manifest1],
-            immutable=True
-        ),
-        celery_app.signature(
-            "worker.tasks.unir_video",
-            args=[expediente, nombre_carpeta, id_sesion,
-                  path_manifest1, inicio_iso, fin_iso],
-            immutable=True
-        )
-    ).apply_async()
-
-    chain(
-        celery_app.signature(
-            "tasks.generar_manifest",
-            args=[cam2, fecha_solo, job_manifest2],
-            immutable=True
-        ),
-        celery_app.signature(
-            "worker.tasks.unir_video2",
-            args=[expediente, nombre_carpeta, id_sesion,
-                  path_manifest2, inicio_iso, fin_iso],
-            immutable=True
-        )
-    ).apply_async()
-
-    # ---------------------------------------------------------
-    # RESPUESTA
-    # ---------------------------------------------------------
-    return {
-        "status": "procesando",
-        "expediente": expediente,
-        "nombre_carpeta": nombre_carpeta,
-        "id_sesion": id_sesion,
-        "inicio_sesion": inicio_iso,
-        "fin_sesion": fin_iso,
-        "duracion_total_seg": duracion_real_seg,
-        "pausas_app_registradas": len(pausas),
-        "manifest1": path_manifest1,
-        "manifest2": path_manifest2
-    }
+    return ejecutar_procesamiento_sesion(payload, db, es_reintento=False)
 
 
 # ============================================================
@@ -581,6 +365,7 @@ def actualizar_estado(
                 else None
             ),
             conversion_completa=bool(data.conversion_completa),
+            tamano_kb=data.tamano_kb if data.estado == "completado" else None,
         )
         db.add(archivo)
     else:
@@ -597,8 +382,20 @@ def actualizar_estado(
 
         if data.estado == "completado":
             archivo.fecha_finalizacion = datetime.now(timezone.utc)
+            if data.tamano_kb is not None and data.tamano_kb > 0:
+                archivo.tamano_kb = round(float(data.tamano_kb), 2)
+        elif data.estado in ("pendiente", "procesando"):
+            archivo.tamano_kb = None
 
     db.commit()
+
+    if data.estado == "error":
+        registrar_error_procesamiento(
+            db,
+            sesion_id,
+            data.mensaje or f"Error procesando archivo {tipo}",
+            f"archivo:{tipo}",
+        )
 
     # -------------------------------------------------
     # 0b. WHISPER — al completar video.webm (fuente de verdad)
@@ -870,6 +667,16 @@ def actualizar_job_api(
         db.commit()
         db.refresh(job)
 
+        if job.estado == "error":
+            registrar_error_procesamiento(
+                db,
+                job.sesion_id,
+                job.error or f"Error en job {job.tipo}",
+                f"job:{job.tipo}",
+            )
+        elif job.estado in TERMINALES:
+            verificar_estado_sesion(job.sesion_id, db)
+
         return {
             "message": "Job actualizado",
             "job_id": job.id,
@@ -1131,7 +938,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_actualizacion": j.fecha_actualizacion,
             "ruta": ruta,
             "ruta_red": ruta_red(ruta),
-            "tamano_actual_KB": size_kb(ruta)
+            "tamano_actual_KB": tamano_kb_respuesta(archivo_real, ruta)
         })
 
     # ============================
@@ -1159,7 +966,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_creacion": a.fecha,
             "fecha_actualizacion": a.fecha_finalizacion,
             "ruta": ruta,
-            "tamano_actual_KB": size_kb(ruta)
+            "tamano_actual_KB": tamano_kb_respuesta(a, ruta)
         })
 
     return {
@@ -1390,17 +1197,41 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
     # Rotación: revocar el actual y emitir uno nuevo
     sub = row.subject
 
+    permissions = None
     if sub.startswith("ldap:"):
         roles = ["operador"]
+        ttl_minutes = ACCESS_TOKEN_MINUTES
+        token_type = "access"
+        refresh_hours = REFRESH_TOKEN_HOURS
     else:
-        roles = ["dashboard_read"]
+        username = username_from_sub(sub)
+        user = (
+            db.query(models.DashboardUser)
+            .filter_by(username=username)
+            .first()
+        )
+        if not user or not user.activo:
+            raise HTTPException(401, "Usuario de dashboard inválido o inactivo")
+        roles = [r.strip() for r in (user.roles or "").split(",") if r.strip()]
+        permissions = effective_permissions(
+            username=user.username,
+            permissions=user.permissions,
+            roles=roles,
+        )
+        ttl_minutes = DASHBOARD_ACCESS_TOKEN_MINUTES
+        token_type = "dashboard"
+        refresh_hours = DASHBOARD_REFRESH_TOKEN_DAYS * 24
 
     new_access = create_access_token(
-        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES
+        sub=sub,
+        roles=roles,
+        ttl_minutes=ttl_minutes,
+        token_type=token_type,
+        permissions=permissions,
     )
 
     new_refresh, jti, th, exp = create_refresh_token(
-        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS
+        sub=sub, roles=roles, ttl_hours=refresh_hours
     )
 
     row.revoked_at = _now_utc()

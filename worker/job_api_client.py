@@ -235,11 +235,31 @@ def registrar_archivo(id_sesion, tipo_archivo, ruta_original, ruta_convertida=No
         return None
 
 
-def finalizar_archivo(sesion_id, tipo_archivo, ruta, estado="completado", mensaje=None, conversion_completa=True):
+def finalizar_archivo(
+    sesion_id,
+    tipo_archivo,
+    ruta,
+    estado="completado",
+    mensaje=None,
+    conversion_completa=True,
+    tamano_kb=None,
+    ruta_local_para_tamano=None,
+):
     """
     Marca un archivo como completado.
+    ruta_local_para_tamano: ruta absoluta en disco para calcular tamano_kb si no se pasa.
     """
     try:
+        tamano_final = tamano_kb
+        if estado == "completado" and tamano_final is None and ruta_local_para_tamano:
+            try:
+                if os.path.isfile(ruta_local_para_tamano):
+                    tamano_final = round(
+                        os.path.getsize(ruta_local_para_tamano) / 1024, 2
+                    )
+            except Exception:
+                pass
+
         payload = {
             "estado": estado,
             "mensaje": mensaje or (
@@ -251,6 +271,8 @@ def finalizar_archivo(sesion_id, tipo_archivo, ruta, estado="completado", mensaj
             "ruta_convertida": ruta,
             "conversion_completa": conversion_completa if estado == "completado" else False
         }
+        if tamano_final is not None and tamano_final > 0:
+            payload["tamano_kb"] = tamano_final
         _request(
             "PUT",
             f"{API_URL}/archivos/{sesion_id}/{tipo_archivo}/actualizar_estado",

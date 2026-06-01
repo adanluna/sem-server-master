@@ -26,6 +26,7 @@ api.interceptors.response.use(
         if (status === 401 && path !== "/login") {
             localStorage.removeItem("token");
             localStorage.removeItem("user_nombre");
+            localStorage.removeItem("user_permissions");
             window.location.href = "/login";
         }
         return Promise.reject(error);

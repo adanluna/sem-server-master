@@ -13,12 +13,31 @@ from sqlalchemy.exc import IntegrityError, DataError
 from typing import Optional
 
 from api_server.database import get_db
-from api_server.utils.jobs import detectar_pipeline_bloqueado
-from api_server.utils.jwt import require_dashboard_admin, require_roles, pwd_context, create_access_token, create_refresh_token, _now_utc
+from api_server.utils.jobs import detectar_pipeline_bloqueado, sesion_tiene_errores_pipeline
+from api_server.utils.sesion_procesamiento import reprocesar_sesion_desde_bd
+from api_server.utils.jwt import (
+    require_dashboard_permission,
+    pwd_context,
+    create_access_token,
+    create_refresh_token,
+    _now_utc,
+    get_current_principal,
+)
+from api_server.utils.dashboard_permissions import (
+    effective_permissions,
+    full_permissions,
+    is_super_admin,
+    PROTECTED_USERNAME,
+)
 from api_server.database import get_db
 from api_server import models
 from api_server.schemas import (
     DashboardLoginRequest,
+    DashboardPermissions,
+    DashboardUserCreate,
+    DashboardUserUpdate,
+    DashboardUserResponse,
+    DashboardMeResponse,
     PlanchaUpdate,
     PlanchaCreate,
     PlanchaResponse,
@@ -70,13 +89,19 @@ def dashboard_login(
     db.commit()
 
     sub = f"dash:{user.username}"
-    roles = user.roles.split(",")
+    roles = [r.strip() for r in user.roles.split(",") if r.strip()]
+    perms = effective_permissions(
+        username=user.username,
+        permissions=user.permissions,
+        roles=roles,
+    )
 
     access = create_access_token(
         sub=sub,
         roles=roles,
         ttl_minutes=DASHBOARD_ACCESS_TOKEN_MINUTES,
-        token_type="dashboard"
+        token_type="dashboard",
+        permissions=perms,
     )
 
     refresh, jti, token_hash, exp = create_refresh_token(
@@ -103,7 +128,7 @@ def dashboard_login(
 @router.get("/resumen")
 def dashboard_resumen(
     db: Session = Depends(get_db),
-    _principal=Depends(require_dashboard_admin),  # 🔒 solo dashboard_admin
+    _principal=Depends(require_dashboard_permission("dashboard")),
 ):
     desde = _now_utc() - timedelta(days=30)
 
@@ -232,7 +257,7 @@ def dashboard_expedientes(
     page: int = 1,
     per_page: int = 20,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
+    principal=Depends(require_dashboard_permission("sesiones")),
 ):
     q = (
         db.query(
@@ -276,7 +301,7 @@ def dashboard_sesiones(
     page: int = 1,
     per_page: int = 25,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_read", "dashboard_admin"))
+    principal=Depends(require_dashboard_permission("sesiones")),
 ):
     base_q = (
         db.query(models.Sesion)
@@ -347,7 +372,7 @@ def dashboard_jobs(
     page: int = 1,
     per_page: int = 50,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
+    principal=Depends(require_dashboard_permission("jobs")),
 ):
     if estado not in {"pendiente", "procesando", "completado", "error"}:
         raise HTTPException(status_code=400, detail="Estado inválido")
@@ -399,7 +424,7 @@ def dashboard_jobs(
 
 
 @router.get("/jobs/sesion/{sesion_id}")
-def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), principal=Depends(require_dashboard_permission("jobs"))):
     s = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
@@ -453,7 +478,7 @@ def estatus_completo_sesion(sesion_id: int, db: Session = Depends(get_db), princ
 
 
 @router.get("/infraestructura")
-def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(require_dashboard_permission("infraestructura"))):
     estado = {
         "infra_status": "ok",  # ok | warning | error
         "api": "ok",
@@ -625,7 +650,7 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
 # ============================================================
 
 @router.post("/planchas", response_model=PlanchaResponse, status_code=201)
-def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=Depends(require_dashboard_permission("planchas"))):
     payload = data.dict()
 
     payload["camara1_ip"] = (payload.get("camara1_ip"))
@@ -659,7 +684,7 @@ def crear_plancha(data: PlanchaCreate, db: Session = Depends(get_db), principal=
 def listar_planchas(
     incluir_inactivas: bool = True,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_read", "dashboard_admin"))
+    principal=Depends(require_dashboard_permission("planchas"))
 ):
     q = db.query(models.Plancha)
 
@@ -670,7 +695,7 @@ def listar_planchas(
 
 
 @router.get("/planchas/{plancha_id}", response_model=PlanchaResponse)
-def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_read", "dashboard_admin"))):
+def obtener_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_dashboard_permission("planchas"))):
     plancha = (
         db.query(models.Plancha)
         .filter(models.Plancha.id == plancha_id)
@@ -688,7 +713,7 @@ def actualizar_plancha(
     plancha_id: int,
     data: PlanchaUpdate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
+    principal=Depends(require_dashboard_permission("planchas"))
 ):
     plancha = (
         db.query(models.Plancha)
@@ -737,7 +762,7 @@ def actualizar_plancha(
 
 
 @router.delete("/planchas/{plancha_id}", status_code=204)
-def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_roles("dashboard_admin"))):
+def desactivar_plancha(plancha_id: int, db: Session = Depends(get_db), principal=Depends(require_dashboard_permission("planchas"))):
     plancha = (
         db.query(models.Plancha)
         .filter(models.Plancha.id == plancha_id)
@@ -798,7 +823,7 @@ def listar_service_clients(
     solo_activos: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     query = db.query(models.ServiceClient)
 
@@ -815,7 +840,7 @@ def listar_service_clients(
 def obtener_service_client(
     sc_id: int,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     return _get_sc_or_404(db, sc_id)
 
@@ -824,7 +849,7 @@ def obtener_service_client(
 def crear_service_client(
     data: ServiceClientCreate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     _validate_allowed_ips(data.allowed_ips)
 
@@ -856,7 +881,7 @@ def actualizar_service_client(
     sc_id: int,
     data: ServiceClientUpdate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     sc = _get_sc_or_404(db, sc_id)
 
@@ -878,7 +903,7 @@ def actualizar_service_client(
 def rotar_token_service_client(
     sc_id: int,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     sc = _get_sc_or_404(db, sc_id)
     token = _generate_token()
@@ -895,7 +920,7 @@ def rotar_token_service_client(
 def activar_service_client(
     sc_id: int,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     sc = _get_sc_or_404(db, sc_id)
     sc.activo = True
@@ -908,7 +933,7 @@ def activar_service_client(
 def desactivar_service_client(
     sc_id: int,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     sc = _get_sc_or_404(db, sc_id)
     sc.activo = False
@@ -921,7 +946,7 @@ def desactivar_service_client(
 def eliminar_service_client(
     sc_id: int,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin")),
+    principal=Depends(require_dashboard_permission("tokens")),
 ):
     sc = db.query(models.ServiceClient).filter_by(id=sc_id).first()
     if not sc:
@@ -932,3 +957,333 @@ def eliminar_service_client(
     db.commit()
 
     return {"message": "Service client eliminado", "id": sc_id}
+
+
+# ============================================================
+#  SESIONES FALLIDAS / REPROCESO
+# ============================================================
+
+def _contar_jobs_archivos_error(db: Session, sesion_id: int) -> tuple[int, int]:
+    jobs_error = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id, estado="error")
+        .count()
+    )
+    archivos_error = (
+        db.query(models.SesionArchivo)
+        .filter_by(sesion_id=sesion_id, estado="error")
+        .count()
+    )
+    return jobs_error, archivos_error
+
+
+def _sesion_es_fallida(s: models.Sesion, db: Session) -> bool:
+    if not s.payload_procesamiento:
+        return False
+    if s.estado == "finalizada":
+        return False
+    if s.error_procesamiento or s.estado == "error":
+        return True
+    return sesion_tiene_errores_pipeline(db, s.id)
+
+
+@router.get("/sesiones-fallidas")
+def listar_sesiones_fallidas(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("sesiones_fallidas")),
+):
+    candidatas = (
+        db.query(models.Sesion)
+        .filter(models.Sesion.payload_procesamiento.isnot(None))
+        .filter(models.Sesion.estado != "finalizada")
+        .order_by(
+            models.Sesion.fecha_error_procesamiento.desc().nullslast(),
+            models.Sesion.fecha.desc(),
+        )
+        .all()
+    )
+
+    fallidas = [s for s in candidatas if _sesion_es_fallida(s, db)]
+    total = len(fallidas)
+    offset = (page - 1) * per_page
+    pagina = fallidas[offset: offset + per_page]
+
+    data = []
+    for s in pagina:
+        jobs_error, archivos_error = _contar_jobs_archivos_error(db, s.id)
+        inv = s.investigacion
+        data.append({
+            "id": s.id,
+            "numero_expediente": inv.numero_expediente if inv else None,
+            "nombre_sesion": s.nombre_sesion,
+            "plancha_nombre": s.plancha_nombre,
+            "usuario_ldap": s.usuario_ldap,
+            "user_nombre": s.user_nombre,
+            "estado": s.estado,
+            "fecha": s.fecha,
+            "fecha_error_procesamiento": s.fecha_error_procesamiento,
+            "error_procesamiento": s.error_procesamiento,
+            "error_origen": s.error_origen,
+            "reintentos_procesamiento": s.reintentos_procesamiento or 0,
+            "tiene_payload": bool(s.payload_procesamiento),
+            "jobs_error": jobs_error,
+            "archivos_error": archivos_error,
+        })
+
+    return {
+        "meta": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": math.ceil(total / per_page) if total else 0,
+        },
+        "data": data,
+    }
+
+
+@router.get("/sesiones-fallidas/{sesion_id}")
+def detalle_sesion_fallida(
+    sesion_id: int,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("sesiones_fallidas")),
+):
+    s = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    if not _sesion_es_fallida(s, db) and s.estado != "finalizada":
+        raise HTTPException(
+            status_code=404,
+            detail="La sesión no está en estado fallido",
+        )
+
+    archivos = db.query(models.SesionArchivo).filter_by(sesion_id=sesion_id).all()
+    jobs = db.query(models.Job).filter_by(sesion_id=sesion_id).all()
+    jobs_error, archivos_error = _contar_jobs_archivos_error(db, sesion_id)
+    inv = s.investigacion
+
+    return {
+        "sesion": {
+            "id": s.id,
+            "numero_expediente": inv.numero_expediente if inv else None,
+            "nombre_sesion": s.nombre_sesion,
+            "plancha_nombre": s.plancha_nombre,
+            "usuario_ldap": s.usuario_ldap,
+            "user_nombre": s.user_nombre,
+            "estado": s.estado,
+            "fecha": s.fecha,
+            "inicio": s.inicio,
+            "fin": s.fin,
+            "duracion_real": s.duracion_real,
+            "fecha_error_procesamiento": s.fecha_error_procesamiento,
+            "fecha_ultimo_procesamiento": s.fecha_ultimo_procesamiento,
+            "error_procesamiento": s.error_procesamiento,
+            "error_origen": s.error_origen,
+            "reintentos_procesamiento": s.reintentos_procesamiento or 0,
+            "tiene_payload": bool(s.payload_procesamiento),
+            "jobs_error": jobs_error,
+            "archivos_error": archivos_error,
+        },
+        "payload_procesamiento": s.payload_procesamiento,
+        "jobs": [
+            {
+                "id": j.id,
+                "tipo": j.tipo,
+                "estado": j.estado,
+                "archivo": j.archivo,
+                "error": j.error,
+                "fecha_creacion": j.fecha_creacion,
+                "fecha_actualizacion": j.fecha_actualizacion,
+            }
+            for j in jobs
+        ],
+        "archivos": [
+            {
+                "id": a.id,
+                "tipo_archivo": a.tipo_archivo,
+                "estado": a.estado,
+                "mensaje": a.mensaje,
+                "ruta_convertida": a.ruta_convertida,
+                "conversion_completa": a.conversion_completa,
+                "fecha_finalizacion": a.fecha_finalizacion,
+            }
+            for a in archivos
+        ],
+    }
+
+
+@router.post("/sesiones-fallidas/{sesion_id}/reprocesar")
+def reprocesar_sesion_fallida(
+    sesion_id: int,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("sesiones_fallidas")),
+):
+    result = reprocesar_sesion_desde_bd(db, sesion_id)
+    return {
+        "status": result.get("status", "procesando"),
+        "id_sesion": sesion_id,
+        "reintentos_procesamiento": result.get("reintentos_procesamiento", 0),
+        "message": "Sesión enviada a reprocesar correctamente",
+    }
+
+
+# ============================================================
+#  Usuarios del dashboard (CRUD)
+# ============================================================
+
+def _dashboard_user_response(user: models.DashboardUser) -> DashboardUserResponse:
+    roles = [r.strip() for r in (user.roles or "").split(",") if r.strip()]
+    perms = effective_permissions(
+        username=user.username,
+        permissions=user.permissions,
+        roles=roles,
+    )
+    return DashboardUserResponse(
+        id=user.id,
+        username=user.username,
+        activo=user.activo,
+        permissions=DashboardPermissions(**perms),
+        is_protected=user.username == PROTECTED_USERNAME,
+        last_login_at=user.last_login_at,
+        created_at=user.created_at,
+    )
+
+
+def _permissions_to_db(perms: DashboardPermissions) -> dict:
+    return perms.model_dump()
+
+
+def _roles_from_permissions(perms: dict) -> str:
+    if perms.get("usuarios") or perms.get("tokens"):
+        return "dashboard_admin"
+    return "dashboard_read"
+
+
+@router.get("/me", response_model=DashboardMeResponse)
+def dashboard_me(principal=Depends(get_current_principal)):
+    if principal.get("type") != "dashboard":
+        raise HTTPException(status_code=401, detail="Token inválido para dashboard")
+
+    username = principal.get("sub", "").split(":", 1)[-1]
+    perms = effective_permissions(
+        username=username,
+        permissions=principal.get("permissions"),
+        roles=principal.get("roles"),
+    )
+    return DashboardMeResponse(
+        username=username,
+        permissions=DashboardPermissions(**perms),
+        is_protected=is_super_admin(username),
+    )
+
+
+@router.get("/usuarios", response_model=list[DashboardUserResponse])
+def listar_dashboard_usuarios(
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("usuarios")),
+):
+    users = (
+        db.query(models.DashboardUser)
+        .order_by(models.DashboardUser.username.asc())
+        .all()
+    )
+    return [_dashboard_user_response(u) for u in users]
+
+
+@router.get("/usuarios/{user_id}", response_model=DashboardUserResponse)
+def obtener_dashboard_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("usuarios")),
+):
+    user = db.query(models.DashboardUser).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return _dashboard_user_response(user)
+
+
+@router.post("/usuarios", response_model=DashboardUserResponse, status_code=201)
+def crear_dashboard_usuario(
+    data: DashboardUserCreate,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("usuarios")),
+):
+    username = data.username.strip()
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="Usuario demasiado corto")
+    if username.lower() == PROTECTED_USERNAME:
+        raise HTTPException(status_code=400, detail="Nombre de usuario reservado")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+
+    perms = _permissions_to_db(data.permissions)
+    user = models.DashboardUser(
+        username=username,
+        password_hash=pwd_context.hash(data.password),
+        roles=_roles_from_permissions(perms),
+        permissions=perms,
+        activo=bool(data.activo),
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+    db.refresh(user)
+    return _dashboard_user_response(user)
+
+
+@router.put("/usuarios/{user_id}", response_model=DashboardUserResponse)
+def actualizar_dashboard_usuario(
+    user_id: int,
+    data: DashboardUserUpdate,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("usuarios")),
+):
+    user = db.query(models.DashboardUser).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if data.password is not None:
+        if len(data.password) < 8:
+            raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+        user.password_hash = pwd_context.hash(data.password)
+
+    if user.username == PROTECTED_USERNAME:
+        user.activo = True
+        user.permissions = full_permissions()
+    else:
+        if data.activo is not None:
+            user.activo = bool(data.activo)
+        if data.permissions is not None:
+            perms = _permissions_to_db(data.permissions)
+            user.permissions = perms
+            user.roles = _roles_from_permissions(perms)
+
+    db.commit()
+    db.refresh(user)
+    return _dashboard_user_response(user)
+
+
+@router.delete("/usuarios/{user_id}")
+def eliminar_dashboard_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("usuarios")),
+):
+    user = db.query(models.DashboardUser).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if user.username == PROTECTED_USERNAME:
+        raise HTTPException(
+            status_code=403,
+            detail="No se puede eliminar el usuario administrador por defecto",
+        )
+
+    db.delete(user)
+    db.commit()
+    return {"message": "Usuario eliminado", "id": user_id}
+

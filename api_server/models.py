@@ -6,7 +6,7 @@ from sqlalchemy import (
     UniqueConstraint
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.sql import func
 
 from pydantic import BaseModel
@@ -72,6 +72,13 @@ class Sesion(Base):
     fin = Column(DateTime(timezone=True), nullable=True)
     duracion_real = Column(Float, nullable=True)
 
+    payload_procesamiento = Column(JSONB, nullable=True)
+    error_procesamiento = Column(Text, nullable=True)
+    error_origen = Column(String(100), nullable=True)
+    fecha_error_procesamiento = Column(DateTime(timezone=True), nullable=True)
+    reintentos_procesamiento = Column(Integer, default=0)
+    fecha_ultimo_procesamiento = Column(DateTime(timezone=True), nullable=True)
+
     investigacion = relationship("Investigacion", back_populates="sesiones")
     archivos = relationship(
         "SesionArchivo", back_populates="sesion", cascade="all, delete-orphan")
@@ -104,7 +111,10 @@ class SesionArchivo(Base):
     estado = Column(String(50), default="pendiente", nullable=False)
     mensaje = Column(Text, nullable=True)
 
+    tamano_kb = Column(Float, nullable=True)
+
     fecha_finalizacion = Column(DateTime(timezone=True), nullable=True)
+    tamano_kb = Column(Float, nullable=True)
     fecha = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -231,8 +241,10 @@ class DashboardUser(Base):
     username = Column(String(80), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
 
-    # CSV simple: "dashboard_admin,dashboard_read"
+    # CSV legacy (migración); autorización por permissions JSONB
     roles = Column(String(255), nullable=False, default="dashboard_read")
+
+    permissions = Column(JSONB, nullable=False, server_default="{}")
 
     activo = Column(Boolean, default=True, nullable=False)
 

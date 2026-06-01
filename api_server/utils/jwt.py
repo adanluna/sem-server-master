@@ -6,6 +6,11 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import timedelta, datetime, timezone
 
+from api_server.utils.dashboard_permissions import (
+    principal_has_permission,
+    username_from_sub,
+)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev_inseguro")
@@ -36,7 +41,13 @@ def _sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def create_access_token(sub: str, roles: list[str], ttl_minutes: int, token_type: str = "access"):
+def create_access_token(
+    sub: str,
+    roles: list[str],
+    ttl_minutes: int,
+    token_type: str = "access",
+    permissions: dict | None = None,
+):
     jti = secrets.token_urlsafe(16)
     payload = {
         "iss": JWT_ISSUER,
@@ -48,6 +59,8 @@ def create_access_token(sub: str, roles: list[str], ttl_minutes: int, token_type
         "iat": int(_now_utc().timestamp()),
         "exp": int((_now_utc() + timedelta(minutes=ttl_minutes)).timestamp()),
     }
+    if permissions is not None:
+        payload["permissions"] = permissions
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
@@ -78,7 +91,7 @@ def get_current_principal(authorization: str = Header(default=None)):
     if not authorization:
         if AUTH_ENFORCE:
             raise HTTPException(status_code=401, detail="Falta Authorization")
-        return {"sub": "anon", "roles": ["anon"]}
+        return {"sub": "anon", "roles": ["anon"], "permissions": {}}
 
     if not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authorization inválido")
@@ -97,6 +110,7 @@ def get_current_principal(authorization: str = Header(default=None)):
         return {
             "sub": payload.get("sub"),
             "roles": payload.get("roles", []),
+            "permissions": payload.get("permissions", {}),
             "type": token_type
         }
     except JWTError:
@@ -114,22 +128,44 @@ def require_roles(*allowed: str):
 
 def require_dashboard_admin(principal=Depends(get_current_principal)):
     """
-    Permite acceso SOLO a usuarios del dashboard con rol dashboard_admin
+  Permite acceso SOLO a usuarios del dashboard con rol dashboard_admin
+  (legacy; preferir require_dashboard_permission).
     """
     roles = principal.get("roles", [])
     token_type = principal.get("type")
 
-    # Opcional: forzar que sea token dashboard
     if token_type != "dashboard":
         raise HTTPException(
             status_code=401,
             detail="Token inválido para dashboard"
         )
 
-    if "dashboard_admin" not in roles:
-        raise HTTPException(
-            status_code=403,
-            detail="Permisos insuficientes"
-        )
+    if principal_has_permission(principal, "usuarios") or "dashboard_admin" in roles:
+        return principal
 
-    return principal
+    raise HTTPException(
+        status_code=403,
+        detail="Permisos insuficientes"
+    )
+
+
+def require_dashboard_permission(permission_key: str):
+    """Token dashboard con permiso de sección (o usuario admin / legacy dashboard_admin)."""
+
+    def dep(principal=Depends(get_current_principal)):
+        token_type = principal.get("type")
+        if token_type != "dashboard":
+            raise HTTPException(
+                status_code=401,
+                detail="Token inválido para dashboard",
+            )
+
+        if not AUTH_ENFORCE:
+            return principal
+
+        if principal_has_permission(principal, permission_key):
+            return principal
+
+        raise HTTPException(status_code=403, detail="Sin permisos para esta sección")
+
+    return dep

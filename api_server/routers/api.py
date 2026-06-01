@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from api_server.database import get_db
 from api_server import models
-from api_server.utils.rutas import normalizar_ruta, size_kb, ruta_red
+from api_server.utils.rutas import normalizar_ruta, ruta_red, tamano_kb_respuesta
 from api_server.utils.service_auth import require_service_bearer
 
 router = APIRouter(
@@ -30,7 +30,9 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    expediente = sesion.investigacion.numero_expediente
+    inv = sesion.investigacion
+    expediente = inv.numero_expediente
+    nombre_carpeta = (inv.nombre_carpeta or "").strip() or expediente
 
     # ============================
     # JOBS (procesos)
@@ -80,7 +82,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_actualizacion": j.fecha_actualizacion,
             "ruta": ruta,
             "ruta_red": ruta_red(ruta),
-            "tamano_actual_KB": size_kb(ruta)
+            "tamano_actual_KB": tamano_kb_respuesta(archivo_real, ruta),
         })
 
     # ============================
@@ -95,8 +97,8 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
         ruta = normalizar_ruta(
             a.ruta_convertida,
             tipo=tipo,
-            expediente=expediente,
-            sesion_id=sesion_id
+            expediente=nombre_carpeta,
+            sesion_id=sesion_id,
         )
 
         salida.append({
@@ -108,7 +110,7 @@ def listar_jobs_sesion(sesion_id: int, db: Session = Depends(get_db)):
             "fecha_creacion": a.fecha,
             "fecha_actualizacion": a.fecha_finalizacion,
             "ruta": ruta,
-            "tamano_actual_KB": size_kb(ruta)
+            "tamano_actual_KB": tamano_kb_respuesta(a, ruta),
         })
 
     return {
@@ -202,7 +204,7 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
         estado_final = a.estado
         mensaje_final = getattr(a, "mensaje", None)
         fecha_finalizacion_final = a.fecha_finalizacion
-        tamano_kb_final = size_kb(ruta_abs)
+        tamano_kb_final = tamano_kb_respuesta(a, ruta_abs)
 
         j = ultimo_job_por_tipo.get(a.tipo_archivo)
         if j and (j.estado in TERMINALES):
@@ -213,9 +215,6 @@ def obtener_sesion(sesion_id: int, db: Session = Depends(get_db)):
             # Fecha final: usa fecha_actualizacion del job si existe
             if getattr(j, "fecha_actualizacion", None):
                 fecha_finalizacion_final = j.fecha_actualizacion
-            # Tamaño: si el job reporta tamaño y es > 0, úsalo (evita 0 por race condition)
-            if getattr(j, "tamano_actual_KB", None) and j.tamano_actual_KB > 0:
-                tamano_kb_final = j.tamano_actual_KB
 
         archivos_out.append({
             "tipo_archivo": a.tipo_archivo,
@@ -307,7 +306,7 @@ def consulta_expediente(
                 "ruta_original": ruta_original_abs,
                 "id": a.id,
                 "fecha_finalizacion": a.fecha_finalizacion,
-                "tamano_kb": size_kb(ruta_abs),
+                "tamano_kb": tamano_kb_respuesta(a, ruta_abs),
             })
 
         sesiones_out.append({

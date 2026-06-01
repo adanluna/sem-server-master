@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { loginDashboard } from "../api/auth";
 import { parseJwt } from "../utils/jwt";
+import { savePermissionsFromToken, firstAllowedRoute } from "../utils/permissions";
 
 const router = useRouter();
 
@@ -33,7 +34,10 @@ async function login() {
 
             localStorage.setItem("user_nombre", cleanUser);
         }
-        router.push("/dashboard");
+
+        savePermissionsFromToken(res.access_token);
+        const dest = firstAllowedRoute() || "/dashboard";
+        router.push(dest);
     } catch (e) {
         error.value = "Usuario o contraseña incorrectos";
     } finally {

@@ -270,6 +270,7 @@ def _unir_video(expediente, carpeta, id_sesion, manifest_path, tipo):
             sesion_id=id_sesion,
             tipo_archivo=tipo,
             ruta=normalizar_ruta(salida),
+            ruta_local_para_tamano=salida,
         )
 
         # ✅ Whisper SOLO para video1 (respaldo; la API también encola al

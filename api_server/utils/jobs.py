@@ -1,7 +1,67 @@
 from api_server import models
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
-from api_server import models
+
+
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+
+def registrar_error_procesamiento(
+    db: Session,
+    sesion_id: int,
+    mensaje: str,
+    origen: str,
+    *,
+    marcar_estado_error: bool = True,
+) -> None:
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        return
+
+    sesion.error_procesamiento = (mensaje or "")[:4000]
+    sesion.error_origen = (origen or "")[:100]
+    sesion.fecha_error_procesamiento = _now_utc()
+
+    if marcar_estado_error and sesion.estado != "finalizada":
+        sesion.estado = "error"
+
+    db.commit()
+
+
+def limpiar_error_procesamiento(
+    db: Session,
+    sesion_id: int,
+    *,
+    commit: bool = True,
+) -> None:
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        return
+
+    sesion.error_procesamiento = None
+    sesion.error_origen = None
+    sesion.fecha_error_procesamiento = None
+
+    if commit:
+        db.commit()
+
+
+def sesion_tiene_errores_pipeline(db: Session, sesion_id: int) -> bool:
+    job_err = (
+        db.query(models.Job.id)
+        .filter_by(sesion_id=sesion_id, estado="error")
+        .first()
+    )
+    if job_err:
+        return True
+
+    arch_err = (
+        db.query(models.SesionArchivo.id)
+        .filter_by(sesion_id=sesion_id, estado="error")
+        .first()
+    )
+    return arch_err is not None
 
 
 def verificar_estado_sesion(sesion_id: int, db: Session):
@@ -194,7 +254,4 @@ def crear_job_interno(
     db.commit()
     db.refresh(nuevo)
 
-    return {
-        "job_id": nuevo.id,
-        "creado": True
-    }
+    return nuevo.id

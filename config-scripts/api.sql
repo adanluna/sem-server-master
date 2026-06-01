@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS sesiones (
     fecha TIMESTAMP DEFAULT NOW(),
     duracion_real FLOAT,
     ultima_actualizacion TIMESTAMP DEFAULT NOW(),
+
+    payload_procesamiento JSONB,
+    error_procesamiento TEXT,
+    error_origen VARCHAR(100),
+    fecha_error_procesamiento TIMESTAMPTZ,
+    reintentos_procesamiento INTEGER DEFAULT 0,
+    fecha_ultimo_procesamiento TIMESTAMPTZ
 );
 
 -- =====================================================
@@ -145,8 +152,10 @@ CREATE TABLE IF NOT EXISTS sesion_archivos (
     conversion_completa BOOLEAN DEFAULT FALSE,
     estado estado_archivo_enum DEFAULT 'pendiente',
     mensaje TEXT,
+    tamano_kb DOUBLE PRECISION,
 
     fecha_finalizacion TIMESTAMP,
+    tamano_kb DOUBLE PRECISION,
     fecha TIMESTAMP DEFAULT NOW()
 );
 
@@ -253,6 +262,7 @@ CREATE TABLE IF NOT EXISTS dashboard_users (
     username VARCHAR(80) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     roles VARCHAR(255) NOT NULL DEFAULT 'dashboard_read',
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
     activo BOOLEAN NOT NULL DEFAULT TRUE,
 
     failed_attempts INTEGER NOT NULL DEFAULT 0,
@@ -366,6 +376,7 @@ INSERT INTO dashboard_users (
     username,
     password_hash,
     roles,
+    permissions,
     activo,
     failed_attempts,
     locked_until,
@@ -376,6 +387,16 @@ VALUES (
     'admin',
     '$2b$12$YasYtckBgxd17iPrDvVHie9g5FUOKuQyagGcqFCmmZDwcfTI2jyyi',
     'dashboard_admin',
+    '{
+      "dashboard": true,
+      "sesiones": true,
+      "sesiones_fallidas": true,
+      "jobs": true,
+      "planchas": true,
+      "tokens": true,
+      "infraestructura": true,
+      "usuarios": true
+    }'::jsonb,
     true,
     0,
     NULL,
