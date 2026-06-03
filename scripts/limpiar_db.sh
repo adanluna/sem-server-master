@@ -3,7 +3,8 @@
 #  LIMPIEZA DE BASE DE DATOS SEMEFO (SOLO PARA PRUEBAS)
 #  Autor: Adan Luna
 #  Uso:
-#      ./scripts/limpiar_db_pruebas.sh
+#      ./scripts/limpiar_db.sh
+#      (desde cualquier directorio; usa .env y docker compose en /opt/semefo)
 #
 #  ATENCIÓN:
 #   - NO borra usuarios, dispositivos ni transcripciones reales.
@@ -12,17 +13,26 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_ROOT/.env"
+
 echo "============================================================"
 echo "   LIMPIEZA DE TABLAS DE PRUEBAS EN SEMEFO SOLO TEST"
 echo "============================================================"
 
-# --- Cargar variables de entorno ---
-if [ -f ".env" ]; then
-    source .env
+# --- Cargar variables de entorno (desde raíz del repo, no desde scripts/) ---
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
 else
-    echo "❌ ERROR: No se encontró .env en el directorio actual."
+    echo "❌ ERROR: No se encontró .env en $PROJECT_ROOT"
     exit 1
 fi
+
+cd "$PROJECT_ROOT"
 
 echo "📌 Base de datos: $DB_NAME"
 echo "📌 Usuario: $DB_USER"
