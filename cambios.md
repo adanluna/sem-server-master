@@ -112,7 +112,7 @@ Dashboard infra: auto-refresh cada 45 s. App: `InfraMonitorService` cada 60 s co
 ## Dashboard — login 405 / no puede volver a entrar
 
 - **Causa:** nginx enviaba `POST /api/dashboard/login` a FastAPI sin quitar `/api/`; el mount `app.mount("/api", api_app)` capturaba la ruta y el login admin (`POST /dashboard/login`) no se ejecutaba.
-- **Fix:** `semefo-dashboard/nginx.conf` — `rewrite ^/api/?(.*)$ /$1 break` antes de `proxy_pass` con variable.
+- **Fix:** `semefo-dashboard/nginx.conf` — `location ^~ /api/` + `proxy_pass http://fastapi:8000/` (sin variables; reescribe URI correctamente).
 
 ```bash
 cd /opt/semefo
@@ -122,6 +122,8 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8080/api/dashb
   -H "Content-Type: application/json" -d '{"username":"admin","password":"..."}'
 # Debe responder 200
 ```
+
+Si tras `docker compose up -d --build fastapi` el dashboard da **502**, ejecutar: `docker compose restart dashboard`.
 
 Tras ~30 min el token dashboard expira; sin este fix el re-login fallaba con 405.
 
