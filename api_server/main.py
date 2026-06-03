@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, Query
 from ldap3 import Server, Connection, ALL, SIMPLE, NTLM
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from ldap3 import Server, Connection, NTLM, ALL
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
@@ -1213,6 +1213,7 @@ def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
         "user": result.get("user", {}),
         "app_session_id": app_sess.id,
         "tablet_id": tablet_id,
+        "expires_at": (_now_utc() + timedelta(minutes=ACCESS_TOKEN_MINUTES)).isoformat(),
     }
 
 
@@ -1394,7 +1395,8 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
     return {
         "access_token": new_access,
         "refresh_token": new_refresh,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "expires_at": (_now_utc() + timedelta(minutes=ttl_minutes)).isoformat(),
     }
 
 

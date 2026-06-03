@@ -12,6 +12,8 @@ from api_server import models
 from api_server.utils.sesion_estado import asignar_estado_sesion
 
 APP_SESSION_STALE_MINUTES = int(os.getenv("APP_SESSION_STALE_MINUTES", "30"))
+# Si 0/false: no cerrar sesiones idle por timeout en background (solo login takeover / logout / admin).
+APP_SESSION_AUTO_CLOSE_IDLE = os.getenv("APP_SESSION_AUTO_CLOSE_IDLE", "0") == "1"
 APP_SESSION_STATE_IDLE = "idle"
 APP_SESSION_STATE_RECORDING = "recording"
 
@@ -111,11 +113,20 @@ def close_app_session(
 
 
 def close_stale_sessions(db: Session) -> int:
+    """
+    Cierra sesiones idle abandonadas (sin heartbeat reciente).
+    Nunca cierra sesiones en estado recording (operador grabando).
+    Desactivado por defecto (APP_SESSION_AUTO_CLOSE_IDLE=0).
+    """
+    if not APP_SESSION_AUTO_CLOSE_IDLE:
+        return 0
+
     cutoff = _now_utc() - timedelta(minutes=APP_SESSION_STALE_MINUTES)
     stale = (
         db.query(models.AppUserSession)
         .filter(
             models.AppUserSession.revoked_at.is_(None),
+            models.AppUserSession.estado != APP_SESSION_STATE_RECORDING,
             models.AppUserSession.last_heartbeat_at < cutoff,
         )
         .all()
@@ -160,7 +171,7 @@ def resolve_login_conflict(
     if existing.tablet_id == tablet_id:
         return existing
 
-    if existing.estado == APP_SESSION_STATE_RECORDING and not is_session_stale(existing):
+    if existing.estado == APP_SESSION_STATE_RECORDING:
         raise HTTPException(
             status_code=409,
             detail={
@@ -206,7 +217,8 @@ def create_or_refresh_app_session(
     now = _now_utc()
     if existing and existing.tablet_id == tablet_id and existing.revoked_at is None:
         existing.last_heartbeat_at = now
-        existing.estado = APP_SESSION_STATE_IDLE
+        if existing.estado != APP_SESSION_STATE_RECORDING:
+            existing.estado = APP_SESSION_STATE_IDLE
         db.commit()
         db.refresh(existing)
         return existing
@@ -269,6 +281,4 @@ def validate_app_session_for_token(
         raise HTTPException(status_code=403, detail="Sesión de app inválida")
     if tablet_id and row.tablet_id != tablet_id:
         raise HTTPException(status_code=403, detail="Sesión de app en otra tablet")
-    if is_session_stale(row):
-        close_app_session(db, row, reason=REVOKE_TIMEOUT, pause_sesion=True)
-        raise HTTPException(status_code=401, detail="Sesión expirada por inactividad")
+    # No cerrar por timeout automático: logout manual, admin o takeover en login.
