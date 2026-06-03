@@ -46,3 +46,17 @@ docker compose ps
 ```
 
 Detalle: `docs/TROUBLESHOOTING_MASTER_BOOT.md`
+
+## Fix enum sesión — manifest / actualizar job 500
+
+Si el worker manifest loguea `invalid input value for enum ... "procesado"` al completar un job:
+
+```bash
+cd /opt/semefo
+docker compose exec -T db psql -U semefo_user -d semefo \
+  < config-scripts/migrations/005_sesion_estado_enum_error.sql
+docker compose up -d --build fastapi celery_manifest celery_uniones
+```
+
+- Migración `005`: añade `error` al enum de `sesiones.estado`.
+- Código: ya no intenta guardar `procesado` (valor inválido); `finalizada` la marca el cierre de archivos.

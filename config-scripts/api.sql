@@ -25,7 +25,8 @@ CREATE TYPE estado_archivo_enum AS ENUM (
 CREATE TYPE estado_sesion_enum AS ENUM (
     'procesando',
     'pausada',
-    'finalizada'
+    'finalizada',
+    'error'
 );
 
 CREATE TYPE estado_job_enum AS ENUM (

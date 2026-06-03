@@ -76,21 +76,19 @@ def verificar_estado_sesion(sesion_id: int, db: Session):
     errores = [j for j in jobs if j.estado == "error"]
     pendientes = [j for j in jobs if j.estado in ("pendiente", "procesando")]
 
-    # ❌ Error operativo
+    # Error operativo en algún job
     if errores:
-        if sesion.estado != "error":
+        if sesion.estado not in ("finalizada", "error"):
             sesion.estado = "error"
             db.commit()
         return
 
-    # ⏳ Aún en proceso
+    # Aún en proceso: no cambiar estado de sesión
     if pendientes:
         return
 
-    # ✅ Jobs completos (pero NO evidencia)
-    if sesion.estado not in ("finalizada", "error"):
-        sesion.estado = "procesado"
-        db.commit()
+    # Todos los jobs terminaron OK: el cierre forense (estado finalizada) lo hace
+    # actualizar_estado_archivo cuando video, video2, audio y transcripción están completos.
 
 
 def crear_o_resetear_job(
