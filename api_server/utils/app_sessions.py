@@ -12,7 +12,7 @@ from api_server import models
 from api_server.utils.sesion_estado import asignar_estado_sesion
 
 APP_SESSION_STALE_MINUTES = int(os.getenv("APP_SESSION_STALE_MINUTES", "30"))
-# Si 0/false: no cerrar sesiones idle por timeout en background (solo login takeover / logout / admin).
+# Si 0/false: no cerrar sesiones idle por timeout en background (logout manual o admin).
 APP_SESSION_AUTO_CLOSE_IDLE = os.getenv("APP_SESSION_AUTO_CLOSE_IDLE", "0") == "1"
 APP_SESSION_STATE_IDLE = "idle"
 APP_SESSION_STATE_RECORDING = "recording"
@@ -160,7 +160,7 @@ def resolve_login_conflict(
     db: Session,
     username: str,
     tablet_id: str,
-    force_takeover: bool,
+    force_takeover: bool = False,  # ignorado: sin takeover; solo logout en la otra tablet
 ) -> models.AppUserSession | None:
     close_stale_sessions(db)
 
@@ -171,38 +171,17 @@ def resolve_login_conflict(
     if existing.tablet_id == tablet_id:
         return existing
 
-    if existing.estado == APP_SESSION_STATE_RECORDING:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SESSION_RECORDING_ACTIVE",
-                "message": (
-                    f"El usuario ya está grabando en la tablet {existing.tablet_id}. "
-                    "Espere a que finalice o use esa tablet."
-                ),
-                "tablet_id": existing.tablet_id,
-                "sesion_id": existing.sesion_id,
-            },
-        )
-
-    if is_session_stale(existing):
-        close_app_session(db, existing, reason=REVOKE_TIMEOUT, pause_sesion=True)
-        return None
-
-    if force_takeover:
-        close_app_session(db, existing, reason=REVOKE_TAKEOVER, pause_sesion=True)
-        return None
-
     raise HTTPException(
         status_code=409,
         detail={
             "code": "SESSION_ACTIVE_ELSEWHERE",
             "message": (
                 f"Ya hay una sesión activa en la tablet {existing.tablet_id}. "
-                "¿Desea cerrarla e iniciar aquí?"
+                "Cierre sesión allí antes de iniciar en otra tablet."
             ),
             "tablet_id": existing.tablet_id,
-            "can_takeover": True,
+            "sesion_id": existing.sesion_id,
+            "can_takeover": False,
         },
     )
 
@@ -281,4 +260,4 @@ def validate_app_session_for_token(
         raise HTTPException(status_code=403, detail="Sesión de app inválida")
     if tablet_id and row.tablet_id != tablet_id:
         raise HTTPException(status_code=403, detail="Sesión de app en otra tablet")
-    # No cerrar por timeout automático: logout manual, admin o takeover en login.
+    # No cerrar por timeout automático: solo logout manual o revocación admin.

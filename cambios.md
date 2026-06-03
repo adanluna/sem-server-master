@@ -78,12 +78,13 @@ docker compose up -d --build fastapi dashboard
 
 - **Backend:** sin cierre automático por timeout en heartbeat/refresh.
 - **Background:** `close_stale_sessions` desactivado por defecto (`APP_SESSION_AUTO_CLOSE_IDLE=0`); nunca cierra `recording`.
-- **Login:** bloqueo 409 si el usuario ya graba en otra tablet.
+- **Login:** una sesión activa por usuario; otra tablet recibe **409** (sin takeover). Solo logout en la tablet activa libera el login.
+- **Misma tablet:** re-login refresca la sesión existente.
 - **App:** heartbeat renueva JWT; en 401 intenta refresh; solo desloguea si el servidor revocó la sesión app.
 - Rebuild APK + `docker compose up -d --build fastapi`.
 
 Variables opcionales en `.env` master:
-- `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas.
+- `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas (pendiente operación).
 - `APP_SESSION_STALE_MINUTES=30` — umbral si auto-close idle está activo.
 
 ## Infra — montaje Whisper (menos falsos negativos)
