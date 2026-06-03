@@ -76,11 +76,10 @@ docker compose up -d --build fastapi dashboard
 
 ## App — sesiones: 1 usuario ↔ 1 tablet
 
-- **Un usuario** solo puede tener **una sesión activa** (en una tablet). Si intenta entrar en otra → **409** informativo; debe cerrar sesión en la tablet donde está.
-- **Una tablet** solo admite **un usuario** a la vez. Si otro usuario intenta entrar → **409** informativo; el usuario activo debe cerrar sesión en esa tablet.
-- **Sin takeover:** no hay opción de cerrar sesión remota desde otra tablet.
+- **Un usuario** solo puede tener **una sesión activa**. Si intenta entrar en **otra tablet** → **409** (sin takeover remoto); debe cerrar sesión en la tablet donde está.
+- **Usuarios distintos en tablets distintas** (ej. Juan tablet-1 + María tablet-2) → **permitido**; no se bloquean entre sí.
+- **Otro usuario en la misma tablet** → diálogo para cerrar sesión anterior; si había **grabación**, se **finaliza y procesa**; si solo sesión idle, se cierra.
 - **Misma tablet, mismo usuario:** re-login y reabrir app permitidos; botón logout cierra en servidor.
-- **JWT:** refresh fallido no borra tokens locales; logout forzado solo si admin revoca.
 
 Rebuild APK + `docker compose up -d --build fastapi`.
 

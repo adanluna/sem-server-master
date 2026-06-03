@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from api_server import models
 from api_server.utils.sesion_estado import asignar_estado_sesion
+from api_server.utils.sesion_procesamiento import finalizar_sesion_por_takeover_tablet
 
 APP_SESSION_STALE_MINUTES = int(os.getenv("APP_SESSION_STALE_MINUTES", "30"))
 # Si 0/false: no cerrar sesiones idle por timeout en background (logout manual o admin).
@@ -174,8 +175,13 @@ def resolve_login_conflict(
     db: Session,
     username: str,
     tablet_id: str,
-    force_takeover: bool = False,  # ignorado: sin takeover remoto
+    force_takeover: bool = False,
 ) -> models.AppUserSession | None:
+    """
+    Resuelve conflictos de login.
+    force_takeover solo aplica para TABLET_SESSION_ACTIVE (otro usuario en esta tablet).
+    Nunca permite takeover remoto (SESSION_ACTIVE_ELSEWHERE).
+    """
     close_stale_sessions(db)
 
     existing_user = get_active_app_session(db, username)
@@ -183,6 +189,7 @@ def resolve_login_conflict(
         return existing_user
 
     if existing_user and existing_user.tablet_id != tablet_id:
+        # Mismo usuario en otra tablet: bloquear (sin takeover remoto).
         raise HTTPException(
             status_code=409,
             detail={
@@ -199,18 +206,47 @@ def resolve_login_conflict(
 
     occupied_tablet = get_active_app_session_for_tablet(db, tablet_id)
     if occupied_tablet and occupied_tablet.usuario_ldap != username:
+        recording = occupied_tablet.estado == APP_SESSION_STATE_RECORDING
+        if force_takeover:
+            if recording and occupied_tablet.sesion_id:
+                processed = finalizar_sesion_por_takeover_tablet(
+                    db, occupied_tablet.sesion_id
+                )
+                if not processed:
+                    pause_sesion_forensic(
+                        db,
+                        occupied_tablet.sesion_id,
+                        "Pausada por takeover de tablet (sin datos para procesar).",
+                    )
+            close_app_session(
+                db,
+                occupied_tablet,
+                reason=REVOKE_TAKEOVER,
+                pause_sesion=False,
+            )
+            return None
+
+        msg = (
+            f"Esta tablet tiene una sesión activa del usuario "
+            f"{occupied_tablet.usuario_ldap}."
+        )
+        if recording:
+            msg += (
+                " Hay una grabación en curso que se finalizará y enviará "
+                "a procesar si cierra esa sesión."
+            )
+        msg += " ¿Desea cerrarla e iniciar sesión aquí?"
+
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "TABLET_SESSION_ACTIVE",
-                "message": (
-                    f"Esta tablet tiene una sesión activa del usuario "
-                    f"{occupied_tablet.usuario_ldap}. "
-                    "Debe cerrar sesión en esta tablet antes de que otro usuario entre."
-                ),
+                "message": msg,
                 "tablet_id": tablet_id,
                 "usuario_ldap": occupied_tablet.usuario_ldap,
-                "can_takeover": False,
+                "sesion_id": occupied_tablet.sesion_id,
+                "is_recording": recording,
+                "can_takeover": True,
             },
         )
 

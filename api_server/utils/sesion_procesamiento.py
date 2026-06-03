@@ -298,6 +298,99 @@ def ejecutar_procesamiento_sesion(
     }
 
 
+def _format_hhmmss(seconds: float) -> str:
+    total = int(max(0, seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _iso_utc(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def finalizar_sesion_por_takeover_tablet(db: Session, sesion_id: int) -> bool:
+    """
+    Finaliza grabación en curso y encola procesamiento (takeover en la misma tablet).
+    Retorna True si se lanzó el pipeline; False si no había datos suficientes.
+    """
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion or sesion.estado == "finalizada":
+        return False
+
+    inv = sesion.investigacion
+    if not inv:
+        return False
+
+    now = _now_utc()
+    nota = "Finalizada automáticamente (takeover de tablet)."
+    prev_obs = (sesion.observaciones or "").strip()
+    sesion.observaciones = f"{prev_obs}\n{nota}".strip() if prev_obs else nota
+
+    if sesion.payload_procesamiento and isinstance(sesion.payload_procesamiento, dict):
+        payload = dict(sesion.payload_procesamiento)
+        ses = dict(payload.get("sesion_activa") or {})
+        if not ses.get("fin"):
+            ses["fin"] = _iso_utc(now)
+        for p in ses.get("pausas") or []:
+            if isinstance(p, dict) and p.get("inicio") and not p.get("fin"):
+                p["fin"] = _iso_utc(now)
+        payload["sesion_activa"] = ses
+        db.commit()
+        ejecutar_procesamiento_sesion(payload, db, es_reintento=False)
+        return True
+
+    if not sesion.camara1_mac_address or not sesion.camara2_mac_address:
+        db.commit()
+        return False
+
+    inicio_dt = sesion.inicio or sesion.fecha or now
+    fin_dt = now
+
+    pausas_db = (
+        db.query(models.LogPausa)
+        .filter_by(sesion_id=sesion_id, fuente="app")
+        .order_by(models.LogPausa.inicio.asc())
+        .all()
+    )
+    pausas = [
+        {"inicio": _iso_utc(p.inicio), "fin": _iso_utc(p.fin)}
+        for p in pausas_db
+    ]
+
+    dur_sec = max(0.0, (fin_dt - inicio_dt).total_seconds())
+    for p in pausas_db:
+        dur_sec = max(0.0, dur_sec - float(p.duracion or 0))
+
+    payload = {
+        "sesion_activa": {
+            "id_sesion": sesion.id,
+            "expediente": inv.numero_expediente,
+            "nombre": sesion.nombre_sesion,
+            "inicio": _iso_utc(inicio_dt),
+            "fin": _iso_utc(fin_dt),
+            "duracion_total": _format_hhmmss(dur_sec),
+            "pausas": pausas,
+            "forense": {
+                "id_usuario": sesion.usuario_ldap,
+                "nombre": sesion.user_nombre or sesion.usuario_ldap,
+            },
+            "tablet": sesion.tablet_id,
+            "plancha_id": sesion.plancha_id,
+            "plancha_nombre": sesion.plancha_nombre,
+            "camara1_mac_address": sesion.camara1_mac_address,
+            "camara2_mac_address": sesion.camara2_mac_address,
+            "version_app": sesion.app_version or "1.0.0",
+        }
+    }
+
+    db.commit()
+    ejecutar_procesamiento_sesion(payload, db, es_reintento=False)
+    return True
+
+
 def reprocesar_sesion_desde_bd(db: Session, sesion_id: int) -> dict:
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion:
