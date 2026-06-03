@@ -188,6 +188,17 @@ class InfraEstadoCreate(BaseModel):
     disco_libre_gb: float
 
 
+class WhisperMountReportCreate(BaseModel):
+    host: str = Field(default="whisper", max_length=100)
+    mount_point: str = Field(..., max_length=255)
+    probe_path: Optional[str] = Field(default=None, max_length=512)
+    mounted: bool
+    readable: bool
+    ok: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+    reported_at: Optional[datetime] = None
+
+
 # ======================================================
 # Planchas
 # ======================================================

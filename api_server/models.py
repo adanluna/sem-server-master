@@ -207,6 +207,27 @@ class InfraEstado(Base):
                    server_default=func.now(), nullable=False)
 
 
+class WhisperMountReport(Base):
+    """Últimos reportes HTTP de montaje /mnt/wave desde Whisper."""
+
+    __tablename__ = "whisper_mount_reports"
+
+    id = Column(Integer, primary_key=True)
+    host = Column(String(100), nullable=False, default="whisper")
+    mount_point = Column(String(255), nullable=False)
+    probe_path = Column(String(512), nullable=True)
+    mounted = Column(Boolean, nullable=False)
+    readable = Column(Boolean, nullable=False)
+    ok = Column(Boolean, nullable=False)
+    message = Column(String(512), nullable=True)
+    reported_at = Column(DateTime(timezone=True), nullable=True)
+    fecha = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 # ============================================================
 #  🧱 TABLA: Planchas
 # ============================================================

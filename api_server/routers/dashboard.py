@@ -686,7 +686,7 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
             }
 
     try:
-        extra = build_infraestructura_extra()
+        extra = build_infraestructura_extra(db=db)
     except Exception as exc:
         from api_server.utils.grabador_health import grabador_ip
 

@@ -84,6 +84,9 @@
                         <div v-if="estado.wave_mount?.whisper?.message" class="text-muted mt-2">
                             {{ estado.wave_mount.whisper.message }}
                         </div>
+                        <div v-if="estado.wave_mount?.whisper?.source" class="text-muted mt-1">
+                            Fuente: {{ estado.wave_mount.whisper.source }}
+                        </div>
                         <div v-else-if="!estado.disco?.whisper?.total_gb" class="text-muted mt-2">
                             Sin reporte reciente desde el servidor Whisper.
                         </div>
@@ -245,7 +248,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import api from "../api/api";
 import DiskBar from "../components/DiskBar.vue";
 
@@ -348,5 +351,18 @@ function formatDate(d: string) {
     return new Date(d).toLocaleString();
 }
 
-onMounted(loadInfra);
+const REFRESH_MS = 45_000;
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+    loadInfra();
+    refreshTimer = setInterval(loadInfra, REFRESH_MS);
+});
+
+onUnmounted(() => {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+});
 </script>

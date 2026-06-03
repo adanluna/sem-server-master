@@ -85,3 +85,27 @@ docker compose up -d --build fastapi dashboard
 Variables opcionales en `.env` master:
 - `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas.
 - `APP_SESSION_STALE_MINUTES=30` — umbral si auto-close idle está activo.
+
+## Infra — montaje Whisper (menos falsos negativos)
+
+Whisper reporta montaje WAVE por **HTTP** (`POST /infra/whisper/mount`) además del JSON en share. El master **prioriza HTTP** y no confía en JSON OK si HTTP dejó de llegar.
+
+```bash
+# Master: migración + rebuild
+cd /opt/semefo
+docker compose exec -T db psql -U semefo_user -d semefo \
+  < config-scripts/migrations/006_whisper_mount_reports.sql
+docker compose up -d --build fastapi dashboard
+
+# Whisper: git pull (healthcheck.py + api_client)
+sudo systemctl restart whisper_listener
+```
+
+Variables opcionales master `.env`:
+- `WHISPER_MOUNT_STALE_MINUTES=2` — antigüedad máxima reporte JSON (default 2).
+- `WHISPER_MOUNT_HTTP_STALE_MINUTES=2` — antigüedad máxima reporte HTTP.
+
+Whisper: `healthcheck.py` POST cada ~30 s (listener) + cron respaldo; log en `/opt/semefo/logs/infra.log`.
+
+Dashboard infra: auto-refresh cada 45 s. App: `InfraMonitorService` cada 60 s con sesión activa.
+

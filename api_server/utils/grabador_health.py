@@ -6,10 +6,13 @@ import json
 import os
 import socket
 from datetime import datetime, timezone, timedelta
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from api_server.utils.ping import _ping_probe
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 GRABADOR_IP = os.getenv("GRABADOR_IP", "").strip()
 WINDOWS_WAVE_SHARE = os.getenv(
@@ -25,7 +28,13 @@ WHISPER_MOUNT_REPORT = os.getenv(
     "WHISPER_MOUNT_REPORT",
     f"{WAVE_MOUNT}/infra/wave_mount_whisper.json",
 ).strip()
-WHISPER_MOUNT_STALE_MINUTES = int(os.getenv("WHISPER_MOUNT_STALE_MINUTES", "10"))
+WHISPER_MOUNT_STALE_MINUTES = int(os.getenv("WHISPER_MOUNT_STALE_MINUTES", "2"))
+WHISPER_MOUNT_HTTP_STALE_MINUTES = int(
+    os.getenv(
+        "WHISPER_MOUNT_HTTP_STALE_MINUTES",
+        os.getenv("WHISPER_MOUNT_STALE_MINUTES", "2"),
+    )
+)
 
 
 def grabador_ip() -> str:
@@ -116,9 +125,8 @@ def check_wave_mount_local(
     }
 
 
-def read_whisper_mount_report() -> dict[str, Any]:
-    path = WHISPER_MOUNT_REPORT
-    base = {
+def _whisper_base_no_reporte() -> dict[str, Any]:
+    return {
         "mount_point": WAVE_MOUNT,
         "mounted": False,
         "readable": False,
@@ -126,7 +134,66 @@ def read_whisper_mount_report() -> dict[str, Any]:
         "reported_at": None,
         "message": "Sin reporte desde servidor Whisper",
         "ok": False,
+        "source": None,
     }
+
+
+def _parse_reported_at(reported_at: Any) -> datetime | None:
+    if not reported_at:
+        return None
+    try:
+        raw = str(reported_at).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def _is_report_stale(reported_at: Any, max_minutes: int) -> bool:
+    dt = _parse_reported_at(reported_at)
+    if dt is None:
+        return True
+    age = datetime.now(timezone.utc) - dt
+    return age > timedelta(minutes=max_minutes)
+
+
+def read_whisper_mount_from_db(db: Session | None) -> dict[str, Any] | None:
+    if db is None:
+        return None
+    try:
+        from api_server import models
+
+        row = (
+            db.query(models.WhisperMountReport)
+            .order_by(models.WhisperMountReport.fecha.desc())
+            .first()
+        )
+    except Exception:
+        return None
+    if not row:
+        return None
+
+    ra = row.reported_at or row.fecha
+    reported_at = ra.isoformat() if ra else None
+    ok = bool(row.ok)
+    return {
+        "mount_point": row.mount_point,
+        "probe_path": row.probe_path,
+        "mounted": bool(row.mounted),
+        "readable": bool(row.readable),
+        "status": "ok" if ok else "error",
+        "reported_at": reported_at,
+        "message": row.message or ("ok" if ok else "Montaje whisper no disponible"),
+        "ok": ok,
+        "source": "http",
+    }
+
+
+def _read_whisper_mount_file() -> dict[str, Any]:
+    path = WHISPER_MOUNT_REPORT
+    base = _whisper_base_no_reporte()
 
     if not os.path.isfile(path):
         return base
@@ -138,25 +205,13 @@ def read_whisper_mount_report() -> dict[str, Any]:
         out = dict(base)
         out["status"] = "error_lectura"
         out["message"] = f"No se pudo leer reporte whisper: {e}"
+        out["source"] = "file"
         return out
 
     reported_at = data.get("reported_at") or data.get("timestamp")
-    dt = None
-    if reported_at:
-        try:
-            raw = str(reported_at).replace("Z", "+00:00")
-            dt = datetime.fromisoformat(raw)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            dt = None
-
     mounted = bool(data.get("mounted"))
     readable = bool(data.get("readable"))
-    stale = False
-    if dt is not None:
-        age = datetime.now(timezone.utc) - dt
-        stale = age > timedelta(minutes=WHISPER_MOUNT_STALE_MINUTES)
+    stale = _is_report_stale(reported_at, WHISPER_MOUNT_STALE_MINUTES)
 
     if stale:
         status = "stale"
@@ -179,13 +234,70 @@ def read_whisper_mount_report() -> dict[str, Any]:
         "reported_at": reported_at,
         "message": message,
         "ok": ok,
+        "source": "file",
     }
 
 
-def build_wave_mount_status() -> dict[str, Any]:
+def resolve_whisper_mount_status(db: Session | None = None) -> dict[str, Any]:
+    """
+    Combina reporte HTTP (BD) y JSON en share.
+    Prioriza HTTP reciente; no confía en JSON OK si HTTP dejó de llegar.
+    """
+    http = read_whisper_mount_from_db(db)
+    file = _read_whisper_mount_file()
+
+    http_fresh = http is not None and not _is_report_stale(
+        http.get("reported_at"), WHISPER_MOUNT_HTTP_STALE_MINUTES
+    )
+    file_fresh = file.get("status") not in (
+        "sin_reporte",
+        "error_lectura",
+    ) and not _is_report_stale(file.get("reported_at"), WHISPER_MOUNT_STALE_MINUTES)
+
+    if http_fresh:
+        out = dict(http)
+        out["status"] = "ok" if http.get("ok") else "error"
+        return out
+
+    http_stale_but_present = http is not None and not http_fresh
+
+    if file.get("ok") and file_fresh and http_stale_but_present:
+        return {
+            "mount_point": file.get("mount_point", WAVE_MOUNT),
+            "mounted": file.get("mounted", False),
+            "readable": file.get("readable", False),
+            "status": "stale",
+            "reported_at": file.get("reported_at"),
+            "message": (
+                "Montaje whisper sin confirmación HTTP reciente "
+                "(reporte JSON posiblemente obsoleto)"
+            ),
+            "ok": False,
+            "source": "merged",
+            "file_reported_at": file.get("reported_at"),
+            "http_reported_at": http.get("reported_at"),
+        }
+
+    if http is not None:
+        out = dict(http)
+        out["status"] = "stale"
+        out["ok"] = False
+        if not out.get("message") or out.get("ok"):
+            out["message"] = "Reporte HTTP whisper desactualizado"
+        return out
+
+    return file
+
+
+def read_whisper_mount_report(db: Session | None = None) -> dict[str, Any]:
+    """Compat: delega en resolve_whisper_mount_status."""
+    return resolve_whisper_mount_status(db)
+
+
+def build_wave_mount_status(db: Session | None = None) -> dict[str, Any]:
     return {
         "master": check_wave_mount_local(),
-        "whisper": read_whisper_mount_report(),
+        "whisper": resolve_whisper_mount_status(db),
     }
 
 
@@ -200,7 +312,9 @@ def compute_infra_ok(
     if not master.get("ok"):
         return False
     whisper = wave_mount.get("whisper") or {}
-    if whisper.get("status") in ("error", "stale", "sin_reporte"):
+    if not whisper.get("ok"):
+        return False
+    if whisper.get("status") in ("error", "stale", "sin_reporte", "error_lectura"):
         return False
     if camaras_offline > 0:
         return False
@@ -212,9 +326,10 @@ def build_infraestructura_extra(
     timeout: int = 1,
     retries: int = 2,
     camaras_offline: int = 0,
+    db: Session | None = None,
 ) -> dict[str, Any]:
     grabador = check_grabador(timeout=timeout, retries=retries)
-    wave_mount = build_wave_mount_status()
+    wave_mount = build_wave_mount_status(db)
     infra_ok = compute_infra_ok(
         grabador, wave_mount, camaras_offline=camaras_offline
     )

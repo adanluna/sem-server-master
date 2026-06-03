@@ -29,6 +29,7 @@ from api_server.schemas import (
     PausaCreate,
     PausaResponse,
     InfraEstadoCreate,
+    WhisperMountReportCreate,
     PlanchaResponse,
 )
 from api_server.models import AuthLoginRequest, RefreshRequest, ServiceTokenRequest
@@ -1449,7 +1450,7 @@ def listar_planchas_disponibles(db: Session = Depends(get_db)):
 def registrar_infra_estado(
     data: InfraEstadoCreate,
     db: Session = Depends(get_db),
-    principal=Depends(require_roles("dashboard_admin"))
+    principal=Depends(require_roles("worker", "dashboard_admin")),
 ):
     nuevo = models.InfraEstado(**data.dict())
     db.add(nuevo)
@@ -1460,6 +1461,34 @@ def registrar_infra_estado(
         "status": "ok",
         "id": nuevo.id
     }
+
+
+@app.post("/infra/whisper/mount")
+def registrar_whisper_mount(
+    data: WhisperMountReportCreate,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("worker", "dashboard_admin")),
+):
+    """Reporte HTTP de montaje WAVE desde Whisper (no depende del share CIFS)."""
+    reported_at = data.reported_at
+    if reported_at is not None and reported_at.tzinfo is None:
+        reported_at = reported_at.replace(tzinfo=timezone.utc)
+
+    row = models.WhisperMountReport(
+        host=(data.host or "whisper").strip() or "whisper",
+        mount_point=data.mount_point,
+        probe_path=data.probe_path,
+        mounted=data.mounted,
+        readable=data.readable,
+        ok=data.ok,
+        message=data.message,
+        reported_at=reported_at or _now_utc(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return {"status": "ok", "id": row.id}
 
 
 @app.get("/infra/estado/ultimo")
@@ -1525,6 +1554,7 @@ def ping_camara(ip: str):
 @app.post("/infra/estado_general")
 def estado_general_infraestructura(
     payload: dict,
+    db: Session = Depends(get_db),
     debug: bool = Query(
         False, description="Si true, incluye debug detallado (solo uso interno)."),
     timeout: int = Query(
@@ -1585,6 +1615,7 @@ def estado_general_infraestructura(
         timeout=timeout,
         retries=retries,
         camaras_offline=camaras_offline,
+        db=db,
     )
 
     return {
