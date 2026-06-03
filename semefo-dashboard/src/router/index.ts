@@ -53,6 +53,12 @@ const router = createRouter({
                     meta: { title: "Sesiones | SEMEFO", permission: "sesiones" as PermissionKey }
                 },
                 {
+                    path: "sesiones-app",
+                    name: "sesiones-app",
+                    component: () => import("../views/SesionesAppView.vue"),
+                    meta: { title: "Sesiones app | SEMEFO", permission: "sesiones" as PermissionKey }
+                },
+                {
                     path: "sesiones-fallidas",
                     name: "sesiones-fallidas",
                     component: () => import("../views/SesionesFallidasView.vue"),

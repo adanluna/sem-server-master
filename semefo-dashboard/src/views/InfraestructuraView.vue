@@ -18,9 +18,49 @@
             </span>
         </div>
 
+        <!-- GRABADOR / WAVE (detalle) -->
+        <div class="row g-3 mb-4" v-if="estado.grabador || estado.wave_mount">
+            <div class="col-md-4" v-if="estado.grabador">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">Grabador Hanwha</div>
+                    <div class="card-body small">
+                        <div><strong>IP:</strong> {{ estado.grabador.ip }}</div>
+                        <div><strong>Ping:</strong> {{ estado.grabador.online ? "OK" : "Fallo" }}</div>
+                        <div v-if="estado.grabador.smb_port_open != null">
+                            <strong>SMB (445):</strong>
+                            {{ estado.grabador.smb_port_open ? "OK" : "Cerrado" }}
+                        </div>
+                        <div class="text-muted mt-2">{{ estado.grabador.message }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4" v-if="estado.wave_mount?.master">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">/mnt/wave (master)</div>
+                    <div class="card-body small">
+                        <div>Montado: {{ estado.wave_mount.master.mounted ? "Sí" : "No" }}</div>
+                        <div>Legible: {{ estado.wave_mount.master.readable ? "Sí" : "No" }}</div>
+                        <div class="text-muted mt-2">{{ estado.wave_mount.master.message }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4" v-if="estado.wave_mount?.whisper">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">/mnt/wave (whisper)</div>
+                    <div class="card-body small">
+                        <div>Estado: {{ estado.wave_mount.whisper.status }}</div>
+                        <div v-if="estado.wave_mount.whisper.reported_at" class="text-muted">
+                            Reporte: {{ formatDate(estado.wave_mount.whisper.reported_at) }}
+                        </div>
+                        <div class="text-muted mt-2">{{ estado.wave_mount.whisper.message }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- SERVICIOS -->
         <div class="row g-3 mb-4">
-            <div class="col-md-4" v-for="s in servicios" :key="s.label">
+            <div class="col-md-4 col-lg-3" v-for="s in servicios" :key="s.label">
                 <div class="card text-center h-100">
                     <div class="card-body">
                         <h6 class="text-muted mb-2">
@@ -156,11 +196,36 @@ const estado = ref<any>({
     disco: {}
 });
 
-const servicios = computed(() => [
-    { label: "API", status: estado.value.api, icon: "bi bi-server" },
-    { label: "Base de datos", status: estado.value.db, icon: "bi bi-database" },
-    { label: "RabbitMQ", status: estado.value.rabbitmq, icon: "bi bi-inbox" }
-]);
+const servicios = computed(() => {
+    const list = [
+        { label: "API", status: estado.value.api, icon: "bi bi-server" },
+        { label: "Base de datos", status: estado.value.db, icon: "bi bi-database" },
+        { label: "RabbitMQ", status: estado.value.rabbitmq, icon: "bi bi-inbox" },
+    ];
+    if (estado.value.grabador_status) {
+        list.push({
+            label: `Grabador (${estado.value.grabador?.ip || "Hanwha"})`,
+            status: estado.value.grabador_status === "ok" ? "ok" : "error",
+            icon: "bi bi-hdd-rack",
+        });
+    }
+    if (estado.value.wave_master_status) {
+        list.push({
+            label: "Montaje WAVE (master)",
+            status: estado.value.wave_master_status === "ok" ? "ok" : "error",
+            icon: "bi bi-folder-symlink",
+        });
+    }
+    if (estado.value.wave_whisper_status) {
+        const w = estado.value.wave_whisper_status;
+        list.push({
+            label: "Montaje WAVE (whisper)",
+            status: w === "ok" ? "ok" : "error",
+            icon: "bi bi-folder2-open",
+        });
+    }
+    return list;
+});
 
 async function loadInfra() {
     const { data } = await api.get("/dashboard/infraestructura");

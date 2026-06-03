@@ -13,6 +13,10 @@
                 Sesiones
             </router-link>
 
+            <router-link v-if="can('sesiones')" to="/sesiones-app" class="item" active-class="active">
+                Sesiones app
+            </router-link>
+
             <router-link v-if="can('sesiones_fallidas')" to="/sesiones-fallidas" class="item" active-class="active">
                 Sesiones Fallidas
             </router-link>

@@ -47,6 +47,8 @@ def create_access_token(
     ttl_minutes: int,
     token_type: str = "access",
     permissions: dict | None = None,
+    app_session_id: int | None = None,
+    tablet_id: str | None = None,
 ):
     jti = secrets.token_urlsafe(16)
     payload = {
@@ -61,6 +63,10 @@ def create_access_token(
     }
     if permissions is not None:
         payload["permissions"] = permissions
+    if app_session_id is not None:
+        payload["app_session_id"] = app_session_id
+    if tablet_id:
+        payload["tablet_id"] = tablet_id
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
@@ -111,7 +117,9 @@ def get_current_principal(authorization: str = Header(default=None)):
             "sub": payload.get("sub"),
             "roles": payload.get("roles", []),
             "permissions": payload.get("permissions", {}),
-            "type": token_type
+            "type": token_type,
+            "app_session_id": payload.get("app_session_id"),
+            "tablet_id": payload.get("tablet_id"),
         }
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido/expirado")

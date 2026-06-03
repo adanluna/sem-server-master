@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.sql import func
 
 from pydantic import BaseModel
+from typing import Optional
 
 from api_server.database import Base
 
@@ -310,6 +311,30 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True),
                         default=utcnow, nullable=False)
 
+
+# ============================================================
+#  📱 Sesiones app (LDAP / tablet)
+# ============================================================
+class AppUserSession(Base):
+    __tablename__ = "app_user_sessions"
+
+    id = Column(Integer, primary_key=True)
+    usuario_ldap = Column(String(255), nullable=False, index=True)
+    tablet_id = Column(String(255), nullable=False)
+    # idle | recording
+    estado = Column(String(20), nullable=False, default="idle")
+    sesion_id = Column(Integer, ForeignKey("sesiones.id", ondelete="SET NULL"), nullable=True)
+
+    last_heartbeat_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    logged_in_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoke_reason = Column(String(50), nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+
+    sesion = relationship("Sesion", foreign_keys=[sesion_id])
+
+
 # ============================================================
 #  ❤️ TABLA: Workers Heartbeat (salud real de workers)
 # ============================================================
@@ -358,6 +383,8 @@ class LDAPLoginRequest(BaseModel):
 class AuthLoginRequest(BaseModel):
     username: str
     password: str
+    tablet_id: Optional[str] = None
+    force_takeover: bool = False
 
 
 class RefreshRequest(BaseModel):

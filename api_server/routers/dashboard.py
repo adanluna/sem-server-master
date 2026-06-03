@@ -15,6 +15,14 @@ from typing import Optional
 from api_server.database import get_db
 from api_server.utils.jobs import detectar_pipeline_bloqueado, sesion_tiene_errores_pipeline
 from api_server.utils.sesion_procesamiento import reprocesar_sesion_desde_bd
+from api_server.utils.app_sessions import (
+    close_app_session,
+    close_stale_sessions,
+    app_session_to_dict,
+    APP_SESSION_STATE_RECORDING,
+    REVOKE_ADMIN,
+)
+from api_server.utils.grabador_health import build_infraestructura_extra
 from api_server.utils.jwt import (
     require_dashboard_permission,
     pwd_context,
@@ -501,6 +509,8 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
             "total": 0,
             "sesiones": []
         },
+        "grabador": None,
+        "wave_mount": None,
     }
 
     # -------------------------------------------------
@@ -641,6 +651,29 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
                 "fecha": wf,
                 "status": "stale" if retraso > timedelta(minutes=10) else "ok"
             }
+
+    extra = build_infraestructura_extra()
+    estado["grabador"] = extra["grabador"]
+    estado["wave_mount"] = extra["wave_mount"]
+
+    def _svc(ok: bool) -> str:
+        return "ok" if ok else "error"
+
+    estado["grabador_status"] = _svc(extra["grabador"].get("ok"))
+    estado["wave_master_status"] = _svc(
+        (extra["wave_mount"].get("master") or {}).get("ok")
+    )
+    whisper = extra["wave_mount"].get("whisper") or {}
+    estado["wave_whisper_status"] = (
+        "ok" if whisper.get("ok") else whisper.get("status", "error")
+    )
+
+    if not extra["grabador"].get("ok") or not (
+        extra["wave_mount"].get("master") or {}
+    ).get("ok"):
+        estado["infra_status"] = "error"
+    elif not whisper.get("ok"):
+        estado["infra_status"] = "error"
 
     return estado
 
@@ -1286,4 +1319,50 @@ def eliminar_dashboard_usuario(
     db.delete(user)
     db.commit()
     return {"message": "Usuario eliminado", "id": user_id}
+
+
+# ============================================================
+#  Sesiones app (operadores LDAP / tablets)
+# ============================================================
+
+@router.get("/app-sessions")
+def listar_app_sessions(
+    db: Session = Depends(get_db),
+    _principal=Depends(require_dashboard_permission("sesiones")),
+):
+    close_stale_sessions(db)
+    rows = (
+        db.query(models.AppUserSession)
+        .filter(models.AppUserSession.revoked_at.is_(None))
+        .order_by(models.AppUserSession.last_heartbeat_at.desc())
+        .all()
+    )
+    return [app_session_to_dict(r) for r in rows]
+
+
+@router.post("/app-sessions/{session_id}/revoke")
+def revocar_app_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_dashboard_permission("sesiones")),
+):
+    row = db.query(models.AppUserSession).filter_by(id=session_id).first()
+    if not row or row.revoked_at is not None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada o ya cerrada")
+
+    if row.estado == APP_SESSION_STATE_RECORDING:
+        raise HTTPException(
+            status_code=403,
+            detail="No se puede cerrar la sesión mientras el operador está grabando",
+        )
+
+    admin_user = principal.get("sub", "").split(":")[-1]
+    close_app_session(
+        db,
+        row,
+        reason=REVOKE_ADMIN,
+        revoked_by=admin_user,
+        pause_sesion=True,
+    )
+    return {"status": "ok", "message": "Sesión de app cerrada", "id": session_id}
 

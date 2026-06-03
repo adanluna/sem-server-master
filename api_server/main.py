@@ -33,6 +33,7 @@ from api_server.schemas import (
 )
 from api_server.models import AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from api_server.utils.ping import _ping_probe, _clamp_int
+from api_server.utils.grabador_health import build_infraestructura_extra
 from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, tamano_kb_respuesta
 from api_server.utils.jobs import registrar_error_procesamiento, verificar_estado_sesion
 from api_server.utils.sesion_procesamiento import ejecutar_procesamiento_sesion
@@ -42,6 +43,7 @@ from api_server.utils.jwt import (
     _sha256,
     _now_utc,
     require_roles,
+    get_current_principal,
     pwd_context,
     ACCESS_TOKEN_MINUTES,
     REFRESH_TOKEN_HOURS,
@@ -50,6 +52,22 @@ from api_server.utils.jwt import (
     DASHBOARD_REFRESH_TOKEN_DAYS,
 )
 from api_server.utils.dashboard_permissions import effective_permissions, username_from_sub
+from api_server.utils.app_sessions import (
+    resolve_login_conflict,
+    create_or_refresh_app_session,
+    update_heartbeat,
+    close_app_session,
+    close_stale_sessions,
+    get_active_app_session,
+    validate_app_session_for_token,
+    pause_sesion_forensic,
+    revoke_ldap_refresh_tokens,
+    app_session_to_dict,
+    APP_SESSION_STATE_RECORDING,
+    APP_SESSION_STATE_IDLE,
+    REVOKE_LOGOUT,
+    REVOKE_ADMIN,
+)
 from api_server.routers.dashboard import router as dashboard_router
 from api_server.routers.apk import router as apk_router
 from api_server.api_app import api_app
@@ -1143,24 +1161,43 @@ def ldap_authenticate(username: str, password: str):
 
 @app.post("/auth/login")
 def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
-    """Alias de /auth/ldap para compatibilidad"""
+    """Login LDAP con sesión única por tablet."""
     result = ldap_authenticate(data.username, data.password)
     if not result["success"]:
         raise HTTPException(status_code=401, detail=result["message"])
 
-    sub = f"ldap:{data.username}"
+    username = data.username.strip()
+    tablet_id = (data.tablet_id or "").strip() or "desconocida"
+
+    existing = resolve_login_conflict(
+        db, username, tablet_id, bool(data.force_takeover)
+    )
+    app_sess = create_or_refresh_app_session(
+        db,
+        username=username,
+        tablet_id=tablet_id,
+        existing=existing,
+    )
+
+    sub = f"ldap:{username}"
     roles = ["operador"]
 
     access = create_access_token(
-        sub=sub, roles=roles, ttl_minutes=ACCESS_TOKEN_MINUTES)
+        sub=sub,
+        roles=roles,
+        ttl_minutes=ACCESS_TOKEN_MINUTES,
+        app_session_id=app_sess.id,
+        tablet_id=tablet_id,
+    )
     refresh, jti, token_hash, expires_at = create_refresh_token(
-        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS)
+        sub=sub, roles=roles, ttl_hours=REFRESH_TOKEN_HOURS
+    )
 
     rt = models.RefreshToken(
         subject=sub,
         jti=jti,
         token_hash=token_hash,
-        expires_at=expires_at
+        expires_at=expires_at,
     )
     db.add(rt)
     db.commit()
@@ -1169,8 +1206,103 @@ def auth_login(data: AuthLoginRequest, db: Session = Depends(get_db)):
         "access_token": access,
         "refresh_token": refresh,
         "token_type": "bearer",
-        "user": result.get("user", {})
+        "user": result.get("user", {}),
+        "app_session_id": app_sess.id,
+        "tablet_id": tablet_id,
     }
+
+
+@app.post("/auth/logout")
+def auth_logout(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    if not principal.get("sub", "").startswith("ldap:"):
+        raise HTTPException(status_code=400, detail="Logout solo para operadores app")
+
+    username = principal["sub"].split(":", 1)[1]
+    app_session_id = principal.get("app_session_id")
+
+    if app_session_id:
+        row = db.query(models.AppUserSession).filter_by(id=app_session_id).first()
+        if row and row.revoked_at is None:
+            close_app_session(db, row, reason=REVOKE_LOGOUT, pause_sesion=True)
+    else:
+        row = get_active_app_session(db, username)
+        if row:
+            close_app_session(db, row, reason=REVOKE_LOGOUT, pause_sesion=True)
+        else:
+            revoke_ldap_refresh_tokens(db, username)
+
+    return {"status": "ok", "message": "Sesión cerrada"}
+
+
+@app.post("/auth/heartbeat")
+def auth_heartbeat(
+    data: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    close_stale_sessions(db)
+
+    if not principal.get("sub", "").startswith("ldap:"):
+        raise HTTPException(status_code=403, detail="Heartbeat solo para operadores app")
+
+    app_session_id = principal.get("app_session_id")
+    if not app_session_id:
+        raise HTTPException(status_code=400, detail="Token sin sesión de app")
+
+    tablet_id = (data.get("tablet_id") or principal.get("tablet_id") or "").strip()
+    if not tablet_id:
+        raise HTTPException(status_code=400, detail="Falta tablet_id")
+
+    estado_raw = (data.get("estado") or APP_SESSION_STATE_IDLE).strip().lower()
+    estado = (
+        APP_SESSION_STATE_RECORDING
+        if estado_raw in ("recording", "grabando", "grabando")
+        else APP_SESSION_STATE_IDLE
+    )
+    sesion_id = data.get("sesion_id")
+    if sesion_id is not None:
+        try:
+            sesion_id = int(sesion_id)
+        except (TypeError, ValueError):
+            sesion_id = None
+
+    username = principal["sub"].split(":", 1)[1]
+    validate_app_session_for_token(
+        db,
+        username=username,
+        app_session_id=int(app_session_id),
+        tablet_id=tablet_id,
+    )
+
+    row = update_heartbeat(
+        db,
+        int(app_session_id),
+        tablet_id=tablet_id,
+        estado=estado,
+        sesion_id=sesion_id,
+    )
+    return {"status": "ok", "app_session": app_session_to_dict(row)}
+
+
+@app.post("/sesiones/{sesion_id}/pausar-operador")
+def pausar_sesion_operador(
+    sesion_id: int,
+    db: Session = Depends(get_db),
+    principal=Depends(require_roles("operador", "supervisor")),
+):
+    """Marca sesión forense como pausada (logout operador / cierre remoto)."""
+    pause_sesion_forensic(
+        db,
+        sesion_id,
+        "Pausada por cierre de sesión del operador.",
+    )
+    sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    return {"status": "ok", "sesion_id": sesion_id, "estado": sesion.estado}
 
 
 @app.post("/auth/refresh")
@@ -1203,6 +1335,14 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
         ttl_minutes = ACCESS_TOKEN_MINUTES
         token_type = "access"
         refresh_hours = REFRESH_TOKEN_HOURS
+        username = sub.split(":", 1)[1]
+        close_stale_sessions(db)
+        app_sess = get_active_app_session(db, username)
+        if not app_sess:
+            raise HTTPException(401, "Sesión de app cerrada; inicie sesión de nuevo")
+        app_session_id = app_sess.id
+        tablet_id = app_sess.tablet_id
+        permissions = None
     else:
         username = username_from_sub(sub)
         user = (
@@ -1228,6 +1368,8 @@ def auth_refresh(data: RefreshRequest, db: Session = Depends(get_db)):
         ttl_minutes=ttl_minutes,
         token_type=token_type,
         permissions=permissions,
+        app_session_id=app_session_id if sub.startswith("ldap:") else None,
+        tablet_id=tablet_id if sub.startswith("ldap:") else None,
     )
 
     new_refresh, jti, th, exp = create_refresh_token(
@@ -1396,10 +1538,7 @@ def estado_general_infraestructura(
     - detalle incluye online/metodo y opcional debug si ?debug=1
     """
 
-    camaras = payload.get("camaras", [])
-    if not camaras:
-        raise HTTPException(
-            status_code=400, detail="Debe enviar una lista de cámaras")
+    camaras = payload.get("camaras") or []
 
     # Doble seguridad: clamp por si llegan valores raros (aunque Query ya valida)
     timeout = _clamp_int(timeout, 1, 3)
@@ -1435,15 +1574,25 @@ def estado_general_infraestructura(
 
         estado_camaras.append(item)
 
+    camaras_offline = sum(1 for c in estado_camaras if c["online"] is False)
+    extra = build_infraestructura_extra(
+        timeout=timeout,
+        retries=retries,
+        camaras_offline=camaras_offline,
+    )
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "api": {"status": "ok"},
         "camaras": {
             "total": len(estado_camaras),
             "online": sum(1 for c in estado_camaras if c["online"] is True),
-            "offline": sum(1 for c in estado_camaras if c["online"] is False),
+            "offline": camaras_offline,
             "detalle": estado_camaras,
         },
+        "grabador": extra["grabador"],
+        "wave_mount": extra["wave_mount"],
+        "infra_ok": extra["infra_ok"],
     }
 
 
