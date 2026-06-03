@@ -652,7 +652,37 @@ def infra_estado_dashboard(db: Session = Depends(get_db), principal=Depends(requ
                 "status": "stale" if retraso > timedelta(minutes=10) else "ok"
             }
 
-    extra = build_infraestructura_extra()
+    try:
+        extra = build_infraestructura_extra()
+    except Exception as exc:
+        from api_server.utils.grabador_health import grabador_ip
+
+        ip = grabador_ip()
+        extra = {
+            "grabador": {
+                "ip": ip,
+                "online": False,
+                "smb_port_open": None,
+                "metodo": None,
+                "message": f"Error comprobando grabador: {exc}",
+                "ok": False,
+            },
+            "wave_mount": {
+                "master": {
+                    "mount_point": os.getenv("WAVE_MOUNT", "/mnt/wave"),
+                    "mounted": False,
+                    "readable": False,
+                    "message": "No se pudo comprobar montaje",
+                    "ok": False,
+                },
+                "whisper": {
+                    "status": "error",
+                    "message": "No se pudo comprobar reporte whisper",
+                    "ok": False,
+                },
+            },
+        }
+
     estado["grabador"] = extra["grabador"]
     estado["wave_mount"] = extra["wave_mount"]
 

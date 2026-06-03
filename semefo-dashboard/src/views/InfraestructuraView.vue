@@ -8,57 +8,119 @@
                 Infraestructura
             </h2>
 
-            <span class="badge fs-6" :class="infraBadge(estado.infra_status)">
-                <i class="me-1" :class="{
-                    'bi bi-check-circle': estado.infra_status === 'ok',
-                    'bi bi-exclamation-triangle': estado.infra_status === 'warning',
-                    'bi bi-x-circle': estado.infra_status === 'error'
-                }"></i>
-                {{ estado.infra_status?.toUpperCase() }}
-            </span>
-        </div>
-
-        <!-- GRABADOR / WAVE (detalle) -->
-        <div class="row g-3 mb-4" v-if="estado.grabador || estado.wave_mount">
-            <div class="col-md-4" v-if="estado.grabador">
-                <div class="card h-100">
-                    <div class="card-header fw-semibold">Grabador Hanwha</div>
-                    <div class="card-body small">
-                        <div><strong>IP:</strong> {{ estado.grabador.ip }}</div>
-                        <div><strong>Ping:</strong> {{ estado.grabador.online ? "OK" : "Fallo" }}</div>
-                        <div v-if="estado.grabador.smb_port_open != null">
-                            <strong>SMB (445):</strong>
-                            {{ estado.grabador.smb_port_open ? "OK" : "Cerrado" }}
-                        </div>
-                        <div class="text-muted mt-2">{{ estado.grabador.message }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4" v-if="estado.wave_mount?.master">
-                <div class="card h-100">
-                    <div class="card-header fw-semibold">/mnt/wave (master)</div>
-                    <div class="card-body small">
-                        <div>Montado: {{ estado.wave_mount.master.mounted ? "Sí" : "No" }}</div>
-                        <div>Legible: {{ estado.wave_mount.master.readable ? "Sí" : "No" }}</div>
-                        <div class="text-muted mt-2">{{ estado.wave_mount.master.message }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4" v-if="estado.wave_mount?.whisper">
-                <div class="card h-100">
-                    <div class="card-header fw-semibold">/mnt/wave (whisper)</div>
-                    <div class="card-body small">
-                        <div>Estado: {{ estado.wave_mount.whisper.status }}</div>
-                        <div v-if="estado.wave_mount.whisper.reported_at" class="text-muted">
-                            Reporte: {{ formatDate(estado.wave_mount.whisper.reported_at) }}
-                        </div>
-                        <div class="text-muted mt-2">{{ estado.wave_mount.whisper.message }}</div>
-                    </div>
-                </div>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-outline-secondary btn-sm" :disabled="loading" @click="loadInfra">
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                    Actualizar
+                </button>
+                <span class="badge fs-6" :class="infraBadge(estado.infra_status)">
+                    <i class="me-1" :class="{
+                        'bi bi-check-circle': estado.infra_status === 'ok',
+                        'bi bi-exclamation-triangle': estado.infra_status === 'warning',
+                        'bi bi-x-circle': estado.infra_status === 'error'
+                    }"></i>
+                    {{ estado.infra_status?.toUpperCase() }}
+                </span>
             </div>
         </div>
 
-        <!-- SERVICIOS -->
+        <!-- NODOS: MASTER | WHISPER | GRABADOR -->
+        <div class="row g-3 mb-4">
+            <div class="col-lg-4">
+                <div class="card h-100 border-primary border-opacity-25">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-server me-1"></i> Master</span>
+                        <span class="badge" :class="nodoBadge(masterOk)">{{ masterOk ? "OK" : "ERROR" }}</span>
+                    </div>
+                    <div class="card-body small">
+                        <div class="d-flex justify-content-between">
+                            <span>API</span>
+                            <span :class="statusClass(estado.api)">{{ estado.api?.toUpperCase() }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>Base de datos</span>
+                            <span :class="statusClass(estado.db)">{{ estado.db?.toUpperCase() }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>RabbitMQ</span>
+                            <span :class="statusClass(estado.rabbitmq)">{{ estado.rabbitmq?.toUpperCase() }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <span>Montaje WAVE</span>
+                            <span :class="statusClass(estado.wave_master_status)">
+                                {{ (estado.wave_master_status || "—").toUpperCase() }}
+                            </span>
+                        </div>
+                        <div v-if="estado.wave_mount?.master?.message" class="text-muted mt-2">
+                            {{ estado.wave_mount.master.message }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card h-100 border-info border-opacity-25">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-mic me-1"></i> Whisper</span>
+                        <span class="badge" :class="whisperBadge(estado.disco?.whisper?.status)">
+                            {{ estado.disco?.whisper?.status || "sin_reporte" }}
+                        </span>
+                    </div>
+                    <div class="card-body small">
+                        <div class="d-flex justify-content-between">
+                            <span>Montaje WAVE</span>
+                            <span :class="statusClass(estado.wave_whisper_status)">
+                                {{ (estado.wave_whisper_status || "—").toUpperCase() }}
+                            </span>
+                        </div>
+                        <div v-if="estado.wave_mount?.whisper?.reported_at" class="text-muted mt-1">
+                            Reporte montaje:
+                            {{ formatDate(estado.wave_mount.whisper.reported_at) }}
+                        </div>
+                        <div v-if="estado.disco?.whisper?.fecha" class="text-muted mt-1">
+                            Reporte disco:
+                            {{ formatDate(estado.disco.whisper.fecha) }}
+                        </div>
+                        <div v-if="estado.wave_mount?.whisper?.message" class="text-muted mt-2">
+                            {{ estado.wave_mount.whisper.message }}
+                        </div>
+                        <div v-else-if="!estado.disco?.whisper?.total_gb" class="text-muted mt-2">
+                            Sin reporte reciente desde el servidor Whisper.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card h-100 border-warning border-opacity-50">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-hdd-rack me-1"></i> Grabador Hanwha</span>
+                        <span class="badge" :class="nodoBadge(grabadorOk)">{{ grabadorOk ? "OK" : "ERROR" }}</span>
+                    </div>
+                    <div class="card-body small">
+                        <div><strong>IP:</strong> {{ grabador.ip }}</div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <span>Ping</span>
+                            <span :class="grabador.online ? 'text-success' : 'text-danger'">
+                                {{ grabador.online ? "OK" : "Fallo" }}
+                            </span>
+                        </div>
+                        <div v-if="grabador.smb_port_open != null" class="d-flex justify-content-between">
+                            <span>SMB (445)</span>
+                            <span :class="grabador.smb_port_open ? 'text-success' : 'text-danger'">
+                                {{ grabador.smb_port_open ? "OK" : "Cerrado" }}
+                            </span>
+                        </div>
+                        <div v-if="grabador.metodo" class="text-muted mt-1">
+                            Método ping: {{ grabador.metodo }}
+                        </div>
+                        <div class="text-muted mt-2">{{ grabador.message }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SERVICIOS (resumen rápido) -->
         <div class="row g-3 mb-4">
             <div class="col-md-4 col-lg-3" v-for="s in servicios" :key="s.label">
                 <div class="card text-center h-100">
@@ -70,7 +132,7 @@
 
                         <span class="badge fs-6" :class="{
                             'bg-success': s.status === 'ok',
-                            'bg-warning text-dark': s.status === 'error'
+                            'bg-danger': s.status === 'error'
                         }">
                             <i class="me-1" :class="{
                                 'bi bi-check-circle': s.status === 'ok',
@@ -117,8 +179,6 @@
 
         <!-- DISCO -->
         <div class="row g-3 mb-4">
-
-            <!-- MASTER -->
             <div class="col-md-6">
                 <div class="card h-100">
                     <div class="card-header fw-semibold">
@@ -126,7 +186,7 @@
                         Disco MASTER
                     </div>
 
-                    <div class="card-body" v-if="estado.disco.master">
+                    <div class="card-body" v-if="estado.disco?.master">
                         <DiskBar :disk="estado.disco.master" />
                     </div>
 
@@ -137,7 +197,6 @@
                 </div>
             </div>
 
-            <!-- WHISPER -->
             <div class="col-md-6">
                 <div class="card h-100">
                     <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
@@ -146,17 +205,17 @@
                             Disco WHISPER
                         </div>
 
-                        <span class="badge" :class="whisperBadge(estado.disco.whisper?.status)">
+                        <span class="badge" :class="whisperBadge(estado.disco?.whisper?.status)">
                             <i class="me-1" :class="{
-                                'bi bi-check-circle': estado.disco.whisper?.status === 'ok',
-                                'bi bi-exclamation-triangle': estado.disco.whisper?.status === 'stale',
-                                'bi bi-dash-circle': estado.disco.whisper?.status === 'sin_reporte'
+                                'bi bi-check-circle': estado.disco?.whisper?.status === 'ok',
+                                'bi bi-exclamation-triangle': estado.disco?.whisper?.status === 'stale',
+                                'bi bi-dash-circle': estado.disco?.whisper?.status === 'sin_reporte'
                             }"></i>
-                            {{ estado.disco.whisper?.status }}
+                            {{ estado.disco?.whisper?.status }}
                         </span>
                     </div>
 
-                    <div class="card-body" v-if="estado.disco.whisper?.total_gb">
+                    <div class="card-body" v-if="estado.disco?.whisper?.total_gb">
                         <DiskBar :disk="estado.disco.whisper" />
 
                         <div class="text-muted small mt-2">
@@ -190,46 +249,70 @@ import { ref, onMounted, computed } from "vue";
 import api from "../api/api";
 import DiskBar from "../components/DiskBar.vue";
 
+const loading = ref(false);
+
 const estado = ref<any>({
     infra_status: "ok",
+    api: "ok",
+    db: "error",
+    rabbitmq: "error",
     workers: {},
-    disco: {}
+    disco: { whisper: { status: "sin_reporte" } },
+    grabador: null,
+    grabador_status: "error",
+    wave_mount: null,
 });
 
-const servicios = computed(() => {
-    const list = [
-        { label: "API", status: estado.value.api, icon: "bi bi-server" },
-        { label: "Base de datos", status: estado.value.db, icon: "bi bi-database" },
-        { label: "RabbitMQ", status: estado.value.rabbitmq, icon: "bi bi-inbox" },
-    ];
-    if (estado.value.grabador_status) {
-        list.push({
-            label: `Grabador (${estado.value.grabador?.ip || "Hanwha"})`,
-            status: estado.value.grabador_status === "ok" ? "ok" : "error",
-            icon: "bi bi-hdd-rack",
-        });
-    }
-    if (estado.value.wave_master_status) {
-        list.push({
-            label: "Montaje WAVE (master)",
-            status: estado.value.wave_master_status === "ok" ? "ok" : "error",
-            icon: "bi bi-folder-symlink",
-        });
-    }
-    if (estado.value.wave_whisper_status) {
-        const w = estado.value.wave_whisper_status;
-        list.push({
-            label: "Montaje WAVE (whisper)",
-            status: w === "ok" ? "ok" : "error",
-            icon: "bi bi-folder2-open",
-        });
-    }
-    return list;
+const grabador = computed(() => {
+    const g = estado.value.grabador;
+    if (g && typeof g === "object") return g;
+    return {
+        ip: "—",
+        online: false,
+        smb_port_open: null,
+        message: "Sin datos del grabador (actualice o revise el API en master)",
+        ok: false,
+    };
 });
+
+const grabadorOk = computed(() => estado.value.grabador_status === "ok");
+
+const masterOk = computed(() =>
+    estado.value.api === "ok" &&
+    estado.value.db === "ok" &&
+    estado.value.rabbitmq === "ok" &&
+    estado.value.wave_master_status === "ok"
+);
+
+const servicios = computed(() => [
+    { label: "API", status: estado.value.api || "error", icon: "bi bi-server" },
+    { label: "Base de datos", status: estado.value.db || "error", icon: "bi bi-database" },
+    { label: "RabbitMQ", status: estado.value.rabbitmq || "error", icon: "bi bi-inbox" },
+    {
+        label: `Grabador (${grabador.value.ip})`,
+        status: grabadorOk.value ? "ok" : "error",
+        icon: "bi bi-hdd-rack",
+    },
+    {
+        label: "Montaje WAVE (master)",
+        status: estado.value.wave_master_status === "ok" ? "ok" : "error",
+        icon: "bi bi-folder-symlink",
+    },
+    {
+        label: "Montaje WAVE (whisper)",
+        status: estado.value.wave_whisper_status === "ok" ? "ok" : "error",
+        icon: "bi bi-folder2-open",
+    },
+]);
 
 async function loadInfra() {
-    const { data } = await api.get("/dashboard/infraestructura");
-    estado.value = data;
+    loading.value = true;
+    try {
+        const { data } = await api.get("/dashboard/infraestructura");
+        estado.value = { ...estado.value, ...data };
+    } finally {
+        loading.value = false;
+    }
 }
 
 function infraBadge(s: string) {
@@ -238,6 +321,14 @@ function infraBadge(s: string) {
         : s === "warning"
             ? "bg-warning text-dark"
             : "bg-danger";
+}
+
+function nodoBadge(ok: boolean) {
+    return ok ? "bg-success" : "bg-danger";
+}
+
+function statusClass(status: string | undefined) {
+    return status === "ok" ? "text-success fw-semibold" : "text-danger fw-semibold";
 }
 
 function workerBadge(s: string) {
@@ -253,10 +344,9 @@ function whisperBadge(s: string) {
 }
 
 function formatDate(d: string) {
+    if (!d) return "—";
     return new Date(d).toLocaleString();
 }
-
-
 
 onMounted(loadInfra);
 </script>
