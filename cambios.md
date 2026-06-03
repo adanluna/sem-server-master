@@ -74,13 +74,13 @@ docker compose up -d --build fastapi celery_manifest celery_uniones
 docker compose up -d --build fastapi dashboard
 ```
 
-## App — sesiones: sin cierre por inactividad y sin zombies
+## App — sesiones: 1 usuario ↔ 1 tablet
 
-- **Backend:** sin cierre automático por timeout en heartbeat/refresh (`APP_SESSION_AUTO_CLOSE_IDLE=0` por defecto); nunca cierra `recording` en sweep.
-- **Login otra tablet:** sesión activa en otro dispositivo → **409** (sin takeover). Debe cerrar sesión en la tablet activa.
-- **Misma tablet:** re-login permitido (refresca sesión en servidor). Reabrir la app con tokens va a `/expediente` o `/dialog`.
-- **Cerrar sesión:** botón logout en header → `POST /auth/logout` + limpieza local; libera el usuario para otra tablet.
-- **JWT:** refresh fallido no borra tokens locales; logout forzado solo si el servidor revocó la sesión (admin).
+- **Un usuario** solo puede tener **una sesión activa** (en una tablet). Si intenta entrar en otra → **409** informativo; debe cerrar sesión en la tablet donde está.
+- **Una tablet** solo admite **un usuario** a la vez. Si otro usuario intenta entrar → **409** informativo; el usuario activo debe cerrar sesión en esa tablet.
+- **Sin takeover:** no hay opción de cerrar sesión remota desde otra tablet.
+- **Misma tablet, mismo usuario:** re-login y reabrir app permitidos; botón logout cierra en servidor.
+- **JWT:** refresh fallido no borra tokens locales; logout forzado solo si admin revoca.
 
 Rebuild APK + `docker compose up -d --build fastapi`.
 

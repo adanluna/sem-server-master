@@ -87,6 +87,20 @@ def get_active_app_session(db: Session, username: str) -> models.AppUserSession 
     )
 
 
+def get_active_app_session_for_tablet(
+    db: Session, tablet_id: str
+) -> models.AppUserSession | None:
+    return (
+        db.query(models.AppUserSession)
+        .filter(
+            models.AppUserSession.tablet_id == tablet_id,
+            models.AppUserSession.revoked_at.is_(None),
+        )
+        .order_by(models.AppUserSession.logged_in_at.desc())
+        .first()
+    )
+
+
 def close_app_session(
     db: Session,
     row: models.AppUserSession,
@@ -164,26 +178,43 @@ def resolve_login_conflict(
 ) -> models.AppUserSession | None:
     close_stale_sessions(db)
 
-    existing = get_active_app_session(db, username)
-    if not existing:
-        return None
+    existing_user = get_active_app_session(db, username)
+    if existing_user and existing_user.tablet_id == tablet_id:
+        return existing_user
 
-    if existing.tablet_id == tablet_id:
-        return existing
+    if existing_user and existing_user.tablet_id != tablet_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SESSION_ACTIVE_ELSEWHERE",
+                "message": (
+                    f"Ya hay una sesión activa en la tablet {existing_user.tablet_id}. "
+                    "Cierre sesión en esa tablet antes de iniciar aquí."
+                ),
+                "tablet_id": existing_user.tablet_id,
+                "sesion_id": existing_user.sesion_id,
+                "can_takeover": False,
+            },
+        )
 
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "SESSION_ACTIVE_ELSEWHERE",
-            "message": (
-                f"Ya hay una sesión activa en la tablet {existing.tablet_id}. "
-                "Cierre sesión en esa tablet antes de iniciar aquí."
-            ),
-            "tablet_id": existing.tablet_id,
-            "sesion_id": existing.sesion_id,
-            "can_takeover": False,
-        },
-    )
+    occupied_tablet = get_active_app_session_for_tablet(db, tablet_id)
+    if occupied_tablet and occupied_tablet.usuario_ldap != username:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TABLET_SESSION_ACTIVE",
+                "message": (
+                    f"Esta tablet tiene una sesión activa del usuario "
+                    f"{occupied_tablet.usuario_ldap}. "
+                    "Debe cerrar sesión en esta tablet antes de que otro usuario entre."
+                ),
+                "tablet_id": tablet_id,
+                "usuario_ldap": occupied_tablet.usuario_ldap,
+                "can_takeover": False,
+            },
+        )
+
+    return None
 
 
 def create_or_refresh_app_session(
