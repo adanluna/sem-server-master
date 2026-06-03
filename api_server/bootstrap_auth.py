@@ -29,19 +29,27 @@ if not WHISPER_CLIENT_SECRET:
 db = SessionLocal()
 
 
-def upsert(client_id, secret, roles="worker"):
+def upsert(client_id: str, secret: str, roles: str = "worker") -> None:
+    if not secret:
+        raise SystemExit(f"[FATAL] Secret vacío para client_id={client_id}")
+
+    secret_hash = pwd_context.hash(secret)
     c = db.query(models.ServiceClient).filter_by(client_id=client_id).first()
     if not c:
-        c = models.ServiceClient(client_id=client_id, activo=True, roles=roles)
+        c = models.ServiceClient(
+            client_id=client_id,
+            client_secret_hash=secret_hash,
+            activo=True,
+            roles=roles,
+        )
         db.add(c)
-        db.flush()
         print("[OK] creado:", client_id)
     else:
+        c.client_secret_hash = secret_hash
+        c.activo = True
+        c.roles = roles
         print("[OK] existe:", client_id)
 
-    c.client_secret_hash = pwd_context.hash(secret)
-    c.activo = True
-    c.roles = roles
     print("[OK] secret rehasheado:", client_id)
 
 
