@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from api_server import models
 from api_server.utils.jobs import crear_job_interno, limpiar_error_procesamiento
 from api_server.utils.rutas import parse_hhmmss_to_seconds
+from api_server.utils.sesion_estado import asignar_estado_sesion, validar_estado_sesion
 from worker.celery_app import celery_app
 
 GRABADOR_UUID = os.getenv("WINDOWS_WAVE_UUID", "").strip()
@@ -63,7 +64,7 @@ def preparar_reprocesamiento(db: Session, sesion: models.Sesion) -> None:
     """Limpia errores y resetea archivos en error antes de relanzar pipeline."""
     limpiar_error_procesamiento(db, sesion.id)
     sesion.reintentos_procesamiento = (sesion.reintentos_procesamiento or 0) + 1
-    sesion.estado = "procesando"
+    asignar_estado_sesion(sesion, "procesando")
 
     archivos_error = (
         db.query(models.SesionArchivo)
@@ -170,7 +171,7 @@ def ejecutar_procesamiento_sesion(
             camara1_mac_address=cam1,
             camara2_mac_address=cam2,
             app_version=ses.get("version_app", "1.0.0"),
-            estado="procesando",
+            estado=validar_estado_sesion("procesando"),
             fecha=inicio_dt,
             inicio=inicio_dt,
             fin=fin_dt,
@@ -189,7 +190,7 @@ def ejecutar_procesamiento_sesion(
         sesion_obj.camara1_mac_address = cam1
         sesion_obj.camara2_mac_address = cam2
         sesion_obj.app_version = ses.get("version_app", "1.0.0")
-        sesion_obj.estado = "procesando"
+        asignar_estado_sesion(sesion_obj, "procesando")
         sesion_obj.inicio = inicio_dt
         sesion_obj.fin = fin_dt
         sesion_obj.duracion_real = (

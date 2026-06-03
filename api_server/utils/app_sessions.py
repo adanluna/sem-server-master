@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from api_server import models
+from api_server.utils.sesion_estado import asignar_estado_sesion
 
 APP_SESSION_STALE_MINUTES = int(os.getenv("APP_SESSION_STALE_MINUTES", "30"))
 APP_SESSION_STATE_IDLE = "idle"
@@ -45,7 +46,7 @@ def pause_sesion_forensic(db: Session, sesion_id: int | None, note: str) -> None
     sesion = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not sesion or sesion.estado == "finalizada":
         return
-    sesion.estado = "pausada"
+    asignar_estado_sesion(sesion, "pausada")
     sesion.ultima_actualizacion = _now_utc()
     extra = note.strip()
     if extra:

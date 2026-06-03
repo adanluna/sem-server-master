@@ -1,4 +1,5 @@
 from api_server import models
+from api_server.utils.sesion_estado import asignar_estado_sesion
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 
@@ -24,7 +25,7 @@ def registrar_error_procesamiento(
     sesion.fecha_error_procesamiento = _now_utc()
 
     if marcar_estado_error and sesion.estado != "finalizada":
-        sesion.estado = "error"
+        asignar_estado_sesion(sesion, "error")
 
     db.commit()
 
@@ -79,7 +80,7 @@ def verificar_estado_sesion(sesion_id: int, db: Session):
     # Error operativo en algún job
     if errores:
         if sesion.estado not in ("finalizada", "error"):
-            sesion.estado = "error"
+            asignar_estado_sesion(sesion, "error")
             db.commit()
         return
 

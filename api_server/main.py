@@ -36,6 +36,7 @@ from api_server.utils.ping import _ping_probe, _clamp_int
 from api_server.utils.grabador_health import build_infraestructura_extra
 from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, tamano_kb_respuesta
 from api_server.utils.jobs import registrar_error_procesamiento, verificar_estado_sesion
+from api_server.utils.sesion_estado import asignar_estado_sesion
 from api_server.utils.sesion_procesamiento import ejecutar_procesamiento_sesion
 from api_server.utils.jwt import (
     create_access_token,
@@ -489,7 +490,7 @@ def actualizar_estado(
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
     if sesion.estado != "finalizada":
-        sesion.estado = "finalizada"
+        asignar_estado_sesion(sesion, "finalizada")
         db.commit()
         db.refresh(sesion)
 
@@ -704,6 +705,9 @@ def actualizar_job_api(
             "error": job.error,
         }
 
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(

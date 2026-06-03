@@ -60,3 +60,4 @@ docker compose up -d --build fastapi celery_manifest celery_uniones
 
 - Migración `005`: añade `error` al enum de `sesiones.estado`.
 - Código: ya no intenta guardar `procesado` (valor inválido); `finalizada` la marca el cierre de archivos.
+- `api_server/utils/sesion_estado.py` valida estados antes de escribir en BD (`POST /sesiones/` y asignaciones internas).

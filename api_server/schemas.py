@@ -1,8 +1,10 @@
 # api_server/schemas.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from typing import Optional, Union
+
+from api_server.utils.sesion_estado import validar_estado_sesion
 
 
 # ======================================================
@@ -81,6 +83,13 @@ class SesionCreate(BaseModel):
     camara1_mac_address: Optional[str] = None
     camara2_mac_address: Optional[str] = None
     app_version: Optional[str] = None
+
+    @field_validator("estado")
+    @classmethod
+    def validar_estado_sesion_create(cls, v: Optional[str]) -> str:
+        if v is None:
+            return "procesando"
+        return validar_estado_sesion(v)
 
 
 class SesionResponse(BaseModel):
