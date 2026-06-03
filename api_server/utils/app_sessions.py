@@ -24,6 +24,14 @@ REVOKE_TIMEOUT = "timeout"
 REVOKE_ADMIN = "admin"
 
 
+def _session_revoked_detail(row: models.AppUserSession | None) -> dict:
+    return {
+        "message": "Sesión de app inválida o cerrada",
+        "code": "APP_SESSION_REVOKED",
+        "revoke_reason": row.revoke_reason if row else None,
+    }
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -292,7 +300,7 @@ def update_heartbeat(
 ) -> models.AppUserSession:
     row = db.query(models.AppUserSession).filter_by(id=session_id).first()
     if not row or row.revoked_at is not None:
-        raise HTTPException(status_code=401, detail="Sesión de app inválida o cerrada")
+        raise HTTPException(status_code=401, detail=_session_revoked_detail(row))
 
     if row.tablet_id != tablet_id:
         raise HTTPException(status_code=403, detail="Tablet no coincide con la sesión")
@@ -322,7 +330,7 @@ def validate_app_session_for_token(
         return
     row = db.query(models.AppUserSession).filter_by(id=app_session_id).first()
     if not row or row.revoked_at is not None:
-        raise HTTPException(status_code=401, detail="Sesión de app cerrada")
+        raise HTTPException(status_code=401, detail=_session_revoked_detail(row))
     if row.usuario_ldap != username:
         raise HTTPException(status_code=403, detail="Sesión de app inválida")
     if tablet_id and row.tablet_id != tablet_id:

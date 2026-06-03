@@ -79,7 +79,8 @@ docker compose up -d --build fastapi dashboard
 - **Un usuario** solo puede tener **una sesión activa**. Si intenta entrar en **otra tablet** → **409** (sin takeover remoto); debe cerrar sesión en la tablet donde está.
 - **Usuarios distintos en tablets distintas** (ej. Juan tablet-1 + María tablet-2) → **permitido**; no se bloquean entre sí.
 - **Otro usuario en la misma tablet** → diálogo para cerrar sesión anterior; si había **grabación**, se **finaliza y procesa**; si solo sesión idle, se cierra.
-- **Misma tablet, mismo usuario:** re-login y reabrir app permitidos; botón logout cierra en servidor.
+- **Finalización normal de grabación:** tras procesar → logout (servidor + local) → pantalla **Success** con datos de la sesión → botón lleva a login.
+- **Takeover en la misma tablet:** procesa grabación ajena sin desloguear al nuevo usuario antes de que termine su login.
 
 Rebuild APK + `docker compose up -d --build fastapi`.
 
