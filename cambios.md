@@ -74,17 +74,19 @@ docker compose up -d --build fastapi celery_manifest celery_uniones
 docker compose up -d --build fastapi dashboard
 ```
 
-## App — sesiones no se cierran solas al grabar
+## App — sesiones: sin cierre por inactividad, takeover y sin zombies
 
-- **Backend:** sin cierre automático por timeout en heartbeat/refresh.
-- **Background:** `close_stale_sessions` desactivado por defecto (`APP_SESSION_AUTO_CLOSE_IDLE=0`); nunca cierra `recording`.
-- **Login:** una sesión activa por usuario; otra tablet recibe **409** (sin takeover). Solo logout en la tablet activa libera el login.
+- **Backend:** sin cierre automático por timeout en heartbeat/refresh (`APP_SESSION_AUTO_CLOSE_IDLE=0` por defecto); nunca cierra `recording` en sweep.
+- **Login:** una sesión activa por usuario en otra tablet → **409** con `can_takeover: true`. Con `force_takeover` se cierra la sesión remota y entra la nueva tablet.
 - **Misma tablet:** re-login refresca la sesión existente.
-- **App:** heartbeat renueva JWT; en 401 intenta refresh; solo desloguea si el servidor revocó la sesión app.
-- Rebuild APK + `docker compose up -d --build fastapi`.
+- **App:** al reabrir, si hay tokens válidos va a `/expediente` (o `/dialog` si hay sesión forense pendiente), no al login.
+- **JWT:** refresh fallido ya no borra tokens locales; solo logout forzado si el servidor revocó la sesión app (admin o takeover).
+- **Heartbeat:** renueva JWT; desloguea solo ante revocación explícita en servidor.
+
+Rebuild APK + `docker compose up -d --build fastapi`.
 
 Variables opcionales en `.env` master:
-- `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas (pendiente operación).
+- `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas (no usado en operación normal).
 - `APP_SESSION_STALE_MINUTES=30` — umbral si auto-close idle está activo.
 
 ## Infra — montaje Whisper (menos falsos negativos)

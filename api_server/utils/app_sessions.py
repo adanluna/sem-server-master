@@ -160,7 +160,7 @@ def resolve_login_conflict(
     db: Session,
     username: str,
     tablet_id: str,
-    force_takeover: bool = False,  # ignorado: sin takeover; solo logout en la otra tablet
+    force_takeover: bool = False,
 ) -> models.AppUserSession | None:
     close_stale_sessions(db)
 
@@ -171,17 +171,21 @@ def resolve_login_conflict(
     if existing.tablet_id == tablet_id:
         return existing
 
+    if force_takeover:
+        close_app_session(db, existing, reason=REVOKE_TAKEOVER, pause_sesion=True)
+        return None
+
     raise HTTPException(
         status_code=409,
         detail={
             "code": "SESSION_ACTIVE_ELSEWHERE",
             "message": (
                 f"Ya hay una sesión activa en la tablet {existing.tablet_id}. "
-                "Cierre sesión allí antes de iniciar en otra tablet."
+                "¿Desea cerrarla e iniciar aquí?"
             ),
             "tablet_id": existing.tablet_id,
             "sesion_id": existing.sesion_id,
-            "can_takeover": False,
+            "can_takeover": True,
         },
     )
 
