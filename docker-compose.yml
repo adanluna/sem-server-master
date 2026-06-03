@@ -59,6 +59,7 @@ services:
     cap_add:
       - NET_RAW
     volumes:
+      - ./api_server:/code/api_server
       - ./worker:/code/worker
       - ./logs:/code/logs
       - /mnt/wave:/mnt/wave:ro
