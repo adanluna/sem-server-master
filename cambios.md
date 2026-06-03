@@ -15,3 +15,18 @@ docker compose up -d --build fastapi dashboard
 
 - `GET /dashboard/infraestructura` incluye `grabador`, `grabador_status`, `wave_mount`.
 - Tras desplegar: hard refresh en el navegador (Ctrl+Shift+R).
+
+## Usuarios dashboard — admin visible y protegido
+
+- `admin` aparece primero en la lista, con badge **protegido** y sin botón eliminar.
+- Backend rechaza `DELETE` del usuario `admin` (403).
+
+## Sesiones fallidas
+
+- Solo listan sesiones con `payload_procesamiento` (reprocesables).
+- Borre sesiones de prueba antiguas sin JSON; las nuevas desde la app ya guardan JSON.
+- El Top 10 del dashboard puede mostrar errores viejos hasta que se limpien en BD.
+
+```bash
+docker compose up -d --build fastapi dashboard
+```

@@ -4,7 +4,7 @@ from fastapi import Response, APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import func, distinct, text
+from sqlalchemy import func, distinct, text, case
 import socket
 import shutil
 import secrets
@@ -1249,7 +1249,10 @@ def listar_dashboard_usuarios(
 ):
     users = (
         db.query(models.DashboardUser)
-        .order_by(models.DashboardUser.username.asc())
+        .order_by(
+            case((models.DashboardUser.username == PROTECTED_USERNAME, 0), else_=1),
+            models.DashboardUser.username.asc(),
+        )
         .all()
     )
     return [_dashboard_user_response(u) for u in users]

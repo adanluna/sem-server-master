@@ -11,6 +11,12 @@
             {{ mensaje }}
         </div>
 
+        <div class="alert alert-info small mb-3">
+            Solo aparecen sesiones con <strong>JSON guardado</strong> (<code>payload_procesamiento</code>)
+            que fallaron en el pipeline y pueden <strong>volverse a procesar</strong>.
+            Los errores antiguos de prueba sin JSON solo se ven en el Top 10 del dashboard hasta que se eliminen.
+        </div>
+
         <div class="card">
             <div class="table-responsive">
                 <table class="table table-hover table-sm mb-0">
@@ -74,7 +80,10 @@
                         </tr>
                         <tr v-if="!loading && !sesiones.length">
                             <td colspan="11" class="text-center py-4 text-muted">
-                                No hay sesiones fallidas con JSON guardado
+                                No hay sesiones fallidas reprocesables en este momento.<br />
+                                <span class="small">
+                                    Cuando una sesión falle tras guardar el JSON desde la app, aparecerá aquí.
+                                </span>
                             </td>
                         </tr>
                         <tr v-if="loading">
@@ -227,7 +236,17 @@ function changePage(p: number) {
 }
 
 async function abrirDetalle(sesionId: number) {
-    detalle.value = await fetchSesionFallidaDetalle(sesionId);
+    try {
+        detalle.value = await fetchSesionFallidaDetalle(sesionId);
+    } catch (e: any) {
+        mensajeOk.value = false;
+        const detail = e?.response?.data?.detail;
+        mensaje.value =
+            typeof detail === "string"
+                ? detail
+                : `La sesión ${sesionId} no está en sesiones fallidas (¿sin JSON guardado o ya finalizada?).`;
+        detalle.value = null;
+    }
 }
 
 function cerrarDetalle() {

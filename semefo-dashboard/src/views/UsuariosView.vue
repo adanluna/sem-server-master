@@ -30,6 +30,16 @@ const editingProtected = computed(
     () => formMode.value === "edit" && rows.value.find((r) => r.id === editId.value)?.is_protected
 );
 
+const sortedRows = computed(() => {
+    const list = [...rows.value];
+    list.sort((a, b) => {
+        if (a.is_protected && !b.is_protected) return -1;
+        if (!a.is_protected && b.is_protected) return 1;
+        return a.username.localeCompare(b.username);
+    });
+    return list;
+});
+
 function permSummary(p: DashboardPermissions): string {
     const labels = PERMISSION_KEYS.filter((k) => p[k]).map((k) => PERMISSION_LABELS[k]);
     return labels.length ? labels.join(", ") : "Sin acceso";
@@ -146,6 +156,11 @@ onMounted(load);
             <button class="btn btn-success btn-sm" @click="openCreate">+ Nuevo usuario</button>
         </div>
 
+        <div class="card-body py-2 border-bottom bg-light small text-muted">
+            El usuario <strong>admin</strong> siempre aparece en la lista, tiene acceso completo y
+            <strong>no se puede eliminar</strong>.
+        </div>
+
         <div v-if="loading && !rows.length" class="card-body text-muted">Cargando...</div>
 
         <table v-else class="table table-striped mb-0">
@@ -159,10 +174,14 @@ onMounted(load);
                 </tr>
             </thead>
             <tbody>
-                <tr v-for="u in rows" :key="u.id">
+                <tr
+                    v-for="u in sortedRows"
+                    :key="u.id"
+                    :class="{ 'table-secondary': u.is_protected }"
+                >
                     <td>
                         {{ u.username }}
-                        <span v-if="u.is_protected" class="badge bg-secondary ms-1">protegido</span>
+                        <span v-if="u.is_protected" class="badge bg-dark ms-1">admin · protegido</span>
                     </td>
                     <td>
                         <span class="badge" :class="u.activo ? 'bg-success' : 'bg-secondary'">
@@ -180,10 +199,16 @@ onMounted(load);
                         >
                             Eliminar
                         </button>
+                        <span v-else class="text-muted small ms-2" title="Usuario protegido del sistema">
+                            <i class="bi bi-lock-fill"></i> No eliminable
+                        </span>
                     </td>
                 </tr>
                 <tr v-if="!rows.length">
-                    <td colspan="5" class="text-muted p-3">Sin usuarios</td>
+                    <td colspan="5" class="text-muted p-3">
+                        Sin usuarios. Si falta <strong>admin</strong>, ejecute la migración 003 o el seed en
+                        <code>config-scripts/api.sql</code>.
+                    </td>
                 </tr>
             </tbody>
         </table>

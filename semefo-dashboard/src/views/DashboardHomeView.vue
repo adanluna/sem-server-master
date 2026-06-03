@@ -171,8 +171,9 @@ onMounted(async () => {
                       <router-link
                         :to="`/sesiones-fallidas?sesion=${s.id}`"
                         class="btn btn-outline-primary btn-sm"
+                        title="Abrir en Sesiones fallidas (requiere JSON guardado)"
                       >
-                        Reprocesar
+                        Ver / reprocesar
                       </router-link>
                     </td>
                   </tr>
