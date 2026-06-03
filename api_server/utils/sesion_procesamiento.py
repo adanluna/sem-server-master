@@ -28,6 +28,28 @@ def _normalizar_job_id(result):
     return result
 
 
+def _buscar_investigacion(db: Session, expediente) -> models.Investigacion | None:
+    """Resuelve investigación por número de expediente o id (legacy app)."""
+    if expediente is None or expediente == "":
+        return None
+
+    texto = str(expediente).strip()
+    inv = (
+        db.query(models.Investigacion)
+        .filter_by(numero_expediente=texto)
+        .first()
+    )
+    if inv:
+        return inv
+
+    try:
+        inv_id = int(expediente)
+    except (TypeError, ValueError):
+        return None
+
+    return db.query(models.Investigacion).filter_by(id=inv_id).first()
+
+
 def sincronizar_pausas_app(db: Session, sesion_id: int, pausas: list) -> int:
     """
     Aplica pausas del JSON de forma idempotente (fuente=app).
@@ -142,19 +164,20 @@ def ejecutar_procesamiento_sesion(
     if sesion_obj:
         investigacion = sesion_obj.investigacion
     else:
-        investigacion = (
-            db.query(models.Investigacion)
-            .filter_by(numero_expediente=expediente)
-            .first()
-        )
+        investigacion = _buscar_investigacion(db, expediente)
         if not investigacion:
-            raise HTTPException(404, "Investigación no encontrada")
+            raise HTTPException(
+                status_code=404,
+                detail="Investigación no encontrada",
+            )
+
+    numero_expediente = investigacion.numero_expediente
 
     nombre_carpeta = (
         getattr(investigacion, "nombre_carpeta", None) or ""
     ).strip()
     if not nombre_carpeta:
-        nombre_carpeta = expediente
+        nombre_carpeta = numero_expediente
 
     forense = ses.get("forense") or {}
 
@@ -219,7 +242,7 @@ def ejecutar_procesamiento_sesion(
 
     job_manifest1 = _normalizar_job_id(crear_job_interno(
         db=db,
-        numero_expediente=expediente,
+        numero_expediente=numero_expediente,
         sesion_id=id_sesion,
         tipo="manifest",
         archivo=f"manifests/{GRABADOR_UUID}/{cam1}/{yyyy}/{mm}/{dd}/manifest.json",
@@ -232,7 +255,7 @@ def ejecutar_procesamiento_sesion(
 
     job_manifest2 = _normalizar_job_id(crear_job_interno(
         db=db,
-        numero_expediente=expediente,
+        numero_expediente=numero_expediente,
         sesion_id=id_sesion,
         tipo="manifest",
         archivo=f"manifests/{GRABADOR_UUID}/{cam2}/{yyyy}/{mm}/{dd}/manifest.json",
@@ -252,7 +275,7 @@ def ejecutar_procesamiento_sesion(
         celery_app.signature(
             "worker.tasks.unir_video",
             args=[
-                expediente,
+                numero_expediente,
                 nombre_carpeta,
                 id_sesion,
                 path_manifest1,
@@ -272,7 +295,7 @@ def ejecutar_procesamiento_sesion(
         celery_app.signature(
             "worker.tasks.unir_video2",
             args=[
-                expediente,
+                numero_expediente,
                 nombre_carpeta,
                 id_sesion,
                 path_manifest2,
@@ -285,7 +308,7 @@ def ejecutar_procesamiento_sesion(
 
     return {
         "status": "procesando",
-        "expediente": expediente,
+        "expediente": numero_expediente,
         "nombre_carpeta": nombre_carpeta,
         "id_sesion": id_sesion,
         "inicio_sesion": inicio_iso,

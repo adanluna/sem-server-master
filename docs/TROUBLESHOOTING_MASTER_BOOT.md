@@ -1,6 +1,32 @@
 # Master — arranque tras reboot (`semefo-master.service`)
 
-## Síntoma
+## Síntoma A — ningún contenedor tras reboot
+
+`docker ps` vacío y:
+
+```
+semefo-master.service: Job ... failed with result 'dependency'.
+```
+
+Causa: `RequiresMountsFor=/mnt/wave` con **autofs/CIFS** — al boot el montaje aún no está activo y systemd aborta el servicio sin reintentar. Minutos después `/mnt/wave` sí responde.
+
+**Recuperación inmediata** (con WAVE ya montado):
+
+```bash
+sudo systemctl start semefo-master
+docker compose -f /opt/semefo/docker-compose.yml ps
+```
+
+Actualizar unit (sin `RequiresMountsFor`; el `ExecStartPre` ya espera hasta 60 s):
+
+```bash
+cd /opt/semefo
+sudo cp deploy/semefo-master.service /etc/systemd/system/semefo-master.service
+sudo systemctl daemon-reload
+sudo systemctl enable semefo-master
+```
+
+## Síntoma B — solo 3 contenedores Up
 
 Tras reiniciar el servidor solo suben 3 contenedores (`postgres`, `rabbitmq`, `fastapi`) y workers/dashboard quedan en `Created` o no arrancan.
 
