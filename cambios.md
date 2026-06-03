@@ -111,6 +111,36 @@ Whisper: `healthcheck.py` POST cada ~30 s (listener) + cron respaldo; log en `/o
 
 Dashboard infra: auto-refresh cada 45 s. App: `InfraMonitorService` cada 60 s con sesión activa.
 
+## Whisper — video procesado pero sin transcripción
+
+**Síntoma:** worker loguea `whisper_job_enviado` pero Whisper no transcribe; `journalctl -u whisper_listener` solo muestra start/stop (la actividad está en `/opt/semefo/logs/whisper_listener.log`).
+
+**Causas frecuentes:**
+1. Listener detenido cuando llegó el mensaje (RabbitMQ lo conserva; al reiniciar debería consumirlo).
+2. `video.webm` no visible aún en el montaje SMB de Whisper → el listener fallaba y **descartaba** el mensaje (ACK). Corregido: reintento con `nack requeue`.
+3. Encolado omitido si job `transcripcion` quedó `pendiente` sin procesar. Corregido: se permite re-encolar si la transcripción no está completada.
+
+**Diagnóstico en master:**
+```bash
+docker compose exec rabbitmq rabbitmqctl list_queues name messages consumers
+docker compose logs fastapi --tail 50 | grep WHISPER
+```
+
+**Diagnóstico en Whisper:**
+```bash
+tail -f /opt/semefo/logs/whisper_listener.log
+ls -la /mnt/wave/archivos_sistema_semefo/ADAN2/2/video.webm
+```
+
+**Re-encolar sesión manualmente (ej. sesión 2):**
+```bash
+curl -s -X POST "http://127.0.0.1:8000/whisper/enviar" \
+  -H "Content-Type: application/json" \
+  -d '{"sesion_id":2,"expediente":"ADAN2","nombre_carpeta":"ADAN2","force_reencolar":true}'
+```
+
+Luego en Whisper: `sudo systemctl restart whisper_listener` y revisar el log.
+
 ## Dashboard — login 405 / no puede volver a entrar
 
 - **Causa:** nginx enviaba `POST /api/dashboard/login` a FastAPI sin quitar `/api/`; el mount `app.mount("/api", api_app)` capturaba la ruta y el login admin (`POST /dashboard/login`) no se ejecutaba.

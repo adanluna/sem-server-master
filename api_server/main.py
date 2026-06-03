@@ -287,6 +287,13 @@ def _publicar_whisper_rabbit(
                 body=json.dumps(payload),
                 properties=pika.BasicProperties(delivery_mode=2),
             )
+            logger.info(
+                "[WHISPER] Mensaje publicado en cola transcripciones "
+                "sesion_id=%s exp=%s carpeta=%s",
+                sesion_id,
+                numero_expediente,
+                nombre_carpeta,
+            )
             return
         except Exception as e:
             last_error = e
@@ -309,27 +316,17 @@ def _publicar_whisper_rabbit(
     )
 
 
-def encolar_whisper_si_corresponde(db: Session, sesion_id: int) -> bool:
+def encolar_whisper_si_corresponde(
+    db: Session, sesion_id: int, *, force: bool = False
+) -> bool:
     """
     Encola Whisper cuando video.webm queda listo.
-    Idempotente: no reencola si la transcripción ya está en curso o terminada.
+    Idempotente: no reencola si la transcripción ya está completada.
+    Jobs en pendiente/procesando/error pueden re-encolarse (mensaje perdido en RabbitMQ).
     """
     ses = db.query(models.Sesion).filter_by(id=sesion_id).first()
     if not ses or not ses.investigacion:
         raise ValueError("Sesión/Investigación no encontrada")
-
-    job_trans = (
-        db.query(models.Job)
-        .filter_by(sesion_id=sesion_id, tipo="transcripcion")
-        .first()
-    )
-    if job_trans and job_trans.estado in ("pendiente", "procesando", "completado"):
-        logger.info(
-            "[WHISPER] Sesión %s: job transcripcion ya %s, omitiendo encolado",
-            sesion_id,
-            job_trans.estado,
-        )
-        return False
 
     archivo_trans = (
         db.query(models.SesionArchivo)
@@ -342,6 +339,33 @@ def encolar_whisper_si_corresponde(db: Session, sesion_id: int) -> bool:
             sesion_id,
         )
         return False
+
+    job_trans = (
+        db.query(models.Job)
+        .filter_by(sesion_id=sesion_id, tipo="transcripcion")
+        .first()
+    )
+    if job_trans and job_trans.estado == "completado":
+        logger.info(
+            "[WHISPER] Sesión %s: job transcripcion completado, omitiendo encolado",
+            sesion_id,
+        )
+        return False
+
+    if job_trans and job_trans.estado in ("pendiente", "procesando", "error"):
+        if force:
+            logger.info(
+                "[WHISPER] Sesión %s: re-encolado forzado (job %s)",
+                sesion_id,
+                job_trans.estado,
+            )
+        else:
+            logger.info(
+                "[WHISPER] Sesión %s: re-encolando (job transcripcion %s, "
+                "transcripción aún no completada)",
+                sesion_id,
+                job_trans.estado,
+            )
 
     nombre_carpeta = (ses.investigacion.nombre_carpeta or "").strip()
     if not nombre_carpeta:
@@ -1090,7 +1114,10 @@ def enviar_a_whisper(data: dict, db: Session = Depends(get_db)):
             status_code=404, detail="Sesión/Investigación no encontrada")
 
     try:
-        encolado = encolar_whisper_si_corresponde(db, int(sesion_id))
+        force = bool(data.get("force_reencolar") or data.get("force"))
+        encolado = encolar_whisper_si_corresponde(
+            db, int(sesion_id), force=force
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
