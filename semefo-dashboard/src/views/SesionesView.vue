@@ -37,7 +37,8 @@
                             <th>Sesión</th>
                             <th>Usuario</th>
                             <th>Fecha</th>
-                            <th>Estado</th>
+                            <th>Etapa</th>
+                            <th>Estado BD</th>
                             <th>Jobs</th>
                         </tr>
                     </thead>
@@ -52,9 +53,12 @@
                             <td>{{ s.usuario_ldap }}</td>
                             <td>{{ formatFechaLocal(s.fecha) }}</td>
                             <td>
-                                <span class="badge" :class="estadoBadge(s.estado)">
-                                    {{ s.estado }}
+                                <span class="badge" :class="etapaBadgeClass(s.etapa)">
+                                    {{ s.etapa_label || s.estado }}
                                 </span>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ s.estado }}</span>
                             </td>
                             <td>
                                 <span class="text-success me-2">
@@ -70,7 +74,7 @@
                         </tr>
 
                         <tr v-if="!sesiones.length">
-                            <td colspan="5" class="text-center py-4 text-muted">
+                            <td colspan="7" class="text-center py-4 text-muted">
                                 No hay sesiones en el rango seleccionado
                             </td>
                         </tr>
@@ -91,6 +95,7 @@ import { ref, onMounted } from "vue";
 import { fetchSesiones } from "../api/dashboard";
 import Pagination from "../components/Pagination.vue";
 import { formatFechaLocal } from "../utils/fechas";
+import { etapaBadgeClass } from "../utils/sesionEtapa";
 
 const sesiones = ref<any[]>([]);
 const page = ref(1);
@@ -115,21 +120,6 @@ async function loadSesiones() {
 function changePage(p: number) {
     page.value = p;
     loadSesiones();
-}
-
-function estadoBadge(estado: string) {
-    switch (estado) {
-        case "finalizada":
-            return "bg-success";
-        case "procesando":
-            return "bg-primary";
-        case "pausada":
-            return "bg-warning text-dark";
-        case "error":
-            return "bg-danger";
-        default:
-            return "bg-secondary";
-    }
 }
 
 onMounted(loadSesiones);

@@ -23,6 +23,7 @@ from api_server.utils.app_sessions import (
     REVOKE_ADMIN,
 )
 from api_server.utils.grabador_health import build_infraestructura_extra
+from api_server.utils.sesion_display import compute_etapa_sesion, enrich_sesion_resumen
 from api_server.utils.jwt import (
     require_dashboard_permission,
     pwd_context,
@@ -167,28 +168,37 @@ def dashboard_resumen(
         "total_30_dias": int(kpis_row.get("total_30_dias") or 0),
         "finalizadas": int(kpis_row.get("finalizadas") or 0),
         "pendientes": int(kpis_row.get("pendientes") or 0),
+        "abiertas": int(kpis_row.get("pendientes") or 0),
         "errores": int(kpis_row.get("errores") or 0),
     }
 
     # ----------------------------
-    # Top 10 pendientes (más viejas primero)
+    # Top 10 abiertas (no finalizadas, más recientes primero)
     # ----------------------------
-    pendientes_sql = text("""
+    abiertas_sql = text("""
         SELECT
             s.id,
             i.numero_expediente,
             s.nombre_sesion,
             p.nombre AS plancha_nombre,
             s.estado,
-            s.fecha
+            s.fecha,
+            s.inicio,
+            s.fin,
+            (s.payload_procesamiento IS NOT NULL) AS tiene_payload,
+            (SELECT COUNT(*) FROM jobs j WHERE j.sesion_id = s.id) AS jobs_total,
+            (SELECT COUNT(*) FROM jobs j WHERE j.sesion_id = s.id AND j.estado = 'error') AS jobs_error
         FROM sesiones s
         LEFT JOIN investigaciones i ON i.id = s.investigacion_id
         LEFT JOIN planchas p ON p.id = s.plancha_id
-        WHERE s.estado IN ('procesando','pausada')
-        ORDER BY s.fecha ASC
+        WHERE s.estado IN ('procesando', 'pausada', 'error')
+        ORDER BY s.fecha DESC
         LIMIT 10
     """)
-    pendientes = list(db.execute(pendientes_sql).mappings().all())
+    abiertas = [
+        enrich_sesion_resumen(dict(r))
+        for r in db.execute(abiertas_sql).mappings().all()
+    ]
 
     # ----------------------------
     # Top 10 últimas creadas
@@ -200,14 +210,22 @@ def dashboard_resumen(
             p.nombre AS plancha_nombre,
             s.nombre_sesion,
             s.estado,
-            s.fecha
+            s.fecha,
+            s.inicio,
+            s.fin,
+            (s.payload_procesamiento IS NOT NULL) AS tiene_payload,
+            (SELECT COUNT(*) FROM jobs j WHERE j.sesion_id = s.id) AS jobs_total,
+            (SELECT COUNT(*) FROM jobs j WHERE j.sesion_id = s.id AND j.estado = 'error') AS jobs_error
         FROM sesiones s
         LEFT JOIN investigaciones i ON i.id = s.investigacion_id
         LEFT JOIN planchas p ON p.id = s.plancha_id
         ORDER BY s.fecha DESC
         LIMIT 10
     """)
-    ultimas = list(db.execute(ultimas_sql).mappings().all())
+    ultimas = [
+        enrich_sesion_resumen(dict(r))
+        for r in db.execute(ultimas_sql).mappings().all()
+    ]
 
     # ----------------------------
     # Top 10 con error (prioriza lo más reciente)
@@ -252,7 +270,8 @@ def dashboard_resumen(
 
     return {
         "kpis": kpis,
-        "pendientes": pendientes,
+        "pendientes": abiertas,
+        "abiertas": abiertas,
         "ultimas": ultimas,
         "errores": errores,
     }
@@ -346,6 +365,16 @@ def dashboard_sesiones(
     data = []
     for s in sesiones:
         resumen = jobs_map.get(s.id, {})
+        jobs_error = int(resumen.get("error") or 0)
+        jobs_total = sum(int(resumen.get(k) or 0) for k in ("pendiente", "procesando", "completado", "error"))
+        etapa = compute_etapa_sesion(
+            estado=s.estado,
+            inicio=s.inicio,
+            fin=s.fin,
+            tiene_payload=s.payload_procesamiento is not None,
+            jobs_total=jobs_total,
+            jobs_error=jobs_error,
+        )
 
         data.append({
             "sesion_id": s.id,
@@ -354,6 +383,10 @@ def dashboard_sesiones(
             "usuario_ldap": s.usuario_ldap,
             "fecha": s.fecha,
             "estado": s.estado,
+            "etapa": etapa["etapa"],
+            "etapa_label": etapa["etapa_label"],
+            "inicio": s.inicio,
+            "fin": s.fin,
             "duracion_real": s.duracion_real,
             "jobs": {
                 "pendiente": resumen.get("pendiente", 0),

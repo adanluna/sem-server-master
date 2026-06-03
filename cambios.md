@@ -61,3 +61,15 @@ docker compose up -d --build fastapi celery_manifest celery_uniones
 - Migración `005`: añade `error` al enum de `sesiones.estado`.
 - Código: ya no intenta guardar `procesado` (valor inválido); `finalizada` la marca el cierre de archivos.
 - `api_server/utils/sesion_estado.py` valida estados antes de escribir en BD (`POST /sesiones/` y asignaciones internas).
+
+## Dashboard — etapas de sesión más claras
+
+- **Etapa** (UI): Creada (sin grabar), Grabando, Pausada, Grabada · sin procesar, En pipeline, Finalizada, Con error.
+- **Estado BD**: valor técnico (`procesando`, `pausada`, `finalizada`, `error`).
+- Lista **Sesiones abiertas recientes**: top 10 no finalizadas, **más nuevas primero** (antes: 10 más viejas).
+- KPI **Abiertas** reemplaza el label confuso “Pendientes”.
+- Tras rebuild: `docker compose up -d --build fastapi dashboard` (nginx con DNS dinámico a fastapi).
+
+```bash
+docker compose up -d --build fastapi dashboard
+```

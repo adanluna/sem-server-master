@@ -5,11 +5,24 @@ export type DashboardResumen = {
         total_30_dias: number;
         finalizadas: number;
         pendientes: number;
+        abiertas?: number;
         errores: number;
     };
-    pendientes: any[];
-    ultimas: any[];
+    pendientes: SesionResumenRow[];
+    abiertas?: SesionResumenRow[];
+    ultimas: SesionResumenRow[];
     errores: any[];
+};
+
+export type SesionResumenRow = {
+    id: number;
+    numero_expediente?: string;
+    nombre_sesion?: string;
+    plancha_nombre?: string;
+    estado?: string;
+    etapa?: string;
+    etapa_label?: string;
+    fecha?: string;
 };
 
 export async function fetchSesionProcesos(sesionId: number) {
