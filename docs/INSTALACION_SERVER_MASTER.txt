@@ -152,7 +152,7 @@ Description=SEMEFO Master Stack (API + PostgreSQL + RabbitMQ + Workers)
 After=network-online.target docker.service remote-fs.target
 Wants=network-online.target
 Requires=docker.service
-RequiresMountsFor=/mnt/wave
+# Sin RequiresMountsFor=/mnt/wave (autofs): ExecStartPre espera hasta 60 s al share.
 
 [Service]
 Type=oneshot

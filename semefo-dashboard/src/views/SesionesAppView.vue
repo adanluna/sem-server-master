@@ -73,6 +73,14 @@
                 </table>
             </div>
         </div>
+
+        <ConfirmAppSessionRevokeModal
+            ref="revokeModal"
+            :usuario="pendingRevoke?.usuario_ldap ?? ''"
+            :tablet-id="pendingRevoke?.tablet_id ?? ''"
+            :confirming="revoking !== null"
+            @confirm="executeRevoke"
+        />
     </section>
 </template>
 
@@ -80,10 +88,13 @@
 import { ref, onMounted } from "vue";
 import { listAppSessions, revokeAppSession, type AppSessionRow } from "../api/app_sessions";
 import { formatFechaLocal } from "../utils/fechas";
+import ConfirmAppSessionRevokeModal from "../components/ConfirmAppSessionRevokeModal.vue";
 
 const loading = ref(false);
 const revoking = ref<number | null>(null);
 const rows = ref<AppSessionRow[]>([]);
+const revokeModal = ref<InstanceType<typeof ConfirmAppSessionRevokeModal> | null>(null);
+const pendingRevoke = ref<AppSessionRow | null>(null);
 
 function estadoBadge(s: AppSessionRow): string {
     if (s.estado === "recording") return "bg-danger";
@@ -102,13 +113,21 @@ async function load() {
     }
 }
 
-async function confirmRevoke(s: AppSessionRow) {
+function confirmRevoke(s: AppSessionRow) {
     if (!s.can_admin_revoke) return;
-    if (!confirm(`¿Cerrar sesión de ${s.usuario_ldap} en tablet ${s.tablet_id}?`)) return;
+    pendingRevoke.value = s;
+    revokeModal.value?.open();
+}
+
+async function executeRevoke() {
+    const s = pendingRevoke.value;
+    if (!s) return;
 
     revoking.value = s.id;
     try {
         await revokeAppSession(s.id);
+        revokeModal.value?.close();
+        pendingRevoke.value = null;
         await load();
     } catch (e: any) {
         const detail = e?.response?.data?.detail;

@@ -33,7 +33,7 @@ docker compose up -d --build fastapi dashboard
 
 ## Arranque automático master (semefo-master.service)
 
-Tras reboot, el stack debe levantar **6** contenedores. Si solo suben 3, actualizar la unidad systemd:
+Tras reboot deben subir **6** contenedores. Si `docker ps` está vacío y el log dice `failed with result 'dependency'`, la causa suele ser `RequiresMountsFor=/mnt/wave` con autofs — la unidad actual **no** lo usa; solo `ExecStartPre` espera el share.
 
 ```bash
 cd /opt/semefo
@@ -46,6 +46,14 @@ docker compose ps
 ```
 
 Detalle: `docs/TROUBLESHOOTING_MASTER_BOOT.md`
+
+## Dashboard — confirmación al cerrar sesión app
+
+En **Administrador → Sesiones app**, el botón **Cerrar** abre un modal de confirmación antes de revocar la sesión en la tablet.
+
+```bash
+docker compose up -d --build dashboard
+```
 
 ## Fix enum sesión — manifest / actualizar job 500
 
