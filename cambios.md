@@ -30,3 +30,19 @@ docker compose up -d --build fastapi dashboard
 ```bash
 docker compose up -d --build fastapi dashboard
 ```
+
+## Arranque automático master (semefo-master.service)
+
+Tras reboot, el stack debe levantar **6** contenedores. Si solo suben 3, actualizar la unidad systemd:
+
+```bash
+cd /opt/semefo
+sudo cp deploy/semefo-master.service /etc/systemd/system/semefo-master.service
+sudo systemctl daemon-reload
+sudo systemctl enable semefo-master
+sudo systemctl reset-failed semefo-master
+sudo systemctl start semefo-master
+docker compose ps
+```
+
+Detalle: `docs/TROUBLESHOOTING_MASTER_BOOT.md`
