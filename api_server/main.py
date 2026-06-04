@@ -1104,16 +1104,8 @@ def obtener_ffmpeg_log(sesion_id: int):
 def enviar_a_whisper(data: dict, db: Session = Depends(get_db)):
 
     sesion_id = data.get("sesion_id")
-    # <-- esto hoy te llega como carpeta_fs (ej. 009_223_22)
-    expediente = data.get("expediente")
-
-    if not sesion_id or not expediente:
+    if not sesion_id:
         raise HTTPException(status_code=400, detail="Datos incompletos")
-
-    # Compatibilidad: el worker puede mandar nombre_carpeta explícito
-    nombre_carpeta = str(
-        data.get("nombre_carpeta") or expediente
-    ).strip()
 
     ses = db.query(models.Sesion).filter_by(id=int(sesion_id)).first()
     if not ses or not ses.investigacion:
