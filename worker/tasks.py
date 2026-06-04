@@ -13,10 +13,9 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import psutil
 import time
-import re
 
 from worker.job_api_client import registrar_job, actualizar_job, registrar_archivo, obtener_pausas_todas, enviar_a_whisper, finalizar_archivo
-from worker.db_utils import ensure_dir, limpiar_temp, normalizar_ruta
+from worker.db_utils import ensure_dir, expediente_fs, limpiar_temp, normalizar_ruta
 
 load_dotenv()
 
@@ -331,13 +330,6 @@ def _parse_iso_utc(s: str) -> datetime:
     dt = datetime.fromisoformat(s)
     return _to_utc_aware(dt)
 
-
-def expediente_fs(exp: str) -> str:
-    exp = (exp or "").strip()
-    exp = exp.replace("/", "_").replace("\\", "_")
-    exp = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", exp)
-    exp = re.sub(r"_+", "_", exp).strip("_")
-    return exp or "EXP_SIN_NUMERO"
 
 # ============================================================
 #   TAREAS CELERY

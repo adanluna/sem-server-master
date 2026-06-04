@@ -35,7 +35,13 @@ from api_server.schemas import (
 from api_server.models import AuthLoginRequest, RefreshRequest, ServiceTokenRequest
 from api_server.utils.ping import _ping_probe, _clamp_int
 from api_server.utils.grabador_health import build_infraestructura_extra
-from api_server.utils.rutas import parse_hhmmss_to_seconds, normalizar_ruta, ruta_red, tamano_kb_respuesta
+from api_server.utils.rutas import (
+    parse_hhmmss_to_seconds,
+    normalizar_ruta,
+    ruta_red,
+    tamano_kb_respuesta,
+    expediente_fs,
+)
 from api_server.utils.jobs import registrar_error_procesamiento, verificar_estado_sesion
 from api_server.utils.sesion_estado import asignar_estado_sesion
 from api_server.utils.sesion_procesamiento import ejecutar_procesamiento_sesion
@@ -370,11 +376,12 @@ def encolar_whisper_si_corresponde(
     nombre_carpeta = (ses.investigacion.nombre_carpeta or "").strip()
     if not nombre_carpeta:
         nombre_carpeta = ses.investigacion.numero_expediente
+    nombre_carpeta_fs = expediente_fs(nombre_carpeta)
 
     _publicar_whisper_rabbit(
         sesion_id=sesion_id,
         numero_expediente=ses.investigacion.numero_expediente,
-        nombre_carpeta=nombre_carpeta,
+        nombre_carpeta=nombre_carpeta_fs,
     )
     return True
 

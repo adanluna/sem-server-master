@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 EXPEDIENTES_PATH = os.getenv(
@@ -15,6 +16,15 @@ EXPEDIENTES_PATH = os.getenv(
 
 # Raíz del mount local (en master normalmente /mnt/wave)
 SMB_MOUNT = os.getenv("SMB_MOUNT", "/mnt/wave").rstrip("/")
+
+
+def expediente_fs(exp: str) -> str:
+    """Nombre de carpeta seguro en disco (misma regla que el worker Celery)."""
+    exp = (exp or "").strip()
+    exp = exp.replace("/", "_").replace("\\", "_")
+    exp = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", exp)
+    exp = re.sub(r"_+", "_", exp).strip("_")
+    return exp or "EXP_SIN_NUMERO"
 
 
 def parse_hhmmss_to_seconds(hhmmss: str) -> float:

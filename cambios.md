@@ -92,9 +92,19 @@ docker compose up -d --build fastapi dashboard
 
 Rebuild APK + `docker compose up -d --build fastapi`.
 
-Variables opcionales en `.env` master:
+- Variables opcionales en `.env` master:
 - `APP_SESSION_AUTO_CLOSE_IDLE=1` — reactivar cierre de sesiones idle abandonadas (no usado en operación normal).
-- `APP_SESSION_STALE_MINUTES=30` — umbral si auto-close idle está activo.
+- `APP_SESSION_STALE_MINUTES=60` — badge **stale** en dashboard (no cierra sesión si `AUTO_CLOSE_IDLE=0`).
+- `APP_SESSION_HEARTBEAT_INTERVAL_SEC=45` — referencia operativa (la app usa 45 s en código).
+
+## App — token expirado / sesión revocada
+
+Si el **access/refresh JWT** ya no se puede renovar, o el **admin revoca** la sesión app, la tablet:
+- Marca la grabación local como **`pausado`** (conserva `sesion_actual.json`).
+- Cierra solo tokens/usuario y va a **login** con mensaje.
+- Tras re-login → diálogo de sesión pendiente (continuar o enviar).
+
+Rebuild APK: `./upload_apk.sh`
 
 ## Infra — montaje Whisper (menos falsos negativos)
 

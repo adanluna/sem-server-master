@@ -1,6 +1,7 @@
 # worker/db_utils.py
 
 import os
+import re
 import shutil
 import requests
 
@@ -15,6 +16,15 @@ if not server_url.startswith(("http://", "https://")):
 # ============================================================
 #   UTILIDADES DE ARCHIVOS Y DIRECTORIOS
 # ============================================================
+
+def expediente_fs(exp: str) -> str:
+    """Nombre de carpeta seguro en disco (espacios y caracteres raros → _)."""
+    exp = (exp or "").strip()
+    exp = exp.replace("/", "_").replace("\\", "_")
+    exp = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", exp)
+    exp = re.sub(r"_+", "_", exp).strip("_")
+    return exp or "EXP_SIN_NUMERO"
+
 
 def ensure_dir(path):
     """
